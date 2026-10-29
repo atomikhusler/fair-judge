@@ -264,7 +264,6 @@ export function ScoringPanel({
   const filteredCompleted = filterBySearch(completedList);
 
   const scoredCount = completedList.length;
-  const judgeProgressPercent = participants.length > 0 ? Math.round((scoredCount / participants.length) * 100) : 0;
 
   // Open scoring carousel for a specific participant
   const handleOpenParticipant = (participant: SupabaseParticipant) => {
@@ -385,11 +384,11 @@ export function ScoringPanel({
   };
 
   // =============================================================
-  // VIEW 1: PARTICIPANT ROSTER VIEW
+  // VIEW 1: PARTICIPANT ROSTER VIEW (Fixed Viewport App-Shell)
   // =============================================================
   if (viewMode === 'list') {
     return (
-      <div className="min-h-[100dvh] overflow-y-auto w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col max-w-lg mx-auto relative select-none transition-colors duration-200 pb-40">
+      <div className="h-[100dvh] overflow-hidden w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col max-w-lg mx-auto relative select-none transition-colors duration-200">
         
         {/* Floating Toast Notification (pointer-events-none) */}
         {toastMessage ? (
@@ -399,8 +398,8 @@ export function ScoringPanel({
           </div>
         ) : null}
 
-        {/* Top Sticky Header */}
-        <header className="sticky top-0 z-50 w-full bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 py-3 shrink-0 shadow-xs mb-4">
+        {/* Permanently Pinned Top Header (shrink-0 inside h-[100dvh] overflow-hidden) */}
+        <header className="shrink-0 z-50 w-full bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 py-3 shadow-xs">
           <div className="flex items-center justify-between gap-3">
             <button
               onClick={onBackToLobby}
@@ -446,11 +445,10 @@ export function ScoringPanel({
           </div>
         </header>
 
-        {/* Content Area with Horizontal Padding */}
-        <div className="px-4 space-y-5">
-
+        {/* Scrollable Content Area */}
+        <main className="flex-1 overflow-y-auto px-4 pt-4 pb-40 space-y-5">
           {/* Smart Search Bar */}
-          <div className="relative mb-5">
+          <div className="relative">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3.5" />
             <input
               type="text"
@@ -605,21 +603,21 @@ export function ScoringPanel({
               )}
             </div>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
 
   // =============================================================
-  // VIEW 2: SCORING TERMINAL - MOBILE GAMEPAD UI
+  // VIEW 2: SCORING TERMINAL - MOBILE GAMEPAD UI (Fixed App-Shell)
   // =============================================================
   return (
-    <div className="min-h-[100dvh] overflow-y-auto w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-start max-w-lg mx-auto relative select-none transition-colors duration-200">
+    <div className="h-[100dvh] overflow-hidden w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-start max-w-lg mx-auto relative select-none transition-colors duration-200">
       
       {/* ============================================================ */}
-      {/* PART 5.1: THE TOP HEADER (Symmetrical, h-16)                  */}
+      {/* PART 5.1: THE PINNED TOP HEADER + COMPETITOR BANNER          */}
       {/* ============================================================ */}
-      <header className="sticky top-0 z-50 w-full bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 h-16 shrink-0 flex justify-between items-center shadow-xs">
+      <header className="shrink-0 z-50 w-full bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 h-16 flex justify-between items-center shadow-xs">
         {/* Left: [ ← Back ] Heavy Contrast Secondary Button */}
         <button
           onClick={() => setViewMode('list')}
@@ -666,9 +664,9 @@ export function ScoringPanel({
         </div>
       </header>
 
-      {/* Competitor Banner Header Strip */}
+      {/* Pinned Competitor Banner Strip */}
       {currentParticipant && (
-        <div className="shrink-0 px-4 pt-3 pb-2 bg-stone-100/60 dark:bg-zinc-900/40 border-b border-stone-200/60 dark:border-zinc-800/40">
+        <div className="shrink-0 z-40 px-4 pt-3 pb-2 bg-stone-100/90 dark:bg-zinc-900/90 backdrop-blur-md border-b border-stone-200/60 dark:border-zinc-800/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 min-w-0 flex-1">
               <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 shrink-0 shadow-sm">
@@ -711,10 +709,10 @@ export function ScoringPanel({
       )}
 
       {/* ============================================================ */}
-      {/* SCROLLABLE CRITERIA SLIDERS CONTAINER (pb-[140px] clearance)  */}
+      {/* SCROLLABLE CRITERIA SLIDERS CONTAINER (flex-1 overflow-y-auto) */}
       {/* ============================================================ */}
       <main
-        className={`w-full flex-1 px-4 py-4 space-y-4 pb-[140px] relative z-10 transition-transform duration-200 ${
+        className={`w-full flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-[140px] relative z-10 transition-transform duration-200 ${
           slideDirection === 'left' ? 'translate-x-2' : slideDirection === 'right' ? '-translate-x-2' : ''
         }`}
       >
@@ -733,7 +731,7 @@ export function ScoringPanel({
           </div>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           {rubricList.map((crit) => {
             const currentVal = scoresMap[crit.id];
             const isScored = currentVal !== null && currentVal !== undefined;
@@ -775,7 +773,7 @@ export function ScoringPanel({
                 </div>
 
                 {/* Chunky Touch Stepper & Range Track */}
-                <div className="space-y-2 mt-2">
+                <div className="space-y-1.5 mt-2">
                   <div className="flex items-center gap-3">
                     {/* Chunky [-] Button (44x44px minimum touch target for older VIP judges) */}
                     <button
@@ -789,9 +787,9 @@ export function ScoringPanel({
                       <Minus className="w-5 h-5 stroke-[2.5]" />
                     </button>
 
-                    {/* Fluid Thick Slider Container */}
-                    <div className="relative flex-1 flex items-center h-10">
-                      <div className="w-full h-2.5 rounded-full bg-stone-200 dark:bg-zinc-800 relative overflow-hidden pointer-events-none shadow-inner">
+                    {/* Fluid Compact Slider Container */}
+                    <div className="relative flex-1 flex items-center h-9">
+                      <div className="w-full h-2 rounded-full bg-stone-200 dark:bg-zinc-800 relative overflow-hidden pointer-events-none shadow-inner">
                         <div
                           className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-75 shadow-sm"
                           style={{ width: `${percentFilled}%` }}
@@ -806,7 +804,7 @@ export function ScoringPanel({
                         disabled={areSlidersDisabled}
                         value={activeVal}
                         onChange={(e) => handleScoreChange(crit.id, parseInt(e.target.value, 10))}
-                        className="absolute inset-0 w-full h-10 opacity-0 cursor-pointer disabled:cursor-not-allowed z-20"
+                        className="absolute inset-0 w-full h-9 opacity-0 cursor-pointer disabled:cursor-not-allowed z-20"
                         aria-label={crit.name}
                       />
 
