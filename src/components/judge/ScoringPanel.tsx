@@ -94,10 +94,22 @@ export function ScoringPanel({
   // Load organization, participants & all scores submitted by this judge
   const loadData = async () => {
     try {
-      const org = await dbService.getOrganizationByOrgId(orgId);
-      setOrganization(org);
+      const targetOrgId = orgId || event.org_id;
+      let freshOrg = await dbService.getOrganizationByOrgId(targetOrgId);
+      if (!freshOrg) {
+        const allOrgs = await dbService.getOrganizations();
+        freshOrg = allOrgs.find(
+          (o) =>
+            o.org_id.toUpperCase() === targetOrgId.toUpperCase().trim() ||
+            o.id === targetOrgId ||
+            o.id === event.org_id
+        ) || null;
+      }
+      if (freshOrg) {
+        setOrganization(freshOrg);
+      }
 
-      const allP = await dbService.getParticipants(orgId);
+      const allP = await dbService.getParticipants(targetOrgId);
       const filteredP = allP.filter((p) => event.assigned_participants.includes(p.id));
       setParticipants(filteredP);
 
@@ -112,10 +124,40 @@ export function ScoringPanel({
     }
   };
 
+  // Dedicated Organization settings synchronization for Jury Terminal rules
+  useEffect(() => {
+    const targetOrgId = orgId || event.org_id;
+    if (!targetOrgId) return;
+
+    dbService.getOrganizationByOrgId(targetOrgId).then((freshOrg) => {
+      if (freshOrg) {
+        setOrganization(freshOrg);
+      } else {
+        dbService.getOrganizations().then((allOrgs) => {
+          const match = allOrgs.find(
+            (o) =>
+              o.org_id.toUpperCase() === targetOrgId.toUpperCase().trim() ||
+              o.id === targetOrgId ||
+              o.id === event.org_id
+          );
+          if (match) setOrganization(match);
+        });
+      }
+    });
+  }, [orgId, event.org_id]);
+
   useEffect(() => {
     loadData();
-    const unsubDb = subscribeToDatabase(() => {
-      loadData();
+    const unsubDb = subscribeToDatabase((table) => {
+      if (
+        table === 'fairjudge_supabase_orgs' ||
+        table === 'fairjudge_supabase_events' ||
+        table === 'fairjudge_supabase_scores' ||
+        table === 'fairjudge_supabase_participants' ||
+        table === 'all'
+      ) {
+        loadData();
+      }
     });
     const unsubQueue = subscribeToQueueChanges(() => {
       getPendingCount().then((c) => setPendingQueueCount(c));

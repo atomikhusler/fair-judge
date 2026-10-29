@@ -958,20 +958,6 @@ export function EventsTab({
               );
             })}
           </div>
-
-          {/* 
-            CREATE EVENT BUTTON (REFINED)
-            - Beautiful rounded corner (rounded-2xl)
-            - Slightly lowered/softer button color (bg-stone-800 / bg-zinc-800 with subtle border)
-          */}
-          <button
-            type="button"
-            onClick={handleOpenCreateWizard}
-            className="w-full min-h-[46px] bg-stone-800 hover:bg-stone-700 text-stone-100 dark:bg-zinc-800/90 dark:hover:bg-zinc-700 dark:text-zinc-100 border border-stone-700/60 dark:border-zinc-700/60 font-semibold rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer text-sm"
-          >
-            <Plus className="w-4 h-4 stroke-[2.2] text-emerald-400" />
-            <span>Create Event</span>
-          </button>
         </div>
 
         {/* ======================================================== */}
@@ -1053,50 +1039,23 @@ export function EventsTab({
                   className="bg-white dark:bg-zinc-950 border border-stone-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-all flex flex-col justify-between group"
                 >
                   <div>
-                    {/* Top Header: Category + Eye view icon + Status Badge */}
+                    {/* ROW 1: [CATEGORY] pill (Far Left). On Far Right: [Eye Icon] [Edit Icon] [Delete Icon] */}
                     <div className="flex items-center justify-between gap-2 mb-2.5">
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-800/50 truncate max-w-[150px]">
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-800/50 truncate max-w-[160px]">
                         {evt.category || 'General'}
                       </span>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
                         {/* Eye Icon to view full event dossier */}
                         <button
                           type="button"
                           onClick={() => setDossierEventId(evt.id)}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-800 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-850 transition-colors cursor-pointer"
+                          className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-800 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                           title="View all event details & roster"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
 
-                        {/* Status Badge */}
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 uppercase tracking-wider ${badgeClasses}`}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full ${badgeDotClasses}`} />
-                          <span>{badgeText}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Title */}
-                    <h3 className="text-base sm:text-lg font-bold text-stone-900 dark:text-white leading-snug">
-                      {evt.name}
-                    </h3>
-
-                    {/* MIDDLE ROW: Duplicate as Draft + Edit + Delete */}
-                    <div className="mt-3.5 py-2 px-3 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200/60 dark:border-zinc-800/60 flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => handleDuplicateClick(e, evt)}
-                        className="min-h-[32px] px-2.5 bg-white dark:bg-zinc-800 hover:bg-stone-100 dark:hover:bg-zinc-700 text-stone-700 dark:text-zinc-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-stone-200/80 dark:border-zinc-700/80 transition-all active:scale-[0.98] cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5 text-stone-400 dark:text-zinc-400" />
-                        <span>Duplicate as Draft</span>
-                      </button>
-
-                      <div className="flex items-center gap-1">
                         {/* Edit Event Icon */}
                         <button
                           type="button"
@@ -1111,7 +1070,7 @@ export function EventsTab({
                           className={`w-8 h-8 flex items-center justify-center rounded-lg active:scale-95 transition-all cursor-pointer ${
                             status === 'active' || status === 'ended' || status === 'archived'
                               ? 'text-zinc-300 dark:text-zinc-700 cursor-not-allowed'
-                              : 'text-stone-600 hover:text-stone-900 dark:text-zinc-300 dark:hover:text-white hover:bg-white dark:hover:bg-zinc-800'
+                              : 'text-stone-600 hover:text-stone-900 dark:text-zinc-300 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800'
                           }`}
                         >
                           <Edit3 className="w-3.5 h-3.5" />
@@ -1140,6 +1099,11 @@ export function EventsTab({
                         </button>
                       </div>
                     </div>
+
+                    {/* ROW 2: Massive, bold Event Name */}
+                    <h3 className="text-lg sm:text-xl font-black text-stone-900 dark:text-white leading-snug tracking-tight">
+                      {evt.name}
+                    </h3>
                   </div>
 
                   {/* BOTTOM ROW: Smart assignment buttons */}
@@ -2197,6 +2161,19 @@ export function EventsTab({
           </div>
         </div>
       ) : null}
+
+      {/* ======================================================== */}
+      {/* FLOATING ACTION BUTTON (FAB) FOR "+ CREATE EVENT"        */}
+      {/* ======================================================== */}
+      <button
+        type="button"
+        onClick={handleOpenCreateWizard}
+        className="fixed bottom-24 right-6 z-50 w-14 h-14 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-xl shadow-emerald-900/30 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+        aria-label="Create Event"
+        title="Create Event"
+      >
+        <Plus className="w-6 h-6 stroke-[2.5]" />
+      </button>
     </>
   );
 }

@@ -28,22 +28,24 @@ function getSystemTheme(): 'dark' | 'light' {
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'dark',
+  defaultTheme,
   storageKey = 'fair-judge-theme',
   attribute = 'class',
   enableSystem = true,
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return defaultTheme;
+    if (typeof window === 'undefined') return defaultTheme || 'dark';
     try {
       const stored = localStorage.getItem(storageKey) as Theme | null;
-      if (stored && (stored === 'dark' || stored === 'light' || stored === 'system')) {
+      if (stored === 'dark' || stored === 'light') {
         return stored;
       }
     } catch {
       // Fallback if localStorage is inaccessible
     }
-    return defaultTheme;
+    // On initial boot, before any manual user override is found in localStorage:
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return prefersDark ? 'dark' : 'light';
   });
 
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(getSystemTheme);
@@ -53,11 +55,18 @@ export function ThemeProvider({
     if (!enableSystem || typeof window === 'undefined') return;
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const listener = (e: MediaQueryListEvent) => {
-      setSystemTheme(e.matches ? 'dark' : 'light');
+      const currentSysTheme = e.matches ? 'dark' : 'light';
+      setSystemTheme(currentSysTheme);
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (!stored) {
+          setThemeState(currentSysTheme);
+        }
+      } catch {}
     };
     media.addEventListener('change', listener);
     return () => media.removeEventListener('change', listener);
-  }, [enableSystem]);
+  }, [enableSystem, storageKey]);
 
   // Compute resolved theme
   const resolvedTheme: 'dark' | 'light' = useMemo(() => {

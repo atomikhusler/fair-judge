@@ -720,6 +720,19 @@ export const dbService = {
       }));
   },
 
+  async getAllScores(): Promise<SupabaseScore[]> {
+    const scores = loadTable<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+    return scores.map((s) => ({
+      ...s,
+      score_data: s.score_data || s.score_payload?.criteria || {},
+      score_payload: s.score_payload || {
+        criteria: s.score_data || {},
+        total_score: s.total_score,
+        submitted_at: s.created_at,
+      },
+    }));
+  },
+
   async getScoreForJudgeParticipant(
     eventId: string,
     judgeId: string,
