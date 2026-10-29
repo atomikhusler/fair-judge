@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --bg-main: #fafaf9;
+    --card-main: #ffffff;
+    --border-main: #e7e5e4;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    color-scheme: light;
+  }
+
+  .dark, html.dark, :root.dark {
+    --bg-main: #000000;
+    --card-main: #09090b;
+    --border-main: #27272a;
+    --text-primary: #f4f4f5;
+    --text-secondary: #a1a1aa;
+    color-scheme: dark;
+  }
+
+  html, body {
+    background-color: var(--bg-main) !important;
+    color: var(--text-primary);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    overscroll-behavior-y: none;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes bootProgress {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.animate-boot-progress {
+  animation: bootProgress 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes ambientGlow {
+  0%, 100% {
+    transform: scale(1) translate(0, 0);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.15) translate(4px, -3px);
+    opacity: 0.75;
+  }
+}
+
+.animate-ambient-glow {
+  animation: ambientGlow 7s ease-in-out infinite;
+}
+
+@keyframes radialDrift {
+  0%, 100% {
+    background-position: 50% 15%;
+  }
+  50% {
+    background-position: 55% 25%;
+  }
+}
+
+.animate-radial-drift {
+  animation: radialDrift 16s ease-in-out infinite alternate;
+}
+
+@keyframes leaderPopIn {
+  0% {
+    transform: scale(0.75) translateY(20px);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.05) translateY(-4px);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-leader-pop {
+  animation: leaderPopIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes goldShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-gold-shimmer {
+  background: linear-gradient(90deg, #f59e0b 0%, #fef08a 50%, #f59e0b 100%);
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  animation: goldShimmer 3s linear infinite;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+  
+  *, *::before, *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html, body {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #root, #root > div, main {
+    overflow: visible !important;
+    height: auto !important;
+    position: static !important;
+    display: block !important;
+  }
+
+  header, nav, footer, .print\:hidden {
+    display: none !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  .page-break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+

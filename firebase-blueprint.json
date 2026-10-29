@@ -1,0 +1,220 @@
+{
+  "entities": {
+    "Organiser": {
+      "title": "Organiser",
+      "description": "Event organiser / administrator profile with competition management privileges",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Organiser user ID matching Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Organiser email address"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name or organization name",
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["organiser", "admin"],
+          "description": "User role in the system"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of account creation"
+        }
+      },
+      "required": ["id", "email", "role", "createdAt"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "Competition event with rubric criteria, state machine, and configuration",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique event identifier"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the competition",
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "description": "Description or instructions for judges",
+          "maxLength": 500
+        },
+        "organiserId": {
+          "type": "string",
+          "description": "UID of the organiser who owns this event"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "active", "paused", "ended"],
+          "description": "Event lifecycle state: draft, active (scoring open), paused (locked), ended (closed)"
+        },
+        "criteria": {
+          "type": "string",
+          "description": "JSON string or rubric list of criteria with name, maxScore, and weight"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["id", "title", "organiserId", "status", "createdAt"]
+    },
+    "Judge": {
+      "title": "Judge",
+      "description": "A competition judge credential assigned to an event with access PIN and QR code token",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the judge"
+        },
+        "eventId": {
+          "type": "string",
+          "description": "Event ID this judge is evaluating"
+        },
+        "name": {
+          "type": "string",
+          "description": "Judge display name",
+          "maxLength": 80
+        },
+        "pin": {
+          "type": "string",
+          "description": "4-6 digit numeric access PIN",
+          "maxLength": 10
+        },
+        "qrCodeToken": {
+          "type": "string",
+          "description": "Secure random token embedded in the judge QR code for instant scan login",
+          "maxLength": 64
+        },
+        "role": {
+          "type": "string",
+          "enum": ["judge"],
+          "description": "Terminal access role"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of assignment"
+        }
+      },
+      "required": ["id", "eventId", "name", "pin", "role", "createdAt"]
+    },
+    "Participant": {
+      "title": "Participant",
+      "description": "A competitor or team in the event imported via Excel/CSV or added manually",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique participant ID"
+        },
+        "eventId": {
+          "type": "string",
+          "description": "Event this participant belongs to"
+        },
+        "slNo": {
+          "type": "string",
+          "description": "Serial Number from the roster sheet (e.g. '01', 'B-12')",
+          "maxLength": 20
+        },
+        "name": {
+          "type": "string",
+          "description": "Student or team name",
+          "maxLength": 120
+        },
+        "school": {
+          "type": "string",
+          "description": "School, club, or block organization name",
+          "maxLength": 150
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of import"
+        }
+      },
+      "required": ["id", "eventId", "slNo", "name", "school", "createdAt"]
+    },
+    "Score": {
+      "title": "Score",
+      "description": "Immutable evaluation ledger entry submitted by a judge for a participant",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique composite score identifier (e.g. eventId_participantId_judgeId)"
+        },
+        "eventId": {
+          "type": "string",
+          "description": "Event ID"
+        },
+        "participantId": {
+          "type": "string",
+          "description": "Participant ID evaluated"
+        },
+        "judgeId": {
+          "type": "string",
+          "description": "Judge ID who submitted the score"
+        },
+        "judgeName": {
+          "type": "string",
+          "description": "Display name of the judge",
+          "maxLength": 80
+        },
+        "criteriaScores": {
+          "type": "string",
+          "description": "JSON string mapping criteria IDs to given numeric points"
+        },
+        "totalScore": {
+          "type": "number",
+          "description": "Calculated total score sum"
+        },
+        "isLocked": {
+          "type": "boolean",
+          "description": "Always true upon submission to maintain absolute immutability"
+        },
+        "submittedAt": {
+          "type": "string",
+          "description": "ISO timestamp of score submission"
+        }
+      },
+      "required": ["id", "eventId", "participantId", "judgeId", "totalScore", "isLocked", "submittedAt"]
+    }
+  },
+  "firestore": {
+    "/organisers/{organiserId}": {
+      "schema": "Organiser",
+      "description": "Stores organiser profile information and permissions"
+    },
+    "/events/{eventId}": {
+      "schema": "Event",
+      "description": "Stores competition events created by organisers"
+    },
+    "/events/{eventId}/judges/{judgeId}": {
+      "schema": "Judge",
+      "description": "Judges assigned to evaluate this competition event"
+    },
+    "/events/{eventId}/participants/{participantId}": {
+      "schema": "Participant",
+      "description": "Participant roster imported for the competition event"
+    },
+    "/events/{eventId}/scores/{scoreId}": {
+      "schema": "Score",
+      "description": "Immutable evaluation records submitted by judges for event participants"
+    }
+  }
+}

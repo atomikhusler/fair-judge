@@ -1,0 +1,7 @@
+{
+  "name": "Fair Judge - Competition Judging PWA",
+  "description": "Mobile-first digital judging terminal and competition scoring ledger with offline resilience.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

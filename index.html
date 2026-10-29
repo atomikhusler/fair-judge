@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Gracefully prevent unhandled errors when Vite client HMR is disabled in preview environment
+      window.addEventListener('error', function (event) {
+        const msg = String(event.message || '');
+        if (
+          msg.includes("reading 'send'") ||
+          msg.includes("SendBeforeConnectError") ||
+          msg.includes("send was called before connect")
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      });
+      // Filter out spurious React client script tag warning if triggered by external extensions
+      const _origConsoleError = console.error;
+      console.error = function (...args) {
+        const firstArg = args[0] ? String(args[0]) : '';
+        if (firstArg.includes('Encountered a script tag while rendering React component')) {
+          return;
+        }
+        return _origConsoleError.apply(console, args);
+      };
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Fair Judge - Competition Judging PWA</title>
+    <meta name="description" content="Mobile-first digital judging terminal and competition scoring ledger with offline resilience." />
+    <meta property="og:title" content="Fair Judge - Competition Judging PWA" />
+    <meta property="og:description" content="Mobile-first digital judging terminal and competition scoring ledger with offline resilience." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FairJudge" />
+    <link rel="icon" type="image/png" href="/assets/1793118251574.png" />
+    <link rel="apple-touch-icon" href="/assets/1793118251574.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <style>
+      @media print {
+        body * {
+          visibility: hidden !important;
+        }
+        #printable-qr-grid, #printable-qr-grid * {
+          visibility: visible !important;
+        }
+        #printable-qr-grid {
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 100% !important;
+          display: grid !important;
+          grid-template-columns: repeat(2, 1fr) !important;
+          gap: 16px !important;
+          padding: 20px !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+        }
+        .print-badge-card {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+          border: 1.5px solid #000000 !important;
+          border-radius: 12px !important;
+          padding: 16px !important;
+          background: #ffffff !important;
+          text-align: center !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
