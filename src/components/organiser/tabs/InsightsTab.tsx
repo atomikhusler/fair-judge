@@ -678,30 +678,12 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
     const printWin = window.open('', '_blank');
     if (printWin) {
-      printWin.document.open();
       printWin.document.write(htmlDocument);
       printWin.document.close();
-    } else {
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
-
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        doc.open();
-        doc.write(htmlDocument);
-        doc.close();
-        setTimeout(() => {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-          setTimeout(() => document.body.removeChild(iframe), 2000);
-        }, 300);
-      }
+      printWin.focus();
+      setTimeout(() => {
+        printWin.print();
+      }, 250);
     }
   };
 

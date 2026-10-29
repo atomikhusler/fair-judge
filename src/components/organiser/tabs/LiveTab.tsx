@@ -744,27 +744,36 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                           <div className="space-y-2">
                             {/* Currently Performing (Highlighted) */}
                             {performingParticipant ? (
-                              <div className="p-3 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 flex items-center justify-between gap-3 ring-1 ring-amber-500/20">
-                                <div className="min-w-0 flex items-center gap-2">
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1 shrink-0">
+                              <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 ring-1 ring-amber-500/20">
+                                {/* Top Row */}
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                                     Performing
                                   </span>
-                                  <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white truncate">
-                                    <span className="font-mono text-amber-700 dark:text-amber-300 font-bold mr-1.5">
-                                      [ID: {performingParticipant.identity_id || `P-${performingParticipant.sl_no}`}]
-                                    </span>
-                                    <span>{getParticipantDisplayName(performingParticipant, event)}</span>
-                                  </div>
-                                </div>
-                                <div className="shrink-0 text-right">
-                                  <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-black bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 shadow-xs">
+                                  <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-black bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30">
                                     Judges: {performingJudgesScored}/{requiredJudgesCount}
+                                  </span>
+                                </div>
+                                {/* Middle Row */}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-black text-stone-900 dark:text-white truncate">
+                                    {getParticipantDisplayName(performingParticipant, event)}
+                                  </span>
+                                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 shrink-0">
+                                    [ID: {performingParticipant.identity_id || `P-${performingParticipant.sl_no}`}]
+                                  </span>
+                                </div>
+                                {/* Bottom Row */}
+                                <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                                  <span className="truncate">{performingParticipant.school || 'General / Independent'}</span>
+                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
+                                    ORDER #{performingParticipant.sl_no}
                                   </span>
                                 </div>
                               </div>
                             ) : (
-                              <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between text-xs font-semibold text-stone-500 dark:text-zinc-400">
+                              <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between text-xs font-semibold text-stone-500 dark:text-zinc-400">
                                 <span>All participants have concluded performance.</span>
                                 <span className="text-emerald-500 font-bold">Ledger Complete</span>
                               </div>
@@ -772,22 +781,31 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
 
                             {/* Just Performed */}
                             {justPerformedParticipant && (
-                              <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between gap-3">
-                                <div className="min-w-0 flex items-center gap-2">
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1 shrink-0">
+                              <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
+                                {/* Top Row */}
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                     Just Performed
                                   </span>
-                                  <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white truncate">
-                                    <span className="font-mono text-emerald-700 dark:text-emerald-400 font-bold mr-1.5">
-                                      [ID: {justPerformedParticipant.identity_id || `P-${justPerformedParticipant.sl_no}`}]
-                                    </span>
-                                    <span>{getParticipantDisplayName(justPerformedParticipant, event)}</span>
-                                  </div>
-                                </div>
-                                <div className="shrink-0 text-right">
-                                  <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs">
+                                  <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                                     Judges: {justPerformedJudgesScored}/{requiredJudgesCount}
+                                  </span>
+                                </div>
+                                {/* Middle Row */}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-black text-stone-900 dark:text-white truncate">
+                                    {getParticipantDisplayName(justPerformedParticipant, event)}
+                                  </span>
+                                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
+                                    [ID: {justPerformedParticipant.identity_id || `P-${justPerformedParticipant.sl_no}`}]
+                                  </span>
+                                </div>
+                                {/* Bottom Row */}
+                                <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                                  <span className="truncate">{justPerformedParticipant.school || 'General / Independent'}</span>
+                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
+                                    ORDER #{justPerformedParticipant.sl_no}
                                   </span>
                                 </div>
                               </div>
@@ -795,22 +813,31 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
 
                             {/* Up Next */}
                             {upNextParticipant && (
-                              <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between gap-3">
-                                <div className="min-w-0 flex items-center gap-2">
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-stone-500 dark:text-zinc-400 flex items-center gap-1 shrink-0">
+                              <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
+                                {/* Top Row */}
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-stone-500 dark:text-zinc-400 flex items-center gap-1.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
                                     Up Next
                                   </span>
-                                  <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white truncate">
-                                    <span className="font-mono text-stone-500 dark:text-zinc-400 font-bold mr-1.5">
-                                      [ID: {upNextParticipant.identity_id || `P-${upNextParticipant.sl_no}`}]
-                                    </span>
-                                    <span>{getParticipantDisplayName(upNextParticipant, event)}</span>
-                                  </div>
+                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500">
+                                    Next in Queue
+                                  </span>
                                 </div>
-                                <div className="shrink-0 text-right">
-                                  <span className="text-[10px] font-bold text-stone-400 dark:text-zinc-500 uppercase tracking-wider">
-                                    Order #{upNextParticipant.sl_no}
+                                {/* Middle Row */}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-black text-stone-900 dark:text-white truncate">
+                                    {getParticipantDisplayName(upNextParticipant, event)}
+                                  </span>
+                                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
+                                    [ID: {upNextParticipant.identity_id || `P-${upNextParticipant.sl_no}`}]
+                                  </span>
+                                </div>
+                                {/* Bottom Row */}
+                                <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                                  <span className="truncate">{upNextParticipant.school || 'General / Independent'}</span>
+                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
+                                    ORDER #{upNextParticipant.sl_no}
                                   </span>
                                 </div>
                               </div>

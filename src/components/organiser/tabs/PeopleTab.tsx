@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import * as XLSX from 'xlsx';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
@@ -390,6 +391,45 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     XLSX.writeFile(wb, `FairJudge_Roster_Template_${organization.org_id}.xlsx`);
   };
 
+  // Export current participants roster with Participant ID
+  const handleExportParticipantsExcel = () => {
+    if (participants.length === 0) {
+      alert('No participants found to export.');
+      return;
+    }
+
+    const rows = participants.map((p, idx) => {
+      const rowData: Record<string, any> = {
+        'Sl. No': idx + 1,
+        'Participant ID': p.identity_id || `P-${p.sl_no || idx + 1}`,
+        'Full Name': p.name,
+        'School / Institution': p.school,
+        [categoryLabel]: p.class_or_age || '',
+        'Mobile Number': p.mobile_number || '',
+      };
+
+      customFields.forEach((cf) => {
+        rowData[cf.name] = (p.custom_values && p.custom_values[cf.id]) || '';
+      });
+
+      return rowData;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 26 },
+      { wch: 30 },
+      { wch: 20 },
+      { wch: 20 },
+      ...customFields.map(() => ({ wch: 20 })),
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Participants');
+    XLSX.writeFile(wb, `FairJudge_Participants_${organization.org_id}.xlsx`);
+  };
+
   // ========================================================
   // PART 2: STRICT .XLSX PARSER WITH FUZZY MATCH & STAGING
   // ========================================================
@@ -754,14 +794,234 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   };
 
   // ========================================================
-  // PART 3: BULK BADGE PRINT ENGINE
+  // PART 5: ROBUST STANDALONE BADGE PRINT ENGINE (window.open)
   // ========================================================
   const handleTriggerPrint = () => {
     if (judges.length === 0) {
       alert('No judges found to print badges for.');
       return;
     }
-    window.print();
+
+    const escapeHtml = (str: string) =>
+      String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const badgesHtml = judges
+      .map((j) => {
+        const qrPayload = getJudgeQrPayload(j);
+        const qrSvgString = renderToStaticMarkup(
+          <QRCodeSVG value={qrPayload} size={128} level="M" />
+        );
+
+        return `
+          <div class="badge-card">
+            <div>
+              <div class="badge-header">
+                <span class="org-name">${escapeHtml(organization.name)}</span>
+                <h3 class="judge-name">${escapeHtml(j.name)}</h3>
+                <p class="judge-role">Official Evaluator / Judge</p>
+              </div>
+
+              <div class="qr-box">
+                <div class="qr-container">
+                  ${qrSvgString}
+                </div>
+              </div>
+              <p class="qr-sub">Scan with terminal camera for 1-tap authentication</p>
+            </div>
+
+            <div>
+              <div class="cred-strip">
+                <div class="cred-col">
+                  <span class="cred-label">Judge ID Code</span>
+                  <span class="cred-val">${escapeHtml(j.judge_id || j.id.slice(0, 6))}</span>
+                </div>
+                <div class="cred-col">
+                  <span class="cred-label">4-Digit PIN</span>
+                  <span class="cred-val pin">${escapeHtml(j.pin)}</span>
+                </div>
+              </div>
+
+              <div class="badge-footer">
+                <span class="brand">⚖️ FAIR JUDGE</span>
+                <span class="sys">Competition Systems</span>
+              </div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    const htmlDocument = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${escapeHtml(organization.name)} - Official Judge Credentials</title>
+        <style>
+          @page { size: A4 portrait; margin: 12mm; }
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #ffffff !important;
+            color: #09090b !important;
+            padding: 16px;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 2px solid #18181b;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+          }
+          .header h1 {
+            font-size: 20px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+          .header p {
+            font-size: 11px;
+            font-family: monospace;
+            color: #71717a;
+            margin-top: 2px;
+          }
+          .badge-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+          }
+          .badge-card {
+            border: 2px solid #18181b;
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: #ffffff;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            min-height: 310px;
+          }
+          .badge-header {
+            text-align: center;
+            border-bottom: 1px solid #e4e4e7;
+            padding-bottom: 8px;
+          }
+          .org-name {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #71717a;
+            display: block;
+          }
+          .judge-name {
+            font-size: 17px;
+            font-weight: 900;
+            color: #09090b;
+            margin-top: 4px;
+            text-transform: uppercase;
+          }
+          .judge-role {
+            font-size: 9px;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+            margin-top: 2px;
+          }
+          .qr-box {
+            display: flex;
+            justify-content: center;
+            margin: 12px 0 6px 0;
+          }
+          .qr-container {
+            padding: 8px;
+            border: 1px solid #e4e4e7;
+            border-radius: 12px;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .qr-sub {
+            font-size: 9px;
+            text-align: center;
+            color: #71717a;
+            font-weight: 500;
+            margin-bottom: 6px;
+          }
+          .cred-strip {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            background: #f4f4f5;
+            padding: 8px;
+            border-radius: 10px;
+            text-align: center;
+            margin-top: 4px;
+          }
+          .cred-col {}
+          .cred-label {
+            font-size: 8px;
+            font-weight: 700;
+            color: #71717a;
+            text-transform: uppercase;
+            display: block;
+          }
+          .cred-val {
+            font-size: 13px;
+            font-family: monospace;
+            font-weight: 900;
+            color: #18181b;
+          }
+          .cred-val.pin {
+            color: #059669;
+          }
+          .badge-footer {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid #e4e4e7;
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: #71717a;
+            font-weight: 600;
+          }
+          .brand {
+            font-weight: 900;
+            color: #09090b;
+          }
+          .sys {
+            font-family: monospace;
+            font-size: 8px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>${escapeHtml(organization.name)}</h1>
+          <p>Official Judge Credentials & Badges • Org ID: ${escapeHtml(organization.org_id)}</p>
+        </div>
+        <div class="badge-grid">
+          ${badgesHtml}
+        </div>
+      </body>
+      </html>
+    `;
+
+    const printWin = window.open('', '_blank');
+    if (printWin) {
+      printWin.document.write(htmlDocument);
+      printWin.document.close();
+      printWin.focus();
+      setTimeout(() => {
+        printWin.print();
+      }, 250);
+    }
   };
 
   // Filtered lists
@@ -878,93 +1138,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       </div>
 
       {/* ======================================================== */}
-      {/* SCREEN UI VIEW (Hidden during print)                     */}
+      {/* SCREEN UI VIEW (Natural Native Scroll & Sticky Nav)      */}
       {/* ======================================================== */}
-      <div className="print:hidden flex-1 flex flex-col h-full overflow-hidden">
+      <div className="print:hidden flex-1 overflow-y-auto px-4 pt-2 pb-32 relative">
         {/* Pinned Sticky Control Header directly under main app header */}
-        <div className="sticky top-0 z-20 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200/80 dark:border-zinc-800/80 px-4 pt-3 pb-3 space-y-2.5 shrink-0 shadow-xs">
-          {/* Segmented Control with Baked-in Counts */}
-          <div className="w-full">
-            <div className="flex w-full p-0.5 bg-stone-200/70 dark:bg-zinc-900 rounded-xl border border-stone-200/60 dark:border-zinc-800 shadow-inner">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveSubTab('participants');
-                  setSearchQuery('');
-                }}
-                className={`flex-1 min-h-[36px] px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
-                  activeSubTab === 'participants'
-                    ? 'bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span>Participants ({participants.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveSubTab('judges');
-                  setSearchQuery('');
-                }}
-                className={`flex-1 min-h-[36px] px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
-                  activeSubTab === 'judges'
-                    ? 'bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
-                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                }`}
-              >
-                <Gavel className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span>Judges Jury ({judges.length})</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Horizontal compact Add Competitor / Add Judge button directly under it */}
-          <div>
-            {activeSubTab === 'participants' ? (
-              <button
-                type="button"
-                onClick={handleOpenAddParticipant}
-                className="w-full min-h-[42px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-emerald-600/20 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2"
-              >
-                <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>Add Competitor</span>
-              </button>
-            ) : (
-              <div className="w-full flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleTriggerPrint}
-                  className="flex-1 min-h-[42px] bg-white hover:bg-stone-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 font-bold text-xs rounded-xl border border-stone-200 dark:border-zinc-800 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
-                  title="Print or Export Judge Credentials"
-                >
-                  <Printer className="w-4 h-4 text-emerald-500" />
-                  <span>Export Badges (Print)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleOpenAddJudge}
-                  className="flex-1 min-h-[42px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-emerald-600/20 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2"
-                >
-                  <Plus className="w-4 h-4 stroke-[2.5]" />
-                  <span>Add Judge</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Scrollable Container with PullToRefresh for all content under header */}
-        <PullToRefresh
-          onRefresh={async () => {
-            await loadData();
-          }}
-          className="flex-1 flex flex-col overflow-y-auto px-4 py-3 space-y-3.5 select-none relative animate-in fade-in duration-200 pb-28"
-        >
+        <div className="sticky top-0 z-40 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md pb-3 pt-1 -mx-4 px-4 border-b border-stone-200/80 dark:border-zinc-800/80 space-y-2.5">
           {/* Sticky Search Bar */}
-          <div className="relative w-full sticky top-0 z-10">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <div className="relative w-full">
+            <Search className="w-4 h-4 text-stone-400 dark:text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
@@ -974,19 +1155,107 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   ? `Search by name, school, or ${categoryLabel.toLowerCase()}...`
                   : 'Search judges by name, PIN, or ID...'
               }
-              className="w-full min-h-[44px] pl-10 pr-4 rounded-xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all shadow-sm"
+              className="w-full min-h-[44px] pl-10 pr-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all shadow-xs"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
+          {/* Segmented Control with Baked-in Counts */}
+          <div className="flex w-full p-0.5 bg-stone-200/70 dark:bg-zinc-900 rounded-xl border border-stone-200/60 dark:border-zinc-800 shadow-inner">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubTab('participants');
+                setSearchQuery('');
+              }}
+              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                activeSubTab === 'participants'
+                  ? 'bg-white dark:bg-zinc-950 text-stone-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
+                  : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <span>Participants ({participants.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubTab('judges');
+                setSearchQuery('');
+              }}
+              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                activeSubTab === 'judges'
+                  ? 'bg-white dark:bg-zinc-950 text-stone-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
+                  : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
+              }`}
+            >
+              <Gavel className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <span>Judges Jury ({judges.length})</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Compact Action Cards (Zero-Bloat) */}
+        {activeSubTab === 'participants' ? (
+          <div className="mt-3.5 bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-3 shadow-sm space-y-3">
+            {/* Top Row (Centered): Sleek thin pill button */}
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-stone-600 dark:text-zinc-400 bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Download Template</span>
+              </button>
+            </div>
+
+            {/* Bottom Row (Split 50/50): [Export Excel] | [Import Excel] */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleExportParticipantsExcel}
+                className="min-h-[42px] px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
+                <span>Export Excel</span>
+              </button>
+
+              <label className="min-h-[42px] px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer">
+                <Upload className="w-4 h-4 stroke-[2.2]" />
+                <span>Import Excel</span>
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3.5 bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-3 shadow-sm">
+            <button
+              type="button"
+              onClick={handleTriggerPrint}
+              className="w-full min-h-[42px] px-4 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs rounded-xl shadow-sm shadow-orange-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Printer className="w-4 h-4 stroke-[2.2]" />
+              <span>Export Judge Badges (PDF)</span>
+            </button>
+          </div>
+        )}
+
+        <div className="mt-3.5 space-y-3.5">
           {/* First-Time Setup Prompt: Categorization Preference */}
           {activeSubTab === 'participants' && showCategoryPrompt && (
             <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
@@ -1165,39 +1434,6 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     )}
                   </div>
                 )}
-              </div>
-
-              {/* Excel Batch Import Card: Renamed to "Import Participants" & Technical explanation removed */}
-              <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
-                      Import Participants
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleDownloadTemplate}
-                    className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center space-x-1 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Template (.xlsx)</span>
-                  </button>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <label className="flex-1 min-h-[44px] px-4 rounded-xl border border-dashed border-stone-300 dark:border-zinc-700 hover:border-emerald-500 hover:bg-emerald-500/5 transition-all flex items-center justify-center space-x-2 cursor-pointer text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    <Upload className="w-4 h-4 text-emerald-500" />
-                    <span>Choose .xlsx File</span>
-                    <input
-                      type="file"
-                      accept=".xlsx"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
               </div>
 
               {/* Participants List */}
@@ -1382,15 +1618,36 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               )}
             </div>
           )}
-        </PullToRefresh>
+        </div>
+
+        {/* Floating Action Button (FAB) */}
+        <button
+          type="button"
+          onClick={() => {
+            if (activeSubTab === 'participants') {
+              handleOpenAddParticipant();
+            } else {
+              handleOpenAddJudge();
+            }
+          }}
+          className={`fixed bottom-24 right-6 z-50 w-14 h-14 text-white rounded-2xl shadow-xl flex items-center justify-center active:scale-95 transition-all cursor-pointer ${
+            activeSubTab === 'participants'
+              ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+              : 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30'
+          }`}
+          title={activeSubTab === 'participants' ? 'Add Competitor' : 'Add Judge'}
+          aria-label={activeSubTab === 'participants' ? 'Add Competitor' : 'Add Judge'}
+        >
+          <Plus className="w-6 h-6 stroke-[2.5]" />
+        </button>
       </div>
 
       {/* ======================================================== */}
-      {/* EXCEL STAGING PREVIEW MODAL (Absolute Z-Index [100])     */}
+      {/* EXCEL STAGING PREVIEW MODAL (Absolute Z-Index [200])     */}
       {/* ======================================================== */}
       {showStagingModal && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-2xl w-full flex flex-col max-h-[88vh] shadow-2xl">
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 pointer-events-auto animate-in fade-in">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-2xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden">
             {/* Header */}
             <div className="p-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
               <div>
@@ -1416,7 +1673,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             </div>
 
             {/* Staging Body Table */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 pb-12">
               <div className="text-xs text-zinc-500 mb-2">
                 Rows highlighted in red have missing mandatory fields (Full Name or School). You can remove them or fix your Excel file.
               </div>
@@ -1486,7 +1743,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             </div>
 
             {/* Footer */}
-            <div className="p-4 border-t border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-stone-50/50 dark:bg-zinc-950">
+            <div className="p-4 border-t border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-stone-50/50 dark:bg-zinc-950 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -1520,58 +1777,69 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       )}
 
       {/* ======================================================== */}
-      {/* ADD / EDIT PARTICIPANT MODAL (Z-Index [100] & Safe Area) */}
+      {/* FULL-SCREEN PARTICIPANT CREATION WIZARD                  */}
       {/* ======================================================== */}
       {showParticipantModal && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-                {editingParticipant ? 'Edit Competitor' : 'Add Competitor'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowParticipantModal(false)}
-                className="p-1 text-zinc-400 hover:text-zinc-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150">
+          {/* Sticky Top Header */}
+          <div className="sticky top-0 z-10 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setShowParticipantModal(false)}
+              className="text-xs font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <span className="text-[11px] font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
+              {editingParticipant ? 'EDIT COMPETITOR' : 'NEW COMPETITOR'}
+            </span>
+            <button
+              type="button"
+              onClick={handleSaveParticipant}
+              className="min-h-[36px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Save</span>
+            </button>
+          </div>
+
+          {/* Form Body */}
+          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6">
+            {/* Massive Borderless Name Input */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 tracking-wider uppercase block">
+                Full Name <span className="text-emerald-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={participantForm.name}
+                onChange={(e) => setParticipantForm({ ...participantForm, name: e.target.value })}
+                placeholder="Participant Name..."
+                className="text-3xl sm:text-4xl font-black bg-transparent border-none text-stone-900 dark:text-white focus:outline-none placeholder:text-stone-300 dark:placeholder:text-zinc-700 w-full"
+                autoFocus
+              />
             </div>
 
-            <div className="space-y-3">
-              {/* Field 1: Full Name (Mandatory) */}
+            {/* Grouped Card for remaining fields */}
+            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
+              {/* Field: School / Institution (Mandatory) */}
               <div>
-                <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
-                  Full Name <span className="text-emerald-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={participantForm.name}
-                  onChange={(e) => setParticipantForm({ ...participantForm, name: e.target.value })}
-                  placeholder="e.g. Aarav Sharma"
-                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  autoFocus
-                />
-              </div>
-
-              {/* Field 2: School / Institution (Mandatory) */}
-              <div>
-                <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
+                <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                   School / Institution <span className="text-emerald-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={participantForm.school}
                   onChange={(e) => setParticipantForm({ ...participantForm, school: e.target.value })}
-                  placeholder="e.g. Delhi Public School"
-                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  placeholder="e.g. Modern High School, DPS, Team Alpha"
+                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                 />
               </div>
 
-              {/* Field 3: Dynamic Custom Categorization Field (Class/Grade or Age) */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Dynamic Categorization & Mobile */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     {categoryLabel}
                   </label>
                   <input
@@ -1579,21 +1847,20 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     value={participantForm.class_or_age}
                     onChange={(e) => setParticipantForm({ ...participantForm, class_or_age: e.target.value })}
                     placeholder={categoryLabel.toLowerCase().includes('age') ? '14-16 Yrs' : 'Grade 10'}
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                   />
                 </div>
 
-                {/* Field 4: Mobile Number (Optional) */}
                 <div>
-                  <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
-                    Mobile (Opt)
+                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                    Mobile Number (Optional)
                   </label>
                   <input
                     type="tel"
                     value={participantForm.mobile_number}
                     onChange={(e) => setParticipantForm({ ...participantForm, mobile_number: e.target.value })}
                     placeholder="9876543210"
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                   />
                 </div>
               </div>
@@ -1601,7 +1868,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               {/* Dynamic custom fields configured in organization */}
               {customFields.map((cf) => (
                 <div key={cf.id}>
-                  <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     {cf.name} {cf.required && <span className="text-emerald-500">*</span>}
                   </label>
                   <input
@@ -1616,95 +1883,89 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         },
                       })
                     }
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                   />
                 </div>
               ))}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowParticipantModal(false)}
-                className="min-h-[46px] rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 cursor-pointer active:scale-95 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveParticipant}
-                className="min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
-              >
-                Save Competitor
-              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* ======================================================== */}
-      {/* ADD / EDIT JUDGE MODAL (Auto-Fill & Z-Index [100])        */}
+      {/* FULL-SCREEN JUDGE CREATION WIZARD                        */}
       {/* ======================================================== */}
       {showJudgeModal && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-                {editingJudge ? 'Edit Judge Profile' : 'Add Judge'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowJudgeModal(false)}
-                className="p-1 text-zinc-400 hover:text-zinc-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150">
+          {/* Sticky Top Header */}
+          <div className="sticky top-0 z-10 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setShowJudgeModal(false)}
+              className="text-xs font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <span className="text-[11px] font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
+              {editingJudge ? 'EDIT JUDGE PROFILE' : 'NEW JUDGE PROFILE'}
+            </span>
+            <button
+              type="button"
+              onClick={handleSaveJudge}
+              className="min-h-[36px] px-4 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Save</span>
+            </button>
+          </div>
+
+          {/* Form Body */}
+          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6">
+            {/* Massive Borderless Name Input */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-orange-600 dark:text-orange-400 tracking-wider uppercase block">
+                Judge Full Name <span className="text-orange-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={judgeForm.name}
+                onChange={(e) => setJudgeForm({ ...judgeForm, name: e.target.value })}
+                placeholder="Judge Full Name..."
+                className="text-3xl sm:text-4xl font-black bg-transparent border-none text-stone-900 dark:text-white focus:outline-none placeholder:text-stone-300 dark:placeholder:text-zinc-700 w-full"
+                autoFocus
+              />
             </div>
 
-            <div className="space-y-3">
+            {/* Grouped Card */}
+            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
               {/* Field 1: Organisation ID (READ-ONLY) */}
               <div>
-                <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
+                <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                   Organisation ID (Read-Only)
                 </label>
                 <input
                   type="text"
                   readOnly
                   value={organization.org_id}
-                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-zinc-500 select-all cursor-default"
+                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-stone-500 dark:text-zinc-400 select-all cursor-default"
                 />
               </div>
 
-              {/* Field 2: Judge Full Name */}
-              <div>
-                <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
-                  Judge Full Name <span className="text-emerald-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={judgeForm.name}
-                  onChange={(e) => setJudgeForm({ ...judgeForm, name: e.target.value })}
-                  placeholder="e.g. Prof. Sarah Jenkins"
-                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  autoFocus
-                />
-              </div>
-
-              {/* Field 3 & 4: Auto-Generated Judge ID & 4-Digit PIN */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* Field 2 & 3: Auto-Generated Judge ID & 4-Digit PIN */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     Judge ID Code
                   </label>
                   <input
                     type="text"
                     value={judgeForm.judge_id}
                     onChange={(e) => setJudgeForm({ ...judgeForm, judge_id: e.target.value })}
-                    className="w-full min-h-[46px] px-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-zinc-900 dark:text-white"
+                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-stone-900 dark:text-white"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-zinc-500 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     4-Digit PIN
                   </label>
                   <input
@@ -1712,27 +1973,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     maxLength={6}
                     value={judgeForm.pin}
                     onChange={(e) => setJudgeForm({ ...judgeForm, pin: e.target.value })}
-                    className="w-full min-h-[46px] px-3 text-center rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400"
+                    className="w-full min-h-[46px] px-3.5 text-center rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-black text-emerald-600 dark:text-emerald-400"
                   />
                 </div>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowJudgeModal(false)}
-                className="min-h-[46px] rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 cursor-pointer active:scale-95 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveJudge}
-                className="min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
-              >
-                Save Judge
-              </button>
             </div>
           </div>
         </div>
