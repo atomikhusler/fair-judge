@@ -359,12 +359,12 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>${escapeHtml(organization.name)} - ${escapeHtml(reportTitle)}</title>
         <style>
-          @page { margin: 0; size: A4 portrait; }
+          @page { margin: 12mm; size: A4 portrait; }
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background: #ffffff !important;
-            color: #09090b !important;
+            color: #111827 !important;
             padding: 0;
             margin: 0;
             line-height: 1.4;
@@ -372,35 +372,26 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             print-color-adjust: exact;
           }
           .premium-header { 
-            background: #09090b !important; /* Zinc 950 */
-            color: #ffffff !important;
-            padding: 16mm 16mm 12mm 16mm;
+            background: #ffffff; 
+            color: #111827;
+            padding: 0 0 12px 0;
+            margin-bottom: 16px;
+            border-bottom: 2px solid #10b981;
             display: flex;
             justify-content: space-between;
-            align-items: flex-end;
+            align-items: flex-start;
           }
-          .premium-header .brand { 
-            font-size: 18px; 
-            font-weight: 900; 
-            color: #10b981 !important; 
-            display: flex; 
-            align-items: center; 
-            gap: 8px; 
-          }
-          .premium-header .org { 
-            font-size: 24px; 
-            font-weight: 900; 
-            margin-top: 4px; 
-            color: #ffffff !important;
-          }
-          .premium-header .dev { 
-            font-size: 10px; 
-            font-family: monospace; 
-            color: #a1a1aa !important; 
-            margin-top: 2px;
-          }
+          .header-left { display: flex; flex-direction: column; gap: 2px; }
+          .brand { font-size: 14px; font-weight: 900; color: #10b981; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .dev-brand { font-size: 8px; font-family: ui-monospace, SFMono-Regular, monospace; color: #6b7280; text-transform: uppercase; }
+          .header-center { text-align: center; flex: 1; padding: 0 16px; }
+          .org-name { font-size: 20px; font-weight: 900; color: #111827; text-transform: uppercase; letter-spacing: -0.5px; line-height: 1.1; }
+          .report-type { font-size: 10px; font-weight: 700; color: #4b5563; margin-top: 4px; letter-spacing: 1px; text-transform: uppercase; }
+          .header-right { text-align: right; display: flex; flex-direction: column; gap: 2px; }
+          .org-id-label { font-size: 8px; font-weight: 800; color: #9ca3af; text-transform: uppercase; }
+          .org-id-val { font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; font-weight: 900; color: #111827; }
           .content-wrapper { 
-            padding: 16mm; 
+            padding: 0; 
           }
           .section-block {
             margin-bottom: 24px;
@@ -456,18 +447,25 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       </head>
       <body>
         <div class="premium-header">
-          <div>
+          <!-- LEFT: App Branding -->
+          <div class="header-left">
             <div class="brand">
-              <span>⚖️</span>
-              <span>Fair Judge</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+              Fair Judge
             </div>
-            <div class="org">${escapeHtml(organization.name)}</div>
-            <div class="dev">Engineered by Sahil Kumar Rout</div>
+            <div class="dev-brand">Engineered by Sahil Kumar Rout</div>
           </div>
-          <div style="text-align: right;">
-            <div style="font-size: 10px; font-family: monospace; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em;">Organization ID</div>
-            <div style="font-size: 15px; font-family: monospace; font-weight: 700; color: #ffffff; margin-top: 2px;">${escapeHtml(organization.org_id)}</div>
-            <div style="font-size: 11px; font-weight: 700; color: #10b981; margin-top: 4px; text-transform: uppercase;">${escapeHtml(reportTitle)}</div>
+
+          <!-- CENTER: Organization & Report Context -->
+          <div class="header-center">
+            <div class="org-name">${escapeHtml(organization.name)}</div>
+            <div class="report-type">${escapeHtml(reportTitle)}</div>
+          </div>
+
+          <!-- RIGHT: Identifiers -->
+          <div class="header-right">
+            <div class="org-id-label">Organization ID</div>
+            <div class="org-id-val">${escapeHtml(organization.org_id)}</div>
           </div>
         </div>
 
