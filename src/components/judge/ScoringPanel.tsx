@@ -606,6 +606,7 @@ export function ScoringPanel({
             </div>
           </div>
         </div>
+      </div>
     );
   }
 
@@ -618,45 +619,45 @@ export function ScoringPanel({
       {/* ============================================================ */}
       {/* PART 5.1: THE TOP HEADER (Symmetrical, h-16)                  */}
       {/* ============================================================ */}
-      <header className="shrink-0 flex justify-between items-center h-16 px-4 border-b border-stone-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md z-20">
-        {/* Left: [ ← Back ] */}
+      <header className="sticky top-0 z-50 w-full bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 h-16 shrink-0 flex justify-between items-center shadow-xs">
+        {/* Left: [ ← Back ] Heavy Contrast Secondary Button */}
         <button
           onClick={() => setViewMode('list')}
-          className="flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+          className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-5 min-h-[48px] rounded-xl shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer transition-transform shrink-0"
           title="Return to Competitor Roster"
         >
-          <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+          <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
           <span>Back</span>
         </button>
 
-        {/* Center: Empty / Clean (Event Name Deleted as required) */}
+        {/* Center: Empty / Clean */}
         <div className="flex-1" />
 
         {/* Right: Tactile, deep emerald [ Submit ] button */}
         <div>
           {existingScore && !isWithinGracePeriod ? (
-            <div className="flex items-center space-x-1.5 text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3.5 py-2 rounded-xl border border-emerald-500/20">
-              <Lock className="w-3.5 h-3.5" />
+            <div className="flex items-center space-x-2 text-base font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-6 min-h-[48px] rounded-xl border border-emerald-500/20 tracking-wide">
+              <Lock className="w-4 h-4 stroke-[2.5]" />
               <span>Sealed</span>
             </div>
           ) : (
             <button
               onClick={handleInitiateSubmit}
               disabled={!isAllScored || isSubmitting || showSuccess || areSlidersDisabled}
-              className={`rounded-xl px-4 py-2 font-bold text-xs shadow-md shadow-emerald-900/20 transition-all flex items-center space-x-1.5 ${
+              className={`px-6 min-h-[48px] rounded-xl font-black text-base shadow-lg shadow-emerald-900/20 active:scale-95 flex items-center justify-center gap-2 tracking-wide transition-all ${
                 isAllScored && !isSubmitting && !showSuccess && !areSlidersDisabled
-                  ? 'bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-500 dark:hover:bg-emerald-400 text-white active:scale-95 cursor-pointer'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-500 dark:hover:bg-emerald-400 text-white cursor-pointer'
                   : 'bg-stone-200 dark:bg-zinc-800 text-zinc-400 opacity-50 cursor-not-allowed'
               }`}
             >
               {isWithinGracePeriod ? (
                 <>
-                  <RotateCcw className="w-3.5 h-3.5" />
+                  <RotateCcw className="w-4 h-4 stroke-[2.5]" />
                   <span>Update</span>
                 </>
               ) : (
                 <>
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-4 h-4 stroke-[2.5]" />
                   <span>Submit</span>
                 </>
               )}
@@ -743,20 +744,20 @@ export function ScoringPanel({
             return (
               <div
                 key={crit.id}
-                className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm space-y-4 transition-all"
+                className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-3 px-4 shadow-sm transition-all flex flex-col justify-center"
               >
                 {/* Criterion Header */}
                 <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <h3 className="text-xs sm:text-sm font-black text-zinc-900 dark:text-white uppercase tracking-wider">
+                  <div className="space-y-0 min-w-0 flex-1">
+                    <h3 className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-wider">
                       {crit.name}
                     </h3>
                     {crit.description && (
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2">
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2 mt-0.5">
                         {crit.description}
                       </p>
                     )}
-                    <span className="text-[10px] text-zinc-400 font-mono block">Max: {max} pts</span>
+                    <span className="text-[10px] text-zinc-400 font-mono block mt-0.5">Max: {max} pts</span>
                   </div>
 
                   <div className="font-mono text-right shrink-0 pl-2">
@@ -774,7 +775,7 @@ export function ScoringPanel({
                 </div>
 
                 {/* Chunky Touch Stepper & Range Track */}
-                <div className="space-y-2 pt-1">
+                <div className="space-y-2 mt-2">
                   <div className="flex items-center gap-3">
                     {/* Chunky [-] Button (44x44px minimum touch target for older VIP judges) */}
                     <button
@@ -790,7 +791,7 @@ export function ScoringPanel({
 
                     {/* Fluid Thick Slider Container */}
                     <div className="relative flex-1 flex items-center h-10">
-                      <div className="w-full h-3.5 rounded-full bg-stone-200 dark:bg-zinc-800 relative overflow-hidden pointer-events-none shadow-inner">
+                      <div className="w-full h-2.5 rounded-full bg-stone-200 dark:bg-zinc-800 relative overflow-hidden pointer-events-none shadow-inner">
                         <div
                           className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-75 shadow-sm"
                           style={{ width: `${percentFilled}%` }}
