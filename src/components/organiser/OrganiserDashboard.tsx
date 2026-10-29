@@ -15,7 +15,6 @@ import { LiveTab } from './tabs/LiveTab';
 import { EventsTab } from './tabs/EventsTab';
 import { PeopleTab } from './tabs/PeopleTab';
 import { InsightsTab } from './tabs/InsightsTab';
-import { PullToRefresh } from '../common/PullToRefresh';
 
 export type OrganiserNavTab = 'live' | 'events' | 'people' | 'insights';
 
@@ -48,7 +47,7 @@ export function OrganiserDashboard({
   ];
 
   return (
-    <div className="min-h-[100dvh] w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-between overflow-y-auto transition-colors duration-200 relative select-none">
+    <div className="h-[100dvh] w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-between overflow-hidden transition-colors duration-200 relative select-none">
       
       {/* ======================================================== */}
       {/* 1. THE TOP HEADER (Framer-Grade Premium Navigation)     */}
@@ -95,20 +94,22 @@ export function OrganiserDashboard({
       </header>
 
       {/* ======================================================== */}
-      {/* 2. THE HAMBURGER MENU (Premium Settings Drawer)         */}
+      {/* 2. THE HAMBURGER MENU (Strictly Unmounted When Closed)  */}
       {/* ======================================================== */}
-      <SettingsDrawer
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-        organization={organization}
-        onUpdateOrganization={(updated) => setOrganization(updated)}
-        onOpenPublicView={onOpenPublicView}
-      />
+      {isDrawerOpen ? (
+        <SettingsDrawer
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+          organization={organization}
+          onUpdateOrganization={(updated) => setOrganization(updated)}
+          onOpenPublicView={onOpenPublicView}
+        />
+      ) : null}
 
       {/* ======================================================== */}
       {/* 3. THE ACCOUNT MODAL (Identity & Security)              */}
       {/* ======================================================== */}
-      {isAccountModalOpen && (
+      {isAccountModalOpen ? (
         <AccountModal
           isOpen={isAccountModalOpen}
           onClose={() => setIsAccountModalOpen(false)}
@@ -116,11 +117,8 @@ export function OrganiserDashboard({
           onUpdateOrganization={(updated) => setOrganization(updated)}
           onLogout={onLogout}
         />
-      )}
+      ) : null}
 
-      {/* ======================================================== */}
-      {/* MAIN VIEW CONTENT AREA (Simple 4-Tab Shell Placeholders) */}
-      {/* ======================================================== */}
       {/* ======================================================== */}
       {/* MAIN VIEW CONTENT AREA                                   */}
       {/* ======================================================== */}
@@ -158,7 +156,7 @@ export function OrganiserDashboard({
       {/* ======================================================== */}
       {/* 4. THE 4-TAB BOTTOM NAVIGATION SHELL (Framer-Grade)     */}
       {/* ======================================================== */}
-      <nav className="fixed bottom-0 w-full h-[8dvh] min-h-[64px] pb-safe bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl border-t border-stone-200 dark:border-zinc-800/80 flex items-center justify-around px-2 sm:px-6 select-none z-40">
+      <nav className="fixed bottom-0 left-0 w-full h-[8dvh] min-h-[64px] pb-safe bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl border-t border-stone-200 dark:border-zinc-800/80 flex items-center justify-around px-2 sm:px-6 select-none z-40">
         {navTabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
