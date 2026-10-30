@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { 
   X, 
   User, 
-  Building2, 
   Copy, 
   Check, 
   Trash2, 
@@ -15,8 +14,10 @@ import {
   LogOut,
   AlertTriangle,
   Pencil,
-  Mail,
-  ShieldCheck
+  Clock,
+  XCircle,
+  Send,
+  Mail
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
@@ -62,6 +63,8 @@ export function AccountModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [isProcessingDanger, setIsProcessingDanger] = useState(false);
+
+  const verificationStatus = organization.verification_status || 'pending';
 
   // Keep internal edit form synchronized with organization prop
   useEffect(() => {
@@ -117,7 +120,7 @@ export function AccountModal({
     }
   };
 
-  // 2. Save Organization Email
+  // 2. Save Organization Email (resets verification_status to 'pending' if changed)
   const handleSaveEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = editEmail.trim();
@@ -127,12 +130,14 @@ export function AccountModal({
     }
     setIsSavingEmail(true);
     try {
+      const emailChanged = trimmed.toLowerCase() !== (organization.email || '').toLowerCase();
       const updated = await dbService.updateOrganization(organization.org_id, {
         email: trimmed || undefined,
+        ...(emailChanged ? { verification_status: 'pending' } : {}),
       });
       onUpdateOrganization(updated);
       setIsEditingEmail(false);
-      showToast('Contact email updated.');
+      showToast(emailChanged ? 'Email updated. Sent for verification.' : 'Contact email saved.');
     } catch (err: any) {
       showToast(`Update failed: ${err.message || 'Unknown error'}`);
     } finally {
@@ -235,9 +240,14 @@ export function AccountModal({
               <User className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
-                Account &amp; Security
-              </h2>
+              <div className="flex items-center space-x-1.5">
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
+                  Account &amp; Security
+                </h2>
+                {verificationStatus === 'verified' && (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" title="Verified Organization" />
+                )}
+              </div>
               <p className="text-[11px] text-zinc-500 font-mono">
                 {organization.name}
               </p>
@@ -257,7 +267,7 @@ export function AccountModal({
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 overscroll-contain pb-20">
 
           {/* ======================================================== */}
-          {/* CARD 1: ORGANIZATION IDENTITY (REDESIGNED FOR MOBILE)    */}
+          {/* CARD 1: ORGANIZATION IDENTITY                            */}
           {/* ======================================================== */}
           <div>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-4">
@@ -337,35 +347,100 @@ export function AccountModal({
                 )}
               </div>
 
-              {/* Row 2: Organization Email ID */}
-              <div className="p-4 space-y-2">
+              {/* Row 2: Organization Email ID + Verification Status */}
+              <div className="p-4 space-y-2.5">
                 {!isEditingEmail ? (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                    <div className="space-y-0.5 min-w-0 flex-1">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
-                          Admin / Contact Email
-                        </span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold uppercase bg-stone-100 dark:bg-zinc-800 text-zinc-500">
-                          Credentials
-                        </span>
+                  <div className="space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                            Admin / Contact Email
+                          </span>
+
+                          {/* Dynamic Verification Badge */}
+                          {verificationStatus === 'verified' && (
+                            <span className="inline-flex items-center space-x-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                              <CheckCircle2 className="w-3 h-3 stroke-[2.5]" />
+                              <span>Verified</span>
+                            </span>
+                          )}
+                          {verificationStatus === 'pending' && (
+                            <span className="inline-flex items-center space-x-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              <Clock className="w-3 h-3 stroke-[2.5]" />
+                              <span>Under Verification</span>
+                            </span>
+                          )}
+                          {verificationStatus === 'rejected' && (
+                            <span className="inline-flex items-center space-x-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
+                              <XCircle className="w-3 h-3 stroke-[2.5]" />
+                              <span>Verification Failed</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          <p className="text-sm font-semibold font-mono text-zinc-800 dark:text-zinc-200 break-all">
+                            {organization.email || <span className="text-zinc-400 italic">No email configured</span>}
+                          </p>
+                          {verificationStatus === 'verified' && organization.email && (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                          )}
+                        </div>
                       </div>
-                      <p className="text-sm font-semibold font-mono text-zinc-800 dark:text-zinc-200 break-all">
-                        {organization.email || <span className="text-zinc-400 italic">No email configured</span>}
-                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditEmail(organization.email || '');
+                          setIsEditingEmail(true);
+                        }}
+                        className="self-start sm:self-center min-h-[38px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold border border-stone-200 dark:border-zinc-800 transition-all flex items-center space-x-1.5 cursor-pointer shrink-0"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-zinc-500" />
+                        <span>{organization.email ? 'Update Email' : 'Add Email'}</span>
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditEmail(organization.email || '');
-                        setIsEditingEmail(true);
-                      }}
-                      className="self-start sm:self-center min-h-[38px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold border border-stone-200 dark:border-zinc-800 transition-all flex items-center space-x-1.5 cursor-pointer shrink-0"
-                    >
-                      <Pencil className="w-3.5 h-3.5 text-zinc-500" />
-                      <span>{organization.email ? 'Update Email' : 'Add Email'}</span>
-                    </button>
+                    {/* Pending Verification Info Note */}
+                    {verificationStatus === 'pending' && (
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed flex items-start space-x-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                        <span>
+                          Your organization and email are currently under manual review by the Security Team. Unverified or invalid accounts may be removed if rejected.
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Rejected Verification Alert with Developer Contact & Telegram */}
+                    {verificationStatus === 'rejected' && (
+                      <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 space-y-2.5">
+                        <div className="flex items-start space-x-2 text-xs text-red-600 dark:text-red-400 font-semibold leading-relaxed">
+                          <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                          <span>
+                            Email verification failed. Please update your email or contact the Developer / Security Team immediately before account removal:
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          <a
+                            href="mailto:spesium.code@proton.me"
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-red-500/30 text-[11px] font-mono font-bold text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>spesium.code@proton.me</span>
+                          </a>
+                          <a
+                            href="https://t.me/+ljTOKLi5dQs1MTM9"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-500/25 transition-colors"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>Join Telegram Support</span>
+                          </a>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <form onSubmit={handleSaveEmail} className="space-y-3 pt-1 animate-in fade-in duration-150">

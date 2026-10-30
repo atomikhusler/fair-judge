@@ -1,5 +1,6 @@
 export type EventStatus = 'draft' | 'upcoming' | 'ready' | 'active' | 'paused' | 'ended' | 'archived';
 export type TieBreakerMethod = 'olympic' | 'shared' | 'manual';
+export type VerificationStatus = 'pending' | 'verified' | 'rejected';
 
 export interface RubricCriterion {
   id: string;
@@ -18,10 +19,11 @@ export interface CustomParticipantField {
 
 export interface Organization {
   id: string; // UUID
-  org_id: string; // 6-digit formatted code e.g. "FJ-9A2X"
+  org_id: string; // 7-character system generated code (e.g. "FJ-A4X9")
   name: string;
   email?: string;
   password?: string; // Master password for organiser login
+  verification_status?: VerificationStatus; // 'pending' | 'verified' | 'rejected'
   tie_breaker_enabled?: boolean; // Default false (off by default)
   tie_breaker_method?: TieBreakerMethod; // 'olympic' | 'shared' | 'manual'
   custom_participant_fields?: CustomParticipantField[];
@@ -54,10 +56,11 @@ export interface SupabaseJudge {
   id: string; // UUID or unique ID
   org_id: string;
   name: string;
-  judge_id?: string; // Formatted Judge ID code e.g. "J-01", "mock-j-1"
-  pin: string; // 4-digit code e.g. "4921"
+  judge_id?: string; // Formatted Judge ID code (e.g. "J-01")
+  pin: string; // 4-digit code (e.g. "4921")
   judge_pin: string; // Compatibility alias
   assigned_events: string[]; // Event IDs
+  current_session_token?: string | null; // Single-device active session lock token
   created_at: string;
 }
 

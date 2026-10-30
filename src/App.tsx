@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { OrganiserDashboard } from './components/organiser/OrganiserDashboard';
 import { ScoringPanel } from './components/judge/ScoringPanel';
@@ -11,41 +11,17 @@ import { JudgeLobby } from './components/judge/JudgeLobby';
 import { PublicLeaderboard } from './components/public/PublicLeaderboard';
 import { NetworkStatusIndicator } from './components/NetworkStatusIndicator';
 import { Organization, SupabaseJudge, SupabaseEvent } from './lib/supabaseTypes';
-import { dbService } from './lib/supabase';
+import {
+  dbService,
+  subscribeToDatabase,
+  getStoredSession,
+  setStoredSession,
+  StoredUserSession,
+} from './lib/supabase';
 import { initOfflineSyncListener } from './lib/offlineQueue';
 import { Scale } from 'lucide-react';
 
-export interface UserSession {
-  role: 'organiser' | 'judge';
-  org: Organization;
-  judge?: SupabaseJudge;
-  event?: SupabaseEvent;
-}
-
-const SESSION_STORAGE_KEY = 'fairjudge_active_session';
-
-function getStoredSession(): UserSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function setStoredSession(session: UserSession | null) {
-  try {
-    if (!session) {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-    } else {
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    }
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('fairjudge_session_change'));
-    }
-  } catch {}
-}
+export type UserSession = StoredUserSession;
 
 export default function App() {
   const [isBooting, setIsBooting] = useState(true);
@@ -56,7 +32,7 @@ export default function App() {
 
   // Public projector screen state
   const [isPublicView, setIsPublicView] = useState(false);
-  const [publicOrgId, setPublicOrgId] = useState('FJ-9A2X');
+  const [publicOrgId, setPublicOrgId] = useState('');
   const [publicEventId, setPublicEventId] = useState<string | null>(null);
 
   // Boot Animation Lifecycle (2 second premium cinematic entrance before resolving app shell)
@@ -101,14 +77,55 @@ export default function App() {
     };
   }, []);
 
-  // Sync judge events when judge session is active
-  useEffect(() => {
-    if (session?.role === 'judge' && session.org && session.judge) {
-      dbService.getEvents(session.org.org_id).then((events) => {
-        setJudgeEvents(events);
+  // Sync Judge events & Organization settings in real-time when a Judge session is active
+  const refreshJudgeData = useCallback(async () => {
+    if (session?.role !== 'judge' || !session.org?.org_id || !session.judge) return;
+
+    try {
+      const [allEvents, freshOrg] = await Promise.all([
+        dbService.getEvents(session.org.org_id),
+        dbService.getOrganizationByOrgId(session.org.org_id),
+      ]);
+
+      // Filter events assigned to this judge (or fallback to active events)
+      let assigned = allEvents.filter(
+        (e) =>
+          e.assigned_judges.includes(session.judge!.id) ||
+          (session.judge!.assigned_events || []).includes(e.id)
+      );
+      if (assigned.length === 0) {
+        assigned = allEvents.filter((e) => e.status === 'active');
+      }
+
+      setJudgeEvents(assigned);
+
+      // Keep activeJudgeEvent synchronized if the Organiser pauses/ends/updates it
+      setActiveJudgeEvent((prev) => {
+        if (!prev) return null;
+        return allEvents.find((e) => e.id === prev.id) || prev;
       });
+
+      // Keep Organization name & Jury rules synced if updated
+      if (freshOrg && freshOrg.name !== session.org.name) {
+        const updatedSession: UserSession = { ...session, org: freshOrg };
+        setStoredSession(updatedSession);
+      }
+    } catch (err) {
+      console.warn('Error refreshing judge session data:', err);
     }
   }, [session]);
+
+  useEffect(() => {
+    if (session?.role === 'judge') {
+      refreshJudgeData();
+      const unsubDb = subscribeToDatabase((table) => {
+        if (table === 'events' || table === 'organizations' || table === 'all') {
+          refreshJudgeData();
+        }
+      });
+      return () => unsubDb();
+    }
+  }, [session?.role, session?.org?.org_id, session?.judge?.id, refreshJudgeData]);
 
   // Organiser Login Handler
   const handleOrganiserLogin = (org: Organization) => {
@@ -120,17 +137,23 @@ export default function App() {
     setSession(newSession);
   };
 
-  // Judge Login Handler - Strictly routes to JudgeLobby first
-  const handleJudgeLogin = (
+  // Judge Login Handler - Fetches real Organization record & routes to JudgeLobby
+  const handleJudgeLogin = async (
     orgId: string,
     judge: SupabaseJudge,
     assignedEvents: SupabaseEvent[]
   ) => {
+    const cleanOrgId = orgId.trim().toUpperCase();
+    let orgRecord: Organization | null = null;
+    try {
+      orgRecord = await dbService.getOrganizationByOrgId(cleanOrgId);
+    } catch {}
+
     const newSession: UserSession = {
       role: 'judge',
-      org: {
+      org: orgRecord || {
         id: judge.org_id,
-        org_id: orgId,
+        org_id: cleanOrgId,
         name: 'Official Stage',
         created_at: new Date().toISOString(),
       },
