@@ -47,141 +47,11 @@ export function generateUUID(): string {
   });
 }
 
-// Generate 6-digit alphanumeric Org ID (e.g., FJ-9A2X)
-export function generateOrgId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let randomPart = '';
-  for (let i = 0; i < 4; i++) {
-    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `FJ-${randomPart}`;
-}
-
-// Generate Global Immutable Identity Number (e.g., P-8492)
-export function generateIdentityId(): string {
-  const num = Math.floor(1000 + Math.random() * 9000);
-  return `P-${num}`;
-}
-
-// Initial demo seed data to ensure immediate out-of-the-box readiness
-function getSeedData() {
-  const defaultOrgId = 'FJ-9A2X';
-  const defaultOrgUUID = 'a1111111-1111-4111-a111-111111111111';
-
-  const initialOrg: Organization = {
-    id: defaultOrgUUID,
-    org_id: defaultOrgId,
-    name: 'St. Jude Academy Arts & Science',
-    email: 'admin@stjude.edu',
-    password: 'password123',
-    tie_breaker_enabled: false,
-    tie_breaker_method: 'olympic',
-    custom_participant_fields: [
-      { id: 'f_class', name: 'Class/Age', required: false, type: 'text' },
-      { id: 'f_mobile', name: 'Mobile Number', required: false, type: 'text' },
-    ],
-    created_at: new Date().toISOString(),
-  };
-
-  const initialParticipants: SupabaseParticipant[] = [
-    {
-      id: generateUUID(),
-      org_id: defaultOrgId,
-      identity_id: 'P-8492',
-      sl_no: '01',
-      name: 'Aarav Sharma',
-      school: 'St. Jude International',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: generateUUID(),
-      org_id: defaultOrgId,
-      identity_id: 'P-3104',
-      sl_no: '02',
-      name: 'Priya Patel',
-      school: 'Delhi Public School',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: generateUUID(),
-      org_id: defaultOrgId,
-      identity_id: 'P-5721',
-      sl_no: '03',
-      name: 'Rohan Gupta',
-      school: 'Kendriya Vidyalaya No. 1',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: generateUUID(),
-      org_id: defaultOrgId,
-      identity_id: 'P-9240',
-      sl_no: '04',
-      name: 'Ananya Sen',
-      school: 'Modern Academy',
-      created_at: new Date().toISOString(),
-    },
-  ];
-
-  const initialJudges: SupabaseJudge[] = [
-    {
-      id: 'judge-dr-verma',
-      org_id: defaultOrgId,
-      name: 'Judge 1 - Dr. A. Verma',
-      pin: '4921',
-      judge_pin: '4921',
-      assigned_events: [],
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'judge-sarah-jenkins',
-      org_id: defaultOrgId,
-      name: 'Judge 2 - Sarah Jenkins',
-      pin: '8310',
-      judge_pin: '8310',
-      assigned_events: [],
-      created_at: new Date().toISOString(),
-    },
-  ];
-
-  const initialRubric = [
-    { id: 'crit_concept', name: 'Original Concept', max_marks: 10, weight: 1 },
-    { id: 'crit_execution', name: 'Technical Execution', max_marks: 10, weight: 1 },
-    { id: 'crit_presentation', name: 'Stage Presentation', max_marks: 5, weight: 1 },
-  ];
-
-  const initialEvent: SupabaseEvent = {
-    id: 'event-science-fair-2026',
-    org_id: defaultOrgId,
-    name: 'Inter-School Science Fair 2026',
-    category: 'Science & Innovation',
-    date: new Date().toISOString().split('T')[0],
-    status: 'upcoming',
-    rubric_schema: initialRubric,
-    rubric: initialRubric,
-    assigned_judges: initialJudges.map((j) => j.id),
-    assigned_participants: initialParticipants.map((p) => p.id),
-    created_at: new Date().toISOString(),
-  };
-
-  initialJudges.forEach((j) => {
-    j.assigned_events = [initialEvent.id];
-  });
-
-  return {
-    orgs: [initialOrg],
-    events: [initialEvent],
-    judges: initialJudges,
-    participants: initialParticipants,
-    scores: [] as SupabaseScore[],
-  };
-}
-
 // Storage helpers
 function loadTable<T>(key: string, defaultData: T[]): T[] {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) {
-      localStorage.setItem(key, JSON.stringify(defaultData));
       return defaultData;
     }
     return JSON.parse(raw);
@@ -198,24 +68,6 @@ function saveTable<T>(key: string, data: T[]) {
     console.warn('LocalStorage save error:', err);
   }
 }
-
-// Initialize seed data if not present
-const seed = getSeedData();
-loadTable(STORAGE_KEYS.ORGS, seed.orgs);
-loadTable(STORAGE_KEYS.EVENTS, seed.events);
-loadTable(STORAGE_KEYS.JUDGES, seed.judges);
-const loadedParticipants = loadTable<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, seed.participants);
-let participantsModified = false;
-loadedParticipants.forEach((p, idx) => {
-  if (!p.identity_id) {
-    p.identity_id = `P-${8400 + idx}`;
-    participantsModified = true;
-  }
-});
-if (participantsModified) {
-  saveTable(STORAGE_KEYS.PARTICIPANTS, loadedParticipants);
-}
-loadTable(STORAGE_KEYS.SCORES, seed.scores);
 
 // Reactive Event Bus for cross-component realtime sync
 const DB_CHANGE_EVENT = 'fairjudge_db_change';
@@ -266,9 +118,17 @@ export const dbService = {
 
   async createOrganization(name: string, email?: string, password?: string): Promise<Organization> {
     const orgs = loadTable<Organization>(STORAGE_KEYS.ORGS, []);
-    let newOrgId = generateOrgId();
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const makeOrgId = () => {
+      let r = '';
+      for (let i = 0; i < 4; i++) {
+        r += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return `FJ-${r}`;
+    };
+    let newOrgId = makeOrgId();
     while (orgs.some((o) => o.org_id === newOrgId)) {
-      newOrgId = generateOrgId();
+      newOrgId = makeOrgId();
     }
 
     const newOrg: Organization = {
@@ -630,7 +490,7 @@ export const dbService = {
     const newParticipant: SupabaseParticipant = {
       id: generateUUID(),
       org_id: orgId.toUpperCase(),
-      identity_id: data.identity_id?.trim() || generateIdentityId(),
+      identity_id: data.identity_id?.trim() || `P-${Math.floor(1000 + Math.random() * 9000)}`,
       sl_no: assignedSl,
       name: data.name.trim(),
       school: data.school?.trim() || 'General',
@@ -683,7 +543,7 @@ export const dbService = {
     const newItems: SupabaseParticipant[] = rows.map((r, i) => ({
       id: generateUUID(),
       org_id: orgId.toUpperCase(),
-      identity_id: r.identity_id ? r.identity_id.trim() : generateIdentityId(),
+      identity_id: r.identity_id ? r.identity_id.trim() : `P-${Math.floor(1000 + Math.random() * 9000)}`,
       sl_no: r.sl_no ? r.sl_no.trim() : String(existingOrgCount + i + 1).padStart(2, '0'),
       name: r.name.trim(),
       school: r.school ? r.school.trim() : 'General',
@@ -895,8 +755,13 @@ export const dbService = {
         currentRank = 1;
       } else {
         const prev = rawList[index - 1];
-        if (tieBreakerEnabled && method === 'shared' && item.avgScore === prev.avgScore && item.judgeCount > 0) {
-          // Tied scores share the exact same placement
+        const isTied = item.avgScore === prev.avgScore && item.judgeCount > 0 && prev.judgeCount > 0;
+        if (!tieBreakerEnabled || method === 'shared') {
+          if (isTied) {
+            // Tied participants share the exact same rank (e.g., two #1s, next is #3)
+          } else {
+            currentRank = index + 1;
+          }
         } else {
           currentRank = index + 1;
         }

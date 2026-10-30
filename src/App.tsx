@@ -13,14 +13,38 @@ import { NetworkStatusIndicator } from './components/NetworkStatusIndicator';
 import { Organization, SupabaseJudge, SupabaseEvent } from './lib/supabaseTypes';
 import { dbService } from './lib/supabase';
 import { initOfflineSyncListener } from './lib/offlineQueue';
-import { getStoredSession, setStoredSession, seedJudgeDemo, seedOrganiserDemo } from './lib/MockDataSeeder';
-import { Scale, Sparkles, RefreshCw } from 'lucide-react';
+import { Scale } from 'lucide-react';
 
 export interface UserSession {
   role: 'organiser' | 'judge';
   org: Organization;
   judge?: SupabaseJudge;
   event?: SupabaseEvent;
+}
+
+const SESSION_STORAGE_KEY = 'fairjudge_active_session';
+
+function getStoredSession(): UserSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function setStoredSession(session: UserSession | null) {
+  try {
+    if (!session) {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    } else {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fairjudge_session_change'));
+    }
+  } catch {}
 }
 
 export default function App() {
@@ -32,7 +56,7 @@ export default function App() {
 
   // Public projector screen state
   const [isPublicView, setIsPublicView] = useState(false);
-  const [publicOrgId, setPublicOrgId] = useState('FJ-DANCE');
+  const [publicOrgId, setPublicOrgId] = useState('FJ-9A2X');
   const [publicEventId, setPublicEventId] = useState<string | null>(null);
 
   // Boot Animation Lifecycle (2 second premium cinematic entrance before resolving app shell)
@@ -135,42 +159,6 @@ export default function App() {
     setIsPublicView(true);
   };
 
-  // Switch between Organiser & Judge Demo modes seamlessly
-  const handleSwitchToJudgeMode = async () => {
-    if (!session?.org) return;
-    const allJudges = await dbService.getJudges(session.org.org_id);
-    const allEvents = await dbService.getEvents(session.org.org_id);
-    const testJudge = allJudges[0] || {
-      id: 'quick-j-1',
-      org_id: session.org.org_id,
-      name: 'Judge Elena Rostova',
-      pin: '1234',
-      judge_pin: '1234',
-      assigned_events: allEvents.map((e) => e.id),
-      created_at: new Date().toISOString(),
-    };
-    const testEvent = allEvents[0];
-    const judgeSession: UserSession = {
-      role: 'judge',
-      org: session.org,
-      judge: testJudge,
-      event: testEvent,
-    };
-    setStoredSession(judgeSession);
-    setSession(judgeSession);
-    setActiveJudgeEvent(testEvent || null);
-  };
-
-  const handleSwitchToOrganiserMode = () => {
-    if (!session?.org) return;
-    const orgSession: UserSession = {
-      role: 'organiser',
-      org: session.org,
-    };
-    setStoredSession(orgSession);
-    setSession(orgSession);
-  };
-
   // 0. BOOT ANIMATION: Industry gold-standard 2-second premium entrance
   if (isBooting) {
     return (
@@ -183,7 +171,7 @@ export default function App() {
         <div className="absolute w-[380px] h-[380px] bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none" />
 
         <div className="relative flex flex-col items-center text-center px-4 animate-in fade-in zoom-in-95 duration-500">
-          {/* Brand Logo Badge + Brand Name Row - matching AuthScreen */}
+          {/* Brand Logo Badge + Brand Name Row */}
           <div className="flex items-center justify-center gap-3">
             <div className="w-10 h-10 md:w-11 md:h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shadow-lg shadow-emerald-500/25">
               <Scale className="w-5 h-5 md:w-6 md:h-6 stroke-[2.2]" />
@@ -193,15 +181,20 @@ export default function App() {
             </h1>
           </div>
 
-          {/* Refined Tagline matching AuthScreen */}
+          {/* Refined Tagline */}
           <p className="text-xs md:text-sm font-medium text-emerald-400/90 tracking-wide mt-2">
             Transparency in Judgement
           </p>
 
-          {/* Industry gold-standard micro progress laser bar */}
+          {/* Micro progress laser bar */}
           <div className="w-40 sm:w-48 h-[2px] bg-zinc-900 rounded-full overflow-hidden mt-8 border border-zinc-800/80">
             <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full animate-boot-progress" />
           </div>
+
+          {/* Version string */}
+          <p className="text-[10px] font-mono text-zinc-500 tracking-wider mt-4">
+            Fair Judge v12.10.0
+          </p>
         </div>
       </div>
     );
@@ -237,7 +230,6 @@ export default function App() {
           organization={session.org}
           onLogout={handleLogout}
           onOpenPublicView={handleOpenPublicView}
-          onSwitchToJudgeView={handleSwitchToJudgeMode}
         />
       );
     }
@@ -251,7 +243,6 @@ export default function App() {
             judge={session.judge}
             event={activeJudgeEvent}
             onBackToLobby={() => setActiveJudgeEvent(null)}
-            onSwitchToOrganiserView={handleSwitchToOrganiserMode}
           />
         );
       }
@@ -263,7 +254,6 @@ export default function App() {
           events={judgeEvents}
           onSelectEvent={(ev) => setActiveJudgeEvent(ev)}
           onLogout={handleLogout}
-          onSwitchToOrganiserView={handleSwitchToOrganiserMode}
         />
       );
     }
