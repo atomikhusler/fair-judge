@@ -16,6 +16,7 @@ import {
 import { Organization, TieBreakerMethod, CustomParticipantField } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
+import { useToast } from '../common/ToastProvider';
 
 export interface SettingsDrawerProps {
   isOpen: boolean;
@@ -50,8 +51,8 @@ export function SettingsDrawer({
   const [newFieldRequired, setNewFieldRequired] = useState(false);
   const [newFieldType, setNewFieldType] = useState<'text' | 'number'>('text');
 
-  // 3. Notification State
-  const [drawerToast, setDrawerToast] = useState<string | null>(null);
+  // 3. Global Notification Service
+  const { showToast } = useToast();
 
   // 4. Public Leaderboard Preferences State
   const [leaderboardDelay, setLeaderboardDelay] = useState<number>(30);
@@ -81,10 +82,6 @@ export function SettingsDrawer({
     }
   }, [organization]);
 
-  const showToast = (msg: string) => {
-    setDrawerToast(msg);
-    setTimeout(() => setDrawerToast(null), 2800);
-  };
 
   // 1. Toggle Tie-Breaker
   const handleToggleTieBreaker = async () => {
@@ -181,15 +178,6 @@ export function SettingsDrawer({
       {/* Drawer Container (Sliding from Left) */}
       <div className="relative w-full max-w-md sm:max-w-lg bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border-r border-stone-200 dark:border-zinc-800/80 shadow-2xl h-full flex flex-col z-10 animate-in slide-in-from-left duration-300 select-none">
         
-        {/* Floating Toast Notification */}
-        {drawerToast && (
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="py-2.5 px-4 rounded-full bg-zinc-900/95 dark:bg-zinc-800/95 text-white border border-zinc-700/60 shadow-2xl backdrop-blur-md flex items-center justify-center space-x-2 text-center text-xs font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span className="truncate">{drawerToast}</span>
-            </div>
-          </div>
-        )}
 
         {/* ========================================================== */}
         {/* DRAWER HEADER (Typographic hierarchy, Framer aesthetics)   */}

@@ -18,6 +18,7 @@ import {
   hasCachedKey
 } from './db/indexedDB';
 import { eventBus } from './eventBus';
+import { calculateRankings as engineCalculateRankings, calculateRankingsAsync as engineCalculateRankingsAsync } from './tieBreakerEngine';
 
 // Environment variable credentials
 const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -263,6 +264,7 @@ function normalizeEvent(e: any): SupabaseEvent {
   return {
     ...e,
     status: (e.status?.toLowerCase() as EventStatus) || 'draft',
+    is_archived: Boolean(e.is_archived),
     rubric_schema: schema,
     rubric: schema,
     assigned_judges: Array.isArray(e.assigned_judges) ? e.assigned_judges : [],
@@ -1474,7 +1476,86 @@ export const dbService = {
     return updated;
   },
 
-  async deleteParticipant(participantId: string): Promise<void> {
+  /**
+   * Smart Deletion & Ledger Integrity Guardrail (Directive 3)
+   * 1. Ended Events (Hard Block): If participant has finalized scores in ended/archived event, block deletion.
+   * 2. Ongoing Events (Warning): If participant is in active/draft events, require user confirmation.
+   * 3. No Events (Safe): Immediate clean deletion.
+   */
+  async checkParticipantDeletion(participantId: string): Promise<{
+    tier: 'blocked' | 'warning' | 'safe';
+    reason: string;
+    eventNames: string[];
+  }> {
+    const allEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+    const allScores = this.getCachedScores();
+
+    // Tier 1: Ended Events Check (The Hard Block)
+    const endedEventsWithParticipant = allEvents.filter((e) => {
+      const isEnded = e.status === 'ended' || e.status === 'archived';
+      if (!isEnded) return false;
+      const isAssigned = (e.assigned_participants || []).includes(participantId);
+      const hasScores = allScores.some((s) => s.participant_id === participantId && s.event_id === e.id);
+      return isAssigned || hasScores;
+    });
+
+    if (endedEventsWithParticipant.length > 0) {
+      return {
+        tier: 'blocked',
+        reason: 'ended_events',
+        eventNames: endedEventsWithParticipant.map((e) => e.name),
+      };
+    }
+
+    // Tier 2: Ongoing/Draft Events Check (Warning & Override)
+    const ongoingEvents = allEvents.filter((e) => {
+      const isOngoing = e.status !== 'ended' && e.status !== 'archived';
+      return isOngoing && (e.assigned_participants || []).includes(participantId);
+    });
+
+    if (ongoingEvents.length > 0) {
+      return {
+        tier: 'warning',
+        reason: 'ongoing_events',
+        eventNames: ongoingEvents.map((e) => e.name),
+      };
+    }
+
+    // Tier 3: No Events (Safe)
+    return {
+      tier: 'safe',
+      reason: 'no_events',
+      eventNames: [],
+    };
+  },
+
+  async deleteParticipant(participantId: string, forceOverrideActive: boolean = false): Promise<void> {
+    const safety = await this.checkParticipantDeletion(participantId);
+
+    if (safety.tier === 'blocked') {
+      throw new Error('Cannot delete: Participant has finalized scores in a completed event.');
+    }
+
+    if (safety.tier === 'warning' && !forceOverrideActive) {
+      throw new Error('This participant is currently enrolled in active events. Deleting them will pull them from all active rosters. Proceed?');
+    }
+
+    // If enrolled in active/draft events, clean from rosters
+    if (safety.tier === 'warning' && forceOverrideActive) {
+      const allEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+      for (const evt of allEvents) {
+        if ((evt.assigned_participants || []).includes(participantId)) {
+          const updatedAssigned = (evt.assigned_participants || []).filter((id) => id !== participantId);
+          const updatedSl = { ...(evt.participant_sl_numbers || {}) };
+          delete updatedSl[participantId];
+          await this.updateEvent(evt.id, {
+            assigned_participants: updatedAssigned,
+            participant_sl_numbers: updatedSl,
+          });
+        }
+      }
+    }
+
     const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
     const target = participants.find((p) => p.id === participantId);
     const remaining = participants.filter((p) => p.id !== participantId);
@@ -1753,65 +1834,37 @@ export const dbService = {
   },
 
   // ------------------------------------------
-  // 7. TIE-BREAKER ENGINE LOGIC
+  // 7. TIE-BREAKER ENGINE LOGIC (Multithreaded Web Worker & Fast Fallback)
   // ------------------------------------------
   calculateRankings(
     participants: SupabaseParticipant[],
     scores: SupabaseScore[],
-    assignedJudgesCount: number,
+    assignedJudgesCount: number = 0,
     method: TieBreakerMethod = 'olympic',
     tieBreakerEnabled: boolean = false
   ) {
-    const rawList = participants.map((p) => {
-      const pScores = scores.filter((s) => s.participant_id === p.id);
-      const judgeCount = pScores.length;
+    return engineCalculateRankings(
+      participants,
+      scores,
+      assignedJudgesCount,
+      method,
+      tieBreakerEnabled
+    );
+  },
 
-      let computedAverage = 0;
-      if (judgeCount > 0) {
-        if (tieBreakerEnabled && method === 'olympic' && judgeCount >= 3) {
-          const sorted = [...pScores].sort((a, b) => a.total_score - b.total_score);
-          const trimmed = sorted.slice(1, sorted.length - 1);
-          const sum = trimmed.reduce((acc, s) => acc + s.total_score, 0);
-          computedAverage = Number((sum / trimmed.length).toFixed(2));
-        } else if (tieBreakerEnabled && method === 'manual') {
-          const sum = pScores.reduce((acc, s) => acc + s.total_score, 0);
-          computedAverage = Number((sum / judgeCount).toFixed(4));
-        } else {
-          const sum = pScores.reduce((acc, s) => acc + s.total_score, 0);
-          computedAverage = Number((sum / judgeCount).toFixed(2));
-        }
-      }
-
-      return {
-        ...p,
-        judgeCount,
-        pScores,
-        avgScore: computedAverage,
-      };
-    });
-
-    rawList.sort((a, b) => b.avgScore - a.avgScore);
-
-    let currentRank = 1;
-    return rawList.map((item, index) => {
-      if (index === 0) {
-        currentRank = 1;
-      } else {
-        const prev = rawList[index - 1];
-        const isTied =
-          item.avgScore === prev.avgScore && item.judgeCount > 0 && prev.judgeCount > 0;
-        if (!tieBreakerEnabled || method === 'shared') {
-          if (!isTied) {
-            currentRank = index + 1;
-          }
-        } else {
-          currentRank = index + 1;
-        }
-      }
-      return {
-        ...item,
-        rank: item.judgeCount > 0 ? currentRank : 0,
-      };
-    });
+  async calculateRankingsAsync(
+    participants: SupabaseParticipant[],
+    scores: SupabaseScore[],
+    assignedJudgesCount: number = 0,
+    method: TieBreakerMethod = 'olympic',
+    tieBreakerEnabled: boolean = false
+  ) {
+    return engineCalculateRankingsAsync(
+      participants,
+      scores,
+      assignedJudgesCount,
+      method,
+      tieBreakerEnabled
+    );
   },
 };

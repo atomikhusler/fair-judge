@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as XLSX from 'xlsx';
 import { QRCodeSVG } from 'qrcode.react';
@@ -30,10 +30,13 @@ import {
   ChevronDown,
   ChevronUp,
   Scale,
-  Eye
+  Eye,
+  MinusCircle,
+  AlertTriangle
 } from 'lucide-react';
 import { dbService, subscribeToDatabase, generateUUID } from '../../../lib/supabase';
 import { eventBus } from '../../../lib/eventBus';
+import { useToast } from '../../common/ToastProvider';
 import { 
   Organization, 
   SupabaseParticipant, 
@@ -199,6 +202,10 @@ interface StagedParticipant {
   custom_values: Record<string, string>;
   isValid: boolean;
   validationError?: string;
+  isConflict?: boolean;
+  conflictExisting?: SupabaseParticipant;
+  conflictResolution?: 'update_db' | 'keep_existing';
+  differingFields?: Array<{ field: string; excelVal: string; dbVal: string }>;
 }
 
 interface PeopleTabProps {
@@ -249,12 +256,16 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     dbService.getCachedParticipants(organization.org_id)
   );
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearch = useDeferredValue(searchQuery);
   const [uploadNotice, setUploadNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   // Staging Preview State for Excel Import
+  const { showToast } = useToast();
   const [stagedRows, setStagedRows] = useState<StagedParticipant[]>([]);
   const [showStagingModal, setShowStagingModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [skippedExactMatches, setSkippedExactMatches] = useState(0);
+  const [activeConflictRow, setActiveConflictRow] = useState<StagedParticipant | null>(null);
 
   // Add / Edit Participant Modal
   const [showParticipantModal, setShowParticipantModal] = useState(false);
@@ -291,12 +302,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   const [selectedJudgeForDetails, setSelectedJudgeForDetails] = useState<SupabaseJudge | null>(null);
   const [showJudgeDetailsModal, setShowJudgeDetailsModal] = useState(false);
 
-  // Custom Framer-Style Delete Confirmation Modal State
+  // Custom Framer-Style Delete Confirmation Modal State (Directive 3)
   const [deleteModalState, setDeleteModalState] = useState<{
     isOpen: boolean;
     type: 'participant' | 'judge';
     id: string;
     name: string;
+    isOngoingWarning?: boolean;
+    eventNames?: string[];
   } | null>(null);
 
   const [customFields, setCustomFields] = useState<CustomParticipantField[]>(
@@ -513,16 +526,63 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           throw new Error('Could not recognize a "Full Name" column. Please check your headers.');
         }
 
+        // -------------------------------------------------------------
+        // PRE-FLIGHT SANITIZATION & COMPOSITE KEY MATCHING ENGINE (Directive 2)
+        // -------------------------------------------------------------
+        const autoSanitize = (val: any): string => {
+          if (val === undefined || val === null) return '';
+          return String(val).trim().replace(/\s+/g, ' ');
+        };
+
+        const autoSanitizeName = (val: any): string => {
+          const text = autoSanitize(val);
+          if (!text) return '';
+          return text
+            .split(' ')
+            .map((w) => (w.length <= 1 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+            .join(' ');
+        };
+
+        const autoSanitizeSchool = (val: any): string => {
+          const text = autoSanitize(val);
+          if (!text) return 'General';
+          if (text === text.toLowerCase()) {
+            return text
+              .split(' ')
+              .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
+              .join(' ');
+          }
+          return text;
+        };
+
+        const makeCompositeKey = (name: string, classOrAge: string, school: string): string => {
+          return `${name.trim().toLowerCase()}|${(classOrAge || '').trim().toLowerCase()}|${(school || '').trim().toLowerCase()}`;
+        };
+
+        // Build database cache map for fast composite key lookup
+        const existingCompositeMap = new Map<string, SupabaseParticipant>();
+        participants.forEach((p) => {
+          const key = makeCompositeKey(p.name, p.class_or_age || '', p.school || '');
+          existingCompositeMap.set(key, p);
+        });
+
         const staged: StagedParticipant[] = [];
+        let skippedExactCount = 0;
 
         for (let i = 1; i < data.length; i++) {
           const row = data[i];
           if (!row || row.length === 0) continue;
 
-          const nameVal = nameIdx !== -1 && row[nameIdx] !== undefined ? String(row[nameIdx]).trim() : '';
-          const schoolVal = schoolIdx !== -1 && row[schoolIdx] !== undefined ? String(row[schoolIdx]).trim() : '';
-          const catVal = categoryIdx !== -1 && row[categoryIdx] !== undefined ? String(row[categoryIdx]).trim() : '';
-          const mobVal = mobileIdx !== -1 && row[mobileIdx] !== undefined ? String(row[mobileIdx]).trim() : '';
+          const rawName = nameIdx !== -1 && row[nameIdx] !== undefined ? row[nameIdx] : '';
+          const rawSchool = schoolIdx !== -1 && row[schoolIdx] !== undefined ? row[schoolIdx] : '';
+          const rawCat = categoryIdx !== -1 && row[categoryIdx] !== undefined ? row[categoryIdx] : '';
+          const rawMob = mobileIdx !== -1 && row[mobileIdx] !== undefined ? row[mobileIdx] : '';
+
+          // Auto-Sanitization
+          const nameVal = autoSanitizeName(rawName);
+          const schoolVal = autoSanitizeSchool(rawSchool);
+          const catVal = autoSanitize(rawCat);
+          const mobVal = autoSanitize(rawMob).replace(/[\s-]/g, '');
 
           // If completely empty row, skip
           if (!nameVal && !schoolVal && !catVal && !mobVal) continue;
@@ -531,7 +591,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           customFields.forEach((cf) => {
             const cIdx = customColMap[cf.id];
             if (cIdx !== undefined && row[cIdx] !== undefined) {
-              customVals[cf.id] = String(row[cIdx]).trim();
+              customVals[cf.id] = autoSanitize(row[cIdx]);
             }
           });
 
@@ -548,6 +608,57 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             validationError = 'Missing School / Institution';
           }
 
+          if (isValid) {
+            // Composite Key: Name + Class/Age + Institution
+            const cKey = makeCompositeKey(nameVal, catVal, schoolVal);
+            const existingEntry = existingCompositeMap.get(cKey);
+
+            if (existingEntry) {
+              // Compare optional fields to determine Exact Match vs Partial Conflict
+              const differing: Array<{ field: string; excelVal: string; dbVal: string }> = [];
+
+              // Check Mobile Number
+              const dbMob = (existingEntry.mobile_number || '').trim().replace(/[\s-]/g, '');
+              if (mobVal && dbMob && mobVal !== dbMob) {
+                differing.push({ field: 'Mobile Number', excelVal: mobVal, dbVal: dbMob });
+              } else if (mobVal && !dbMob) {
+                differing.push({ field: 'Mobile Number', excelVal: mobVal, dbVal: '(None)' });
+              }
+
+              // Check Custom Fields
+              customFields.forEach((cf) => {
+                const exVal = (customVals[cf.id] || '').trim();
+                const dbVal = ((existingEntry.custom_values && existingEntry.custom_values[cf.id]) || '').trim();
+                if (exVal !== dbVal && (exVal || dbVal)) {
+                  differing.push({ field: cf.name, excelVal: exVal || '(Empty)', dbVal: dbVal || '(Empty)' });
+                }
+              });
+
+              if (differing.length === 0) {
+                // Tier 1: 100% Exact Match -> Silently skip/merge
+                skippedExactCount++;
+                continue;
+              } else {
+                // Tier 2: Partial Conflict -> Flag with pulsing orange dot
+                staged.push({
+                  id: generateUUID(),
+                  name: nameVal,
+                  school: schoolVal,
+                  class_or_age: catVal,
+                  mobile_number: mobVal,
+                  custom_values: customVals,
+                  isValid: true,
+                  isConflict: true,
+                  conflictExisting: existingEntry,
+                  conflictResolution: 'update_db',
+                  differingFields: differing,
+                });
+                continue;
+              }
+            }
+          }
+
+          // Tier 3: New clean addition
           staged.push({
             id: generateUUID(),
             name: nameVal,
@@ -557,20 +668,24 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             custom_values: customVals,
             isValid,
             validationError,
+            isConflict: false,
           });
         }
 
+        setSkippedExactMatches(skippedExactCount);
+
         if (staged.length === 0) {
+          if (skippedExactCount > 0) {
+            showToast(`All ${skippedExactCount} rows were 100% exact matches and already exist in the database.`);
+            return;
+          }
           throw new Error('No participant rows found in uploaded Excel file.');
         }
 
         setStagedRows(staged);
         setShowStagingModal(true);
       } catch (err: any) {
-        setUploadNotice({
-          type: 'error',
-          msg: err.message || 'Failed to process .xlsx file.',
-        });
+        showToast(err.message || 'Failed to process .xlsx file.', 'error');
       } finally {
         if (e.target) e.target.value = '';
       }
@@ -578,35 +693,63 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     reader.readAsBinaryString(file);
   };
 
-  // Confirm Staged Import
+  // Confirm Staged Import with Conflict Resolution (Directive 2)
   const handleConfirmImport = async () => {
     const validRows = stagedRows.filter((r) => r.isValid);
     if (validRows.length === 0) {
-      alert('There are no valid rows to import. Please fix or remove invalid rows.');
+      showToast('There are no valid rows to import. Please fix or remove invalid rows.', 'warning');
       return;
     }
 
     setIsImporting(true);
     try {
-      const rowsToSave = validRows.map((r) => ({
-        name: r.name,
-        school: r.school,
-        class_or_age: r.class_or_age,
-        mobile_number: r.mobile_number,
-        custom_values: r.custom_values,
-      }));
+      let createdCount = 0;
+      let updatedCount = 0;
 
-      const importedCount = await dbService.bulkCreateParticipants(organization.org_id, rowsToSave);
+      // 1. Process Partial Conflicts marked 'update_db'
+      const conflictsToUpdate = validRows.filter(
+        (r) => r.isConflict && r.conflictResolution === 'update_db' && r.conflictExisting
+      );
+
+      for (const cRow of conflictsToUpdate) {
+        await dbService.updateParticipant(cRow.conflictExisting!.id, {
+          mobile_number: cRow.mobile_number || cRow.conflictExisting!.mobile_number,
+          custom_values: {
+            ...(cRow.conflictExisting!.custom_values || {}),
+            ...cRow.custom_values,
+          },
+        });
+        updatedCount++;
+      }
+
+      // 2. Process Brand-New Participants
+      const newRowsToSave = validRows
+        .filter((r) => !r.isConflict)
+        .map((r) => ({
+          name: r.name,
+          school: r.school,
+          class_or_age: r.class_or_age,
+          mobile_number: r.mobile_number,
+          custom_values: r.custom_values,
+        }));
+
+      if (newRowsToSave.length > 0) {
+        createdCount = await dbService.bulkCreateParticipants(organization.org_id, newRowsToSave);
+      }
+
       setShowStagingModal(false);
       setStagedRows([]);
-      setUploadNotice({
-        type: 'success',
-        msg: `Successfully imported ${importedCount} participants!`,
-      });
+      setActiveConflictRow(null);
+
+      showToast(
+        `Import complete: ${createdCount} added${updatedCount > 0 ? `, ${updatedCount} updated` : ''}${
+          skippedExactMatches > 0 ? `, ${skippedExactMatches} exact duplicates merged` : ''
+        }.`
+      );
       await loadData();
     } catch (err: any) {
       console.error('Import failed:', err);
-      alert(err.message || 'Failed to finalize import.');
+      showToast(err.message || 'Failed to finalize import.', 'error');
     } finally {
       setIsImporting(false);
     }
@@ -678,13 +821,39 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     }
   };
 
-  const promptDeleteParticipant = (pId: string, name: string) => {
-    setDeleteModalState({
-      isOpen: true,
-      type: 'participant',
-      id: pId,
-      name,
-    });
+  // -------------------------------------------------------------
+  // SMART DELETION & LEDGER INTEGRITY ENGINE (Directive 3)
+  // -------------------------------------------------------------
+  const promptDeleteParticipant = async (pId: string, name: string) => {
+    try {
+      const safety = await dbService.checkParticipantDeletion(pId);
+
+      // Tier 1: Ended Events (Hard Block)
+      if (safety.tier === 'blocked') {
+        showToast('Cannot delete: Participant has finalized scores in a completed event.', 'error');
+        return;
+      }
+
+      // Tier 2: Ongoing/Draft Events (Danger Confirmation Modal)
+      if (safety.tier === 'warning') {
+        setDeleteModalState({
+          isOpen: true,
+          type: 'participant',
+          id: pId,
+          name,
+          isOngoingWarning: true,
+          eventNames: safety.eventNames,
+        });
+        return;
+      }
+
+      // Tier 3: No Events (Immediate Hard Deletion)
+      await dbService.deleteParticipant(pId);
+      showToast(`Participant "${name}" deleted.`);
+      await loadData();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete participant.', 'error');
+    }
   };
 
   const promptDeleteJudge = (jId: string, name: string) => {
@@ -698,16 +867,23 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
   const handleConfirmDelete = async () => {
     if (!deleteModalState) return;
-    const { type, id } = deleteModalState;
+    const { type, id, name, isOngoingWarning } = deleteModalState;
     try {
       if (type === 'participant') {
-        await dbService.deleteParticipant(id);
+        await dbService.deleteParticipant(id, isOngoingWarning);
+        showToast(
+          isOngoingWarning
+            ? `Participant "${name}" deleted and pulled from active rosters.`
+            : `Participant "${name}" deleted.`
+        );
       } else {
         await dbService.deleteJudge(id);
+        showToast(`Judge "${name}" deleted.`);
       }
       await loadData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete roster record:', err);
+      showToast(err.message || 'Failed to delete record.', 'error');
     } finally {
       setDeleteModalState(null);
     }
@@ -1036,27 +1212,38 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     }
   };
 
-  // Filtered lists
+  // Normalized Hash Maps with single-source dependency arrays (Directive 2)
+  const participantMap = useMemo(() => {
+    return new Map(participants.map((p) => [p.id, p]));
+  }, [participants]);
+
+  const judgeMap = useMemo(() => {
+    return new Map(judges.map((j) => [j.id, j]));
+  }, [judges]);
+
+  // Filtered lists (Concurrent React & Deferred Search - Directive 3)
   const filteredParticipants = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase();
+    if (!query) return participants;
     return participants.filter(
       (p) =>
-        searchQuery === '' ||
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.school.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.class_or_age && p.class_or_age.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (p.mobile_number && p.mobile_number.includes(searchQuery))
+        p.name.toLowerCase().includes(query) ||
+        p.school.toLowerCase().includes(query) ||
+        (p.class_or_age && p.class_or_age.toLowerCase().includes(query)) ||
+        (p.mobile_number && p.mobile_number.includes(query))
     );
-  }, [participants, searchQuery]);
+  }, [participants, deferredSearch]);
 
   const filteredJudges = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase();
+    if (!query) return judges;
     return judges.filter(
       (j) =>
-        searchQuery === '' ||
-        j.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (j.judge_id && j.judge_id.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (j.pin && j.pin.includes(searchQuery))
+        j.name.toLowerCase().includes(query) ||
+        (j.judge_id && j.judge_id.toLowerCase().includes(query)) ||
+        (j.pin && j.pin.includes(query))
     );
-  }, [judges, searchQuery]);
+  }, [judges, deferredSearch]);
 
   return (
     <>
@@ -1460,6 +1647,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   {filteredParticipants.map((p) => (
                     <div
                       key={p.id}
+                      style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
                       className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex items-start justify-between space-x-3 transition-all hover:border-stone-300 dark:hover:border-zinc-700"
                     >
                       <div className="flex items-start space-x-3 min-w-0 flex-1">
@@ -1534,6 +1722,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     return (
                       <div
                         key={j.id}
+                        style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
                         className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 rounded-2xl p-4 shadow-sm flex flex-col justify-between space-y-3"
                       >
                         <div className="flex items-start justify-between">
@@ -1655,21 +1844,22 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       </div>
 
       {/* ======================================================== */}
-      {/* EXCEL STAGING PREVIEW MODAL (Absolute Z-Index [200])     */}
+      {/* EXCEL STAGING PREVIEW MODAL (Directive 2 UI Overhaul)     */}
       {/* ======================================================== */}
       {showStagingModal && (
         <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 pointer-events-auto animate-in fade-in">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-2xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden">
-            {/* Header */}
-            <div className="p-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+            {/* Sleek Sticky Rounded Header */}
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md p-4 sm:p-5 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
                   <span>Review Excel Import</span>
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">
-                  {stagedRows.filter((r) => r.isValid).length} valid rows ·{' '}
-                  {stagedRows.filter((r) => !r.isValid).length} rows with issues
+                  {stagedRows.filter((r) => r.isValid && !r.isConflict).length} new ·{' '}
+                  {stagedRows.filter((r) => r.isConflict).length} partial conflicts ·{' '}
+                  {skippedExactMatches} exact duplicates merged
                 </p>
               </div>
               <button
@@ -1677,29 +1867,35 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 onClick={() => {
                   setShowStagingModal(false);
                   setStagedRows([]);
+                  setActiveConflictRow(null);
                 }}
-                className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Staging Body Table */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 pb-12">
-              <div className="text-xs text-zinc-500 mb-2">
-                Rows highlighted in red have missing mandatory fields (Full Name or School). You can remove them or fix your Excel file.
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              <div className="text-xs text-zinc-500 mb-2 flex items-center justify-between">
+                <span>Review imported participants before committing to the database.</span>
+                {skippedExactMatches > 0 && (
+                  <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                    {skippedExactMatches} duplicates silently skipped
+                  </span>
+                )}
               </div>
 
-              <div className="border border-stone-200 dark:border-zinc-800 rounded-xl overflow-hidden">
+              <div className="border border-stone-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-stone-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-bold border-b border-stone-200 dark:border-zinc-800">
                     <tr>
-                      <th className="p-2.5">Status</th>
-                      <th className="p-2.5">Full Name</th>
-                      <th className="p-2.5">School / Team</th>
-                      <th className="p-2.5">{categoryLabel}</th>
-                      <th className="p-2.5">Mobile</th>
-                      <th className="p-2.5 text-center">Action</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Full Name</th>
+                      <th className="p-3">School / Team</th>
+                      <th className="p-3">{categoryLabel}</th>
+                      <th className="p-3">Mobile</th>
+                      <th className="p-3 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-200 dark:divide-zinc-800">
@@ -1709,11 +1905,29 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         className={
                           !row.isValid
                             ? 'bg-red-500/10 text-red-700 dark:text-red-400'
+                            : row.isConflict
+                            ? 'bg-amber-500/5 hover:bg-amber-500/10'
                             : 'hover:bg-stone-50 dark:hover:bg-zinc-900/50'
                         }
                       >
-                        <td className="p-2.5">
-                          {row.isValid ? (
+                        <td className="p-3">
+                          {row.isConflict ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setActiveConflictRow(row)}
+                                className="relative flex items-center justify-center cursor-pointer group"
+                                title="Partial conflict: Click to view comparison"
+                              >
+                                <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-black shadow-xs shadow-amber-500/50 animate-pulse">
+                                  ?
+                                </span>
+                              </button>
+                              <span className="text-[10px] font-bold text-amber-500">
+                                {row.conflictResolution === 'update_db' ? 'Update DB' : 'Keep DB'}
+                              </span>
+                            </div>
+                          ) : row.isValid ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                               <Check className="w-3.5 h-3.5" />
                               <span>Valid</span>
@@ -1725,26 +1939,27 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                             </span>
                           )}
                         </td>
-                        <td className="p-2.5 font-semibold text-zinc-900 dark:text-white">
+                        <td className="p-3 font-semibold text-zinc-900 dark:text-white">
                           {row.name || <span className="italic text-red-500">Missing</span>}
                         </td>
-                        <td className="p-2.5 text-zinc-600 dark:text-zinc-400">
+                        <td className="p-3 text-zinc-600 dark:text-zinc-400">
                           {row.school || <span className="italic text-red-500">Missing</span>}
                         </td>
-                        <td className="p-2.5 text-zinc-600 dark:text-zinc-400">
+                        <td className="p-3 text-zinc-600 dark:text-zinc-400">
                           {row.class_or_age || '—'}
                         </td>
-                        <td className="p-2.5 text-zinc-600 dark:text-zinc-400 font-mono">
+                        <td className="p-3 text-zinc-600 dark:text-zinc-400 font-mono">
                           {row.mobile_number || '—'}
                         </td>
-                        <td className="p-2.5 text-center">
+                        <td className="p-3 text-center">
+                          {/* Discrete Minus Button to surgically delete from batch */}
                           <button
                             type="button"
                             onClick={() => handleRemoveStagedRow(row.id)}
-                            className="p-1 text-zinc-400 hover:text-red-500 cursor-pointer"
-                            title="Discard this row"
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer transition-colors"
+                            title="Remove from batch"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <MinusCircle className="w-4 h-4" />
                           </button>
                         </td>
                       </tr>
@@ -1754,15 +1969,16 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="p-4 border-t border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-stone-50/50 dark:bg-zinc-950 shrink-0">
+            {/* Sleek Sticky Rounded Footer */}
+            <div className="sticky bottom-0 z-10 p-4 sm:p-5 border-t border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shrink-0">
               <button
                 type="button"
                 onClick={() => {
                   setShowStagingModal(false);
                   setStagedRows([]);
+                  setActiveConflictRow(null);
                 }}
-                className="min-h-[44px] px-4 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 cursor-pointer"
+                className="min-h-[44px] px-5 rounded-2xl border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all active:scale-[0.98] cursor-pointer"
               >
                 Cancel
               </button>
@@ -1770,18 +1986,110 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 type="button"
                 disabled={isImporting || stagedRows.filter((r) => r.isValid).length === 0}
                 onClick={handleConfirmImport}
-                className="min-h-[44px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                className="min-h-[44px] px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-wider shadow-md shadow-emerald-500/25 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
               >
                 {isImporting ? (
-                  <span>Importing...</span>
+                  <span>Processing Batch...</span>
                 ) : (
                   <>
                     <Check className="w-4 h-4 stroke-[2.5]" />
                     <span>
-                      Confirm & Import {stagedRows.filter((r) => r.isValid).length} Participants
+                      Confirm &amp; Import ({stagedRows.filter((r) => r.isValid).length})
                     </span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Partial Conflict Ergonomic Mini-Popup (Directive 2) */}
+      {activeConflictRow && activeConflictRow.conflictExisting && (
+        <div className="fixed inset-0 z-[250] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-zinc-800">
+              <div className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-full bg-amber-500 text-black font-black text-xs flex items-center justify-center shadow-xs shadow-amber-500/50">
+                  ?
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
+                    Data Conflict Detected
+                  </h4>
+                  <p className="text-[11px] text-zinc-500 font-mono">
+                    {activeConflictRow.name} • {activeConflictRow.school}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveConflictRow(null)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+              The 3 core fields (Name, Class/Age, Institution) match an existing record, but optional fields differ. Choose how to resolve:
+            </p>
+
+            <div className="rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden divide-y divide-stone-100 dark:divide-zinc-800/80">
+              <div className="grid grid-cols-3 p-2.5 bg-stone-100/60 dark:bg-zinc-900 font-bold text-[11px] text-zinc-500 uppercase tracking-wider">
+                <div>Field</div>
+                <div className="text-emerald-600 dark:text-emerald-400">Excel Data</div>
+                <div className="text-zinc-500">DB Data</div>
+              </div>
+              {(activeConflictRow.differingFields || []).map((diff, idx) => (
+                <div key={idx} className="grid grid-cols-3 p-2.5 text-xs items-center">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">{diff.field}</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold break-words pr-1">{diff.excelVal}</span>
+                  <span className="font-mono text-zinc-500 break-words line-through decoration-zinc-400">{diff.dbVal}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStagedRows((prev) =>
+                    prev.map((r) =>
+                      r.id === activeConflictRow.id
+                        ? { ...r, conflictResolution: 'keep_existing' }
+                        : r
+                    )
+                  );
+                  setActiveConflictRow(null);
+                }}
+                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  activeConflictRow.conflictResolution === 'keep_existing'
+                    ? 'bg-zinc-800 text-white border-zinc-700'
+                    : 'border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900'
+                }`}
+              >
+                Keep Existing
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStagedRows((prev) =>
+                    prev.map((r) =>
+                      r.id === activeConflictRow.id
+                        ? { ...r, conflictResolution: 'update_db' }
+                        : r
+                    )
+                  );
+                  setActiveConflictRow(null);
+                }}
+                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md ${
+                  activeConflictRow.conflictResolution === 'update_db'
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/20'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                }`}
+              >
+                Update DB
               </button>
             </div>
           </div>
@@ -2205,46 +2513,88 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       )}
 
       {/* ======================================================== */}
-      {/* 3. STANDARDIZED DELETION CONFIRMATION MODAL               */}
+      {/* 3. STANDARDIZED DELETION CONFIRMATION MODAL (Directive 3) */}
       {/* ======================================================== */}
       {deleteModalState && deleteModalState.isOpen && (
         <div className="fixed inset-0 z-[120] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
-              <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
-                  {deleteModalState.type === 'participant' ? 'Remove Participant?' : 'Remove Judge?'}
-                </h3>
-                <p className="text-xs text-red-600 dark:text-red-400 font-mono">
-                  Permanent removal
+            {deleteModalState.isOngoingWarning ? (
+              <>
+                <div className="flex items-center space-x-3 text-amber-500">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
+                      Active Roster Warning
+                    </h3>
+                    <p className="text-xs text-amber-500 font-mono">
+                      Enrolled in Ongoing Events
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  This participant is currently enrolled in active events: <strong className="text-zinc-900 dark:text-white">{deleteModalState.eventNames?.join(', ')}</strong>. Deleting them will pull them from all active rosters. Proceed?
                 </p>
-              </div>
-            </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-              Permanently remove <strong className="text-zinc-900 dark:text-white">{deleteModalState.name}</strong> from the official competition roster? This action cannot be undone.
-            </p>
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteModalState(null)}
+                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDelete}
+                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Proceed &amp; Remove</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
+                  <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
+                      {deleteModalState.type === 'participant' ? 'Remove Participant?' : 'Remove Judge?'}
+                    </h3>
+                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                      Permanent removal
+                    </p>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => setDeleteModalState(null)}
-                className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>{deleteModalState.type === 'participant' ? 'Remove Participant' : 'Remove Judge'}</span>
-              </button>
-            </div>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  Permanently remove <strong className="text-zinc-900 dark:text-white">{deleteModalState.name}</strong> from the official competition roster? This action cannot be undone.
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteModalState(null)}
+                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDelete}
+                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>{deleteModalState.type === 'participant' ? 'Remove Participant' : 'Remove Judge'}</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

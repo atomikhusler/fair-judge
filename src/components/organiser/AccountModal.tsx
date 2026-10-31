@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
+import { useToast } from '../common/ToastProvider';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -38,7 +39,7 @@ export function AccountModal({
   onLogout,
 }: AccountModalProps) {
   const [copiedOrgId, setCopiedOrgId] = useState(false);
-  const [modalToast, setModalToast] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   // Organization Name Inline Edit State
   const [isEditingName, setIsEditingName] = useState(false);
@@ -85,10 +86,6 @@ export function AccountModal({
 
   if (!isOpen) return null;
 
-  const showToast = (msg: string) => {
-    setModalToast(msg);
-    setTimeout(() => setModalToast(null), 2500);
-  };
 
   const handleCopyOrgId = () => {
     navigator.clipboard.writeText(organization.org_id);
@@ -223,15 +220,6 @@ export function AccountModal({
       {/* Modal Dialog */}
       <div className="relative w-full max-w-lg bg-stone-100/50 dark:bg-black text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200 select-none">
         
-        {/* Toast inside Modal */}
-        {modalToast && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-xs pointer-events-none animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="py-2 px-3.5 rounded-full bg-zinc-900/95 dark:bg-zinc-800/95 text-white border border-zinc-700/80 shadow-xl backdrop-blur-md flex items-center justify-center space-x-2 text-xs font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span className="truncate">{modalToast}</span>
-            </div>
-          </div>
-        )}
 
         {/* Modal Header */}
         <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">

@@ -169,14 +169,42 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
     return { syncedCount: 0, failedCount: 0 };
   }
 
-  const mutations = await getPendingMutations();
-  if (mutations.length === 0) {
+  const rawMutations = await getPendingMutations();
+  if (rawMutations.length === 0) {
     return { syncedCount: 0, failedCount: 0 };
   }
 
-  // Sort mutations in chronological order so dependent creations precede updates/deletions
-  mutations.sort((a, b) => new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime());
+  // 1. Client-Side Optimistic Concurrency Control (OCC) Deduplication
+  // If multiple mutations exist for the same entityId on the same table, keep the latest
+  const latestMutationMap = new Map<string, PendingMutationRecord>();
+  const obsoleteMutationIds: string[] = [];
 
+  // Sort chronological
+  rawMutations.sort((a, b) => new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime());
+
+  for (const item of rawMutations) {
+    const key = `${item.table}:${item.entityId}`;
+    if (latestMutationMap.has(key)) {
+      const prev = latestMutationMap.get(key)!;
+      // If previous was an INSERT and current is UPDATE, merge payloads into INSERT
+      if (prev.operation === 'INSERT' && item.operation === 'UPDATE') {
+        prev.payload = { ...(prev.payload || {}), ...(item.payload || {}) };
+        prev.queuedAt = item.queuedAt;
+        obsoleteMutationIds.push(item.id);
+        continue;
+      }
+      // If superseded, prune previous
+      obsoleteMutationIds.push(prev.id);
+    }
+    latestMutationMap.set(key, item);
+  }
+
+  // Prune obsolete superseded mutations from IndexedDB so they never hit network
+  if (obsoleteMutationIds.length > 0) {
+    await Promise.all(obsoleteMutationIds.map((id) => removePendingMutation(id)));
+  }
+
+  const mutations = Array.from(latestMutationMap.values());
   let syncedCount = 0;
   let failedCount = 0;
 
@@ -322,7 +350,7 @@ export async function getPendingCount(): Promise<number> {
   }
 }
 
-// Sync all pending scores and mutations to Supabase
+// Sync all pending scores and mutations to Supabase with OCC Deduplication & Batched Upsert
 export async function flushOfflineQueueToSupabase(): Promise<{
   syncedCount: number;
   failedCount: number;
@@ -334,46 +362,98 @@ export async function flushOfflineQueueToSupabase(): Promise<{
   // 1. Flush offline structural mutations first (events, participants, judges)
   const mutationResult = await flushOfflineMutationsToSupabase();
 
-  // 2. Flush pending scores (ballots)
-  const pendingScores = await getPendingScores();
+  // 2. Flush pending scores (ballots) with OCC deduplication and batched upsert
+  const rawScores = await getPendingScores();
   let scoreSynced = 0;
   let scoreFailed = 0;
 
-  if (isSupabaseConfigured && pendingScores.length > 0) {
-    for (const item of pendingScores) {
-      try {
-        const payloadJson = {
-          criteria: item.score_data || item.score_payload?.criteria || {},
-          total_score: item.total_score,
-          submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
-        };
+  if (isSupabaseConfigured && rawScores.length > 0) {
+    // OCC Deduplication: Group by event_id + participant_id + judge_id
+    const dedupedScoreMap = new Map<string, PendingScoreRecord>();
+    const obsoleteScoreIds: string[] = [];
 
-        const { error } = await supabase.from('scores').upsert([
-          {
-            id: item.id,
-            event_id: item.event_id,
-            judge_id: item.judge_id,
-            participant_id: item.participant_id,
+    // Sort chronological so newer score overwrites older
+    rawScores.sort((a, b) => new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime());
+
+    for (const item of rawScores) {
+      const entityKey = `${item.event_id}___${item.participant_id}___${item.judge_id}`;
+      if (dedupedScoreMap.has(entityKey)) {
+        const prev = dedupedScoreMap.get(entityKey)!;
+        obsoleteScoreIds.push(prev.id);
+      }
+      dedupedScoreMap.set(entityKey, item);
+    }
+
+    // Prune stale superseded score ballots from IndexedDB immediately
+    if (obsoleteScoreIds.length > 0) {
+      await Promise.all(obsoleteScoreIds.map((id) => removePendingScore(id)));
+    }
+
+    const dedupedScores = Array.from(dedupedScoreMap.values());
+
+    // Batched Network Upsert: Scoop all deduped records into a single batched array
+    const batchedPayload = dedupedScores.map((item) => ({
+      id: item.id,
+      event_id: item.event_id,
+      judge_id: item.judge_id,
+      participant_id: item.participant_id,
+      total_score: item.total_score,
+      score_payload: {
+        criteria: item.score_data || item.score_payload?.criteria || {},
+        total_score: item.total_score,
+        submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
+      },
+    }));
+
+    try {
+      // Single batched network call
+      const { error } = await supabase.from('scores').upsert(batchedPayload);
+
+      if (error) {
+        throw error;
+      }
+
+      // Success: Clean up all synced items from IndexedDB
+      await Promise.all(dedupedScores.map((item) => removePendingScore(item.id)));
+      scoreSynced += dedupedScores.length;
+    } catch (batchErr: any) {
+      console.warn('Batched score upsert encountered error, falling back to granular safe sync:', batchErr?.message || batchErr);
+
+      // Granular fallback in case one score has an RLS immutability conflict
+      for (const item of dedupedScores) {
+        try {
+          const payloadJson = {
+            criteria: item.score_data || item.score_payload?.criteria || {},
             total_score: item.total_score,
-            score_payload: payloadJson,
-          },
-        ]);
+            submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
+          };
 
-        if (error) {
-          // If already recorded due to RLS immutability, remove from local queue
-          if (error.message && error.message.includes('RLS Permission Denied')) {
-            await removePendingScore(item.id);
-            scoreSynced++;
-            continue;
+          const { error } = await supabase.from('scores').upsert([
+            {
+              id: item.id,
+              event_id: item.event_id,
+              judge_id: item.judge_id,
+              participant_id: item.participant_id,
+              total_score: item.total_score,
+              score_payload: payloadJson,
+            },
+          ]);
+
+          if (error) {
+            if (error.message && error.message.includes('RLS Permission Denied')) {
+              await removePendingScore(item.id);
+              scoreSynced++;
+              continue;
+            }
+            throw error;
           }
-          throw error;
-        }
 
-        await removePendingScore(item.id);
-        scoreSynced++;
-      } catch (err: any) {
-        console.warn(`Retryable error syncing offline score ${item.id}:`, err?.message || err);
-        scoreFailed++;
+          await removePendingScore(item.id);
+          scoreSynced++;
+        } catch (err: any) {
+          console.warn(`Retryable error syncing offline score ${item.id}:`, err?.message || err);
+          scoreFailed++;
+        }
       }
     }
   }

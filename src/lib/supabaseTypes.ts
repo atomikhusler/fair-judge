@@ -41,6 +41,7 @@ export interface SupabaseEvent {
   category?: string;
   date?: string;
   status: EventStatus;
+  is_archived?: boolean; // Inbox Zero Archive flag (Phase 13.9)
   started_at?: string | null; // ISO timestamp when session was started
   elapsed_seconds?: number; // total accumulated seconds
   rubric_schema: RubricCriterion[]; // JSONB
@@ -61,6 +62,7 @@ export interface SupabaseJudge {
   judge_pin: string; // Compatibility alias
   assigned_events: string[]; // Event IDs
   current_session_token?: string | null; // Single-device active session lock token
+  is_active?: boolean; // Soft-delete flag (Phase 13.6)
   created_at: string;
 }
 
@@ -74,6 +76,7 @@ export interface SupabaseParticipant {
   class_or_age?: string; // Default Field: Class/Age
   mobile_number?: string; // Default Field: Mobile Number
   custom_values?: Record<string, string>; // Dynamic custom fields
+  is_active?: boolean; // Soft-delete flag (Phase 13.6)
   created_at: string;
 }
 

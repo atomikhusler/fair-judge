@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { NetworkStatusIndicator } from './components/NetworkStatusIndicator';
-import { ToastManager } from './components/common/ToastManager';
+import { ToastProvider } from './components/common/ToastProvider';
 import { Organization, SupabaseJudge, SupabaseEvent } from './lib/supabaseTypes';
 import {
   dbService,
@@ -299,7 +299,7 @@ export default function App() {
   };
 
   return (
-    <>
+    <ToastProvider>
       {/* ======================================================== */}
       {/* FRAMER-GRADE PWA INITIALIZATION BOOT SCREEN              */}
       {/* ======================================================== */}
@@ -368,7 +368,6 @@ export default function App() {
       >
         {renderScreenContent()}
       </Suspense>
-      <ToastManager />
-    </>
+    </ToastProvider>
   );
 }

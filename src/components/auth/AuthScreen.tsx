@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { dbService } from '../../lib/supabase';
 import { Organization, SupabaseJudge, SupabaseEvent } from '../../lib/supabaseTypes';
+import { JudgeLogin } from '../judge/JudgeLogin';
 
 interface AuthScreenProps {
   onOrganiserLogin: (org: Organization) => void;
@@ -587,164 +588,12 @@ export function AuthScreen({ onOrganiserLogin, onJudgeLogin }: AuthScreenProps) 
           </div>
         )}
 
-        {/* VIEW 3: JUDGE AUTH FORM (Amber/Orange Theme) */}
+        {/* VIEW 3: JUDGE AUTH FORM (Amber/Orange Theme with QR Camera + Gallery Upload Fallback) */}
         {selectedRole === 'judge' && (
-          <div className="w-full max-h-full overflow-y-auto no-scrollbar bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 rounded-3xl p-5 md:p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-200">
-            {/* Header with Back Button */}
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800/80 mb-4">
-              <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-lg bg-orange-500/10 text-orange-500">
-                  <Gavel className="w-4 h-4" />
-                </div>
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-white">
-                  Judge Portal Access
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  stopScanner();
-                  setJudgeError('');
-                  setSelectedRole('split');
-                }}
-                className="flex items-center space-x-1 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white transition-colors cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Back</span>
-              </button>
-            </div>
-
-            {/* Primary Action: QR Code Button */}
-            <div className="mb-4">
-              {!cameraActive ? (
-                <button
-                  type="button"
-                  onClick={startScanner}
-                  className="w-full min-h-[48px] rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-orange-500/25 active:scale-[0.99] flex items-center justify-center space-x-2 cursor-pointer transition-all border border-orange-400/20"
-                >
-                  <Camera className="w-4 h-4 text-white" />
-                  <span>Scan QR Code</span>
-                </button>
-              ) : (
-                <div className="w-full bg-stone-100 dark:bg-zinc-900 rounded-2xl overflow-hidden border border-stone-200 dark:border-zinc-800 p-3 relative flex flex-col items-center">
-                  <div className="flex items-center justify-between w-full px-1 pb-2">
-                    <span className="text-[11px] font-mono font-bold text-zinc-600 dark:text-zinc-300 uppercase tracking-wider flex items-center space-x-2">
-                      <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                      <span>Point camera at Judge Credential QR</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={stopScanner}
-                      className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-white rounded-lg transition-colors cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div id={qrRegionId} className="w-full max-w-[220px] rounded-xl overflow-hidden border border-stone-300 dark:border-zinc-700 shadow-inner" />
-
-                  <button
-                    type="button"
-                    onClick={stopScanner}
-                    className="mt-2 px-3 py-1 bg-stone-200 dark:bg-zinc-800 hover:bg-stone-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-[11px] font-semibold rounded-lg transition-colors cursor-pointer"
-                  >
-                    Cancel Camera
-                  </button>
-                </div>
-              )}
-
-              {cameraError && (
-                <div className="mt-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-600 dark:text-amber-400 flex items-start space-x-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{cameraError}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Separator */}
-            <div className="flex items-center my-3.5">
-              <div className="flex-1 border-t border-stone-200 dark:border-zinc-800/80" />
-              <span className="px-3 text-[10px] font-mono uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-                OR ENTER CREDENTIALS MANUALLY
-              </span>
-              <div className="flex-1 border-t border-stone-200 dark:border-zinc-800/80" />
-            </div>
-
-            {/* Inputs: Three inputs only (Org ID, Judge ID, 4-Digit PIN) */}
-            <form onSubmit={(e) => handleJudgeSubmit(e)} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 uppercase tracking-wider">
-                    Org ID
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. FJ-9A2X"
-                    value={judgeOrgId}
-                    onChange={(e) => setJudgeOrgId(e.target.value.toUpperCase())}
-                    required
-                    className="min-h-[48px] rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 focus:ring-2 focus:ring-orange-500/40 text-sm font-medium font-mono w-full px-4 text-zinc-900 dark:text-white uppercase focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 uppercase tracking-wider">
-                    Judge ID
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. J-01"
-                    value={judgeId}
-                    onChange={(e) => setJudgeId(e.target.value.toUpperCase())}
-                    required
-                    className="min-h-[48px] rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 focus:ring-2 focus:ring-orange-500/40 text-sm font-medium font-mono w-full px-4 text-zinc-900 dark:text-white uppercase focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 uppercase tracking-wider">
-                  4-Digit Security PIN
-                </label>
-                <div className="relative">
-                  <KeyRound className="w-4 h-4 text-zinc-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="password"
-                    maxLength={4}
-                    placeholder="••••"
-                    value={judgePin}
-                    onChange={(e) => setJudgePin(e.target.value)}
-                    required
-                    className="min-h-[48px] rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 focus:ring-2 focus:ring-orange-500/40 font-mono text-base tracking-widest text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none text-center w-full pl-10 pr-4"
-                  />
-                </div>
-              </div>
-
-              {judgeError && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-500 dark:text-red-400">
-                  {judgeError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isVerifyingJudge}
-                className="w-full min-h-[48px] bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-all shadow-md shadow-orange-500/25 flex items-center justify-center space-x-2 disabled:opacity-50 active:scale-[0.99] cursor-pointer mt-2"
-              >
-                {isVerifyingJudge ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Verifying Credentials...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Enter Scoring Panel</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
+          <JudgeLogin
+            onJudgeLogin={onJudgeLogin}
+            onBack={() => setSelectedRole('split')}
+          />
         )}
       </div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import { 
   Play, 
   Square, 
@@ -49,6 +49,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   );
   // 2. Command Bar & Search State
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearch = useDeferredValue(searchQuery);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [unreadAlerts, setUnreadAlerts] = useState(false);
   const [pendingScoresCount, setPendingScoresCount] = useState(0);
@@ -329,18 +330,23 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   }, [events]);
 
   const filteredEvents = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     if (!q) return sortedEvents;
     return sortedEvents.filter(
       (e) =>
         e.name.toLowerCase().includes(q) ||
         (e.category && e.category.toLowerCase().includes(q))
     );
-  }, [sortedEvents, searchQuery]);
+  }, [sortedEvents, deferredSearch]);
 
   // -------------------------------------------------------------
   // PARTICIPANT & TELEMETRY CALCULATIONS
   // -------------------------------------------------------------
+  // Normalized participantMap for O(1) roster lookups (Directive 2)
+  const participantMap = useMemo(() => {
+    return new Map(allParticipants.map((p) => [p.id, p]));
+  }, [allParticipants]);
+
   // STRICT ROSTER RULE: If assigned_participants.length === 0, return [] (do NOT fallback to full org roster)
   const getEventParticipants = useCallback(
     (event: SupabaseEvent): SupabaseParticipant[] => {
@@ -349,10 +355,10 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         return [];
       }
       return assignedIds
-        .map((id) => allParticipants.find((p) => p.id === id))
+        .map((id) => participantMap.get(id))
         .filter((p): p is SupabaseParticipant => Boolean(p));
     },
-    [allParticipants]
+    [participantMap]
   );
 
   const getParticipantDisplayName = (
@@ -506,6 +512,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
             return (
               <div
                 key={event.id}
+                style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
                 className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:border-stone-300 dark:hover:border-zinc-700"
               >
                 {/* ---------------- TOP ROW: [CATEGORY] Pill (Left) | [STATUS] Badge (Right) ---------------- */}

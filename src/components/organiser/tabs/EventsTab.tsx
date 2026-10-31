@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import { 
   Plus, 
   Search, 
   Edit3, 
   Trash2, 
   Archive, 
+  ArchiveRestore,
   Users, 
   Gavel, 
   X, 
@@ -26,7 +27,8 @@ import {
   GripVertical,
   ChevronUp,
   ChevronDown,
-  Lock
+  Lock,
+  KeyRound
 } from 'lucide-react';
 import { 
   Organization, 
@@ -38,6 +40,7 @@ import {
 } from '../../../lib/supabaseTypes';
 import { dbService, generateUUID, subscribeToDatabase } from '../../../lib/supabase';
 import { eventBus } from '../../../lib/eventBus';
+import { useToast } from '../../common/ToastProvider';
 
 interface EventsTabProps {
   organization: Organization;
@@ -115,16 +118,21 @@ export function EventsTab({
 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const deferredSearch = useDeferredValue(searchQuery);
+  const { showToast } = useToast();
 
-  // Custom Framer-Style Modal State (Delete & Duplicate confirmations)
+  // Tiered Deletion Matrix & Custom Framer-Style Modal State (Phase 13.9)
   const [eventModalState, setEventModalState] = useState<{
     isOpen: boolean;
-    type: 'delete' | 'duplicate';
+    type: 'delete_draft' | 'delete_ended' | 'duplicate';
     eventId: string;
     eventName: string;
+    status?: EventStatus;
     canDelete?: boolean;
   } | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [masterPasswordInput, setMasterPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   // ========================================================
   // 2. FULL-SCREEN CREATE / EDIT EVENT PAGE STATE
@@ -169,6 +177,32 @@ export function EventsTab({
     if (!dossierEventId) return null;
     return events.find((e) => e.id === dossierEventId) || null;
   }, [events, dossierEventId]);
+
+  // Active Roster ID sets for O(1) relational existence checks (Eradicates ghost counts - Phase 13.7)
+  const activeParticipantIdSet = useMemo(() => {
+    return new Set(
+      participants
+        .filter((p) => p.is_active !== false)
+        .map((p) => p.id)
+    );
+  }, [participants]);
+
+  const activeJudgeIdSet = useMemo(() => {
+    return new Set(
+      judges
+        .filter((j) => j.is_active !== false)
+        .map((j) => j.id)
+    );
+  }, [judges]);
+
+  // Normalized O(1) entity lookups (Directive 2)
+  const participantMap = useMemo(() => {
+    return new Map(participants.map((p) => [p.id, p]));
+  }, [participants]);
+
+  const judgeMap = useMemo(() => {
+    return new Map(judges.map((j) => [j.id, j]));
+  }, [judges]);
 
   // Modal local search & enrollment sub-panels
   const [participantSearch, setParticipantSearch] = useState('');
@@ -221,13 +255,6 @@ export function EventsTab({
     [organization.org_id]
   );
 
-  // Toast notification helper with auto-dismiss
-  const showToast = useCallback((msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage((current) => (current === msg ? null : current));
-    }, 3500);
-  }, []);
 
   // ========================================================
   // 4. EVENT-DRIVEN SYNC (Pure EventBus with Zero-Flash Hydration)
@@ -440,24 +467,57 @@ export function EventsTab({
     }
   };
 
-  const handleDeleteClick = async (e: React.MouseEvent, evt: SupabaseEvent) => {
+  const handleToggleArchive = async (e: React.MouseEvent, evt: SupabaseEvent) => {
+    e.stopPropagation();
+    const willArchive = !evt.is_archived;
+    try {
+      await dbService.updateEvent(evt.id, { is_archived: willArchive });
+      setEvents((prev) =>
+        prev.map((item) => (item.id === evt.id ? { ...item, is_archived: willArchive } : item))
+      );
+      showToast(
+        willArchive
+          ? `Event "${evt.name}" moved to archive.`
+          : `Event "${evt.name}" restored from archive.`
+      );
+    } catch (err) {
+      console.error('Failed to toggle archive status:', err);
+      showToast('Failed to update event archive status.');
+    }
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent, evt: SupabaseEvent) => {
     e.stopPropagation();
     const status = (evt.status || 'draft').toLowerCase();
 
-    // Live event cannot be deleted directly (must end or pause first)
+    // 1. Active Events: Delete button visible at 50% opacity. Does NOT open modal. Triggers global toast.
     if (status === 'active') {
-      showToast('Prohibited: Cannot delete an event while it is live. End session first.');
+      showToast('Action Denied: Cannot delete an active event. Pause or End it first.');
       return;
     }
 
-    // STRICT RULE: Only event can be deleted once ended/completed
-    const canDelete = await dbService.canDeleteEvent(evt.id);
+    // 2. Ended Events (Offline Auth): Prompt for Organization Master Password
+    if (status === 'ended' || status === 'archived') {
+      setMasterPasswordInput('');
+      setPasswordError(null);
+      setEventModalState({
+        isOpen: true,
+        type: 'delete_ended',
+        eventId: evt.id,
+        eventName: evt.name,
+        status: evt.status,
+      });
+      return;
+    }
+
+    // 3. Draft / Upcoming / Paused: Standard double-confirmation modal (type DELETE or name)
+    setDeleteConfirmText('');
     setEventModalState({
       isOpen: true,
-      type: 'delete',
+      type: 'delete_draft',
       eventId: evt.id,
       eventName: evt.name,
-      canDelete,
+      status: evt.status,
     });
   };
 
@@ -475,24 +535,47 @@ export function EventsTab({
     if (!eventModalState) return;
     const { type, eventId, eventName: targetName } = eventModalState;
 
-    if (type === 'delete') {
+    if (type === 'delete_draft') {
       try {
-        const res = await dbService.deleteOrArchiveEvent(eventId);
-        if (res.action === 'deleted') {
-          showToast(`Event "${targetName}" was permanently deleted.`);
-        } else {
-          showToast(`Event "${targetName}" was safely archived.`);
-        }
+        await dbService.deleteEvent(eventId);
+        showToast(`Event "${targetName}" was permanently deleted.`);
         if (isWizardOpen && editingEventId === eventId) {
           setIsWizardOpen(false);
           setIsDirty(false);
         }
         await loadData();
       } catch (err) {
-        console.error('Failed to delete/archive event:', err);
+        console.error('Failed to delete event:', err);
         showToast('Action failed.');
       } finally {
         setEventModalState(null);
+        setDeleteConfirmText('');
+      }
+    } else if (type === 'delete_ended') {
+      // Offline Master Password Validation against cached organization.password
+      const expectedPassword = (organization.password || '').trim();
+      const enteredPassword = masterPasswordInput.trim();
+
+      if (!enteredPassword || (expectedPassword && enteredPassword !== expectedPassword)) {
+        setPasswordError('Authentication Failed: Invalid Master Password.');
+        showToast('Authentication Failed: Invalid Master Password.');
+        return;
+      }
+
+      try {
+        await dbService.deleteEvent(eventId);
+        showToast(`Event "${targetName}" permanently deleted.`);
+        if (isWizardOpen && editingEventId === eventId) {
+          setIsWizardOpen(false);
+          setIsDirty(false);
+        }
+        setEventModalState(null);
+        setMasterPasswordInput('');
+        setPasswordError(null);
+        await loadData();
+      } catch (err) {
+        console.error('Failed to delete ended event:', err);
+        showToast('Action failed.');
       }
     } else if (type === 'duplicate') {
       const evt = events.find((e) => e.id === eventId);
@@ -685,7 +768,9 @@ export function EventsTab({
       const updatedSerialMap = { ...(activeParticipantsModalEvent.participant_sl_numbers || {}) };
       delete updatedSerialMap[participantId];
 
-      const isNowReady = updatedList.length > 0 && (activeParticipantsModalEvent.assigned_judges || []).length > 0;
+      const hasActiveP = updatedList.some((id) => activeParticipantIdSet.has(id));
+      const hasActiveJ = (activeParticipantsModalEvent.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
+      const isNowReady = hasActiveP && hasActiveJ;
       let newStatus: EventStatus = activeParticipantsModalEvent.status;
       if (status !== 'active' && status !== 'ended' && status !== 'archived' && status !== 'paused') {
         newStatus = isNowReady ? 'ready' : 'draft';
@@ -735,7 +820,9 @@ export function EventsTab({
         [participantId]: formattedSerial,
       };
 
-      const isNowReady = updatedList.length > 0 && (activeParticipantsModalEvent.assigned_judges || []).length > 0;
+      const hasActiveP = updatedList.some((id) => id === participantId || activeParticipantIdSet.has(id));
+      const hasActiveJ = (activeParticipantsModalEvent.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
+      const isNowReady = hasActiveP && hasActiveJ;
       let newStatus: EventStatus = activeParticipantsModalEvent.status;
       if (status !== 'active' && status !== 'ended' && status !== 'archived' && status !== 'paused') {
         newStatus = isNowReady ? 'ready' : 'draft';
@@ -836,7 +923,9 @@ export function EventsTab({
         ? currentJudges.filter((id) => id !== judgeId)
         : [...currentJudges, judgeId];
 
-      const isNowReady = (activeJudgesModalEvent.assigned_participants || []).length > 0 && updatedJudges.length > 0;
+      const hasActiveP = (activeJudgesModalEvent.assigned_participants || []).some((id) => activeParticipantIdSet.has(id));
+      const hasActiveJ = updatedJudges.some((id) => (id === judgeId ? !isAssigned : activeJudgeIdSet.has(id)));
+      const isNowReady = hasActiveP && hasActiveJ;
       let newStatus: EventStatus = activeJudgesModalEvent.status;
       if (status !== 'active' && status !== 'ended' && status !== 'archived' && status !== 'paused') {
         newStatus = isNowReady ? 'ready' : 'draft';
@@ -860,34 +949,52 @@ export function EventsTab({
   };
 
   // ========================================================
-  // 11. FILTER & SEARCH LOGIC
+  // 11. FILTER & SEARCH LOGIC (Relational Ghost-Filtered Derived State - Phase 13.7)
   // ========================================================
   const statusCounts = useMemo(() => {
-    const counts = { all: events.length, active: 0, upcoming: 0, draft: 0, ended: 0 };
+    const counts = { all: 0, active: 0, upcoming: 0, draft: 0, ended: 0 };
     events.forEach((e) => {
+      // Inbox Zero: Archived events do NOT increment the "All" tab count
+      if (!e.is_archived) {
+        counts.all++;
+      }
       const st = (e.status || 'draft').toLowerCase();
-      const hasBoth = (e.assigned_participants || []).length > 0 && (e.assigned_judges || []).length > 0;
+      const hasActiveParticipants = (e.assigned_participants || []).some((id) => activeParticipantIdSet.has(id));
+      const hasActiveJudges = (e.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
+      const hasBoth = hasActiveParticipants && hasActiveJudges;
       if (st === 'active') counts.active++;
       else if (st === 'ended' || st === 'archived') counts.ended++;
       else if (st === 'ready' || st === 'upcoming' || hasBoth) counts.upcoming++;
       else counts.draft++;
     });
     return counts;
-  }, [events]);
+  }, [events, activeParticipantIdSet, activeJudgeIdSet]);
 
   const filteredEvents = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase();
+    const isGlobalSearch = query !== '';
+
     return events.filter((e) => {
       const matchesSearch =
-        searchQuery.trim() === '' ||
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (e.category && e.category.toLowerCase().includes(searchQuery.toLowerCase()));
-
-      const st = (e.status || 'draft').toLowerCase();
-      const hasBoth = (e.assigned_participants || []).length > 0 && (e.assigned_judges || []).length > 0;
-      const isReadyOrUpcoming = st === 'ready' || st === 'upcoming' || (st === 'draft' && hasBoth);
-      const isDraftOnly = st === 'draft' && !hasBoth;
+        query === '' ||
+        e.name.toLowerCase().includes(query) ||
+        (e.category && e.category.toLowerCase().includes(query));
 
       if (!matchesSearch) return false;
+
+      // ARCHIVE LOGIC ("Inbox Zero"):
+      // Archived events must NOT render in the "All" tab.
+      // They ONLY render in their specific status tabs (Active, Upcoming, Draft, Ended) and Global Search.
+      if (!isGlobalSearch && filterStatus === 'all' && e.is_archived) {
+        return false;
+      }
+
+      const st = (e.status || 'draft').toLowerCase();
+      const hasActiveParticipants = (e.assigned_participants || []).some((id) => activeParticipantIdSet.has(id));
+      const hasActiveJudges = (e.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
+      const hasBoth = hasActiveParticipants && hasActiveJudges;
+      const isReadyOrUpcoming = st === 'ready' || st === 'upcoming' || (st === 'draft' && hasBoth);
+      const isDraftOnly = st === 'draft' && !hasBoth;
 
       if (filterStatus === 'all') return true;
       if (filterStatus === 'active') return st === 'active';
@@ -896,16 +1003,10 @@ export function EventsTab({
       if (filterStatus === 'ended') return st === 'ended' || st === 'archived';
       return true;
     });
-  }, [events, searchQuery, filterStatus]);
+  }, [events, deferredSearch, filterStatus, activeParticipantIdSet, activeJudgeIdSet]);
 
   return (
     <>
-      {/* Floating Toast Notification (pointer-events-none so it never blocks clicks) */}
-      {toastMessage ? (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[150] bg-stone-900 text-white dark:bg-white dark:text-black px-4 py-2.5 rounded-full text-xs sm:text-sm font-semibold shadow-2xl border border-stone-700 dark:border-stone-300 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-none">
-          {toastMessage}
-        </div>
-      ) : null}
 
       {/* ======================================================== */}
       {/* DEDICATED NATIVE SCROLL CONTAINER FOR EVENTS TAB         */}
@@ -1003,8 +1104,12 @@ export function EventsTab({
               const status = (evt.status || 'draft').toLowerCase();
               const scoreCount = scoresMap[evt.id] || 0;
               const hasScores = scoreCount > 0;
-              const participantCount = (evt.assigned_participants || []).length;
-              const judgeCount = (evt.assigned_judges || []).length;
+              const participantCount = (evt.assigned_participants || []).filter((id) =>
+                activeParticipantIdSet.has(id)
+              ).length;
+              const judgeCount = (evt.assigned_judges || []).filter((id) =>
+                activeJudgeIdSet.has(id)
+              ).length;
 
               const isLive = status === 'active';
               const isPaused = status === 'paused';
@@ -1046,13 +1151,25 @@ export function EventsTab({
                   className="bg-white dark:bg-zinc-950 border border-stone-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-all flex flex-col justify-between group"
                 >
                   <div>
-                    {/* ROW 1: [CATEGORY] pill (Far Left). On Far Right: [Eye Icon] [Edit Icon] [Delete Icon] */}
+                    {/* ROW 1: [CATEGORY] pill & Status + Cyan Archived Badge (Left). On Right: [Eye] [Cyan Archive] [Edit] [Delete] */}
                     <div className="flex items-center justify-between gap-2 mb-2.5">
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-800/50 truncate max-w-[160px]">
-                        {evt.category || 'General'}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-800/50 truncate max-w-[130px]">
+                          {evt.category || 'General'}
+                        </span>
+                        <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 ${badgeClasses}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${badgeDotClasses}`} />
+                          {badgeText}
+                        </span>
+                        {evt.is_archived && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25">
+                            <Archive className="w-2.5 h-2.5" />
+                            Archived
+                          </span>
+                        )}
+                      </div>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         {/* Eye Icon to view full event dossier */}
                         <button
                           type="button"
@@ -1061,6 +1178,24 @@ export function EventsTab({
                           title="View all event details & roster"
                         >
                           <Eye className="w-4 h-4" />
+                        </button>
+
+                        {/* Cyan Archive / Restore Icon Button (Inbox Zero - Directive 1) */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggleArchive(e, evt)}
+                          title={evt.is_archived ? 'Restore from Archive' : 'Archive Event (Inbox Zero)'}
+                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-95 cursor-pointer ${
+                            evt.is_archived
+                              ? 'text-cyan-400 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30'
+                              : 'text-stone-400 hover:text-cyan-400 hover:bg-cyan-500/10'
+                          }`}
+                        >
+                          {evt.is_archived ? (
+                            <ArchiveRestore className="w-3.5 h-3.5 text-cyan-400" />
+                          ) : (
+                            <Archive className="w-3.5 h-3.5 text-cyan-500/80 hover:text-cyan-400" />
+                          )}
                         </button>
 
                         {/* Edit Event Icon */}
@@ -1083,26 +1218,24 @@ export function EventsTab({
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Delete Event Icon */}
+                        {/* Delete Event Icon (Tiered Deletion Matrix - Directive 1) */}
                         <button
                           type="button"
                           onClick={(e) => handleDeleteClick(e, evt)}
                           title={
                             status === 'active'
-                              ? 'Prohibited: Event is live'
-                              : hasScores
-                              ? 'Archive Event (Ledger Safe)'
+                              ? 'Action Denied: Cannot delete an active event'
+                              : isEnded
+                              ? 'Delete Ended Event (Master Password Required)'
                               : 'Delete Event'
                           }
-                          className={`w-8 h-8 flex items-center justify-center rounded-lg active:scale-95 transition-all cursor-pointer ${
+                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
                             status === 'active'
-                              ? 'text-zinc-300 dark:text-zinc-700 cursor-not-allowed'
-                              : hasScores
-                              ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-500/10'
-                              : 'text-stone-400 hover:text-red-500 hover:bg-red-500/10'
+                              ? 'opacity-50 cursor-not-allowed text-stone-400 dark:text-zinc-600 hover:bg-transparent'
+                              : 'text-stone-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 cursor-pointer'
                           }`}
                         >
-                          {hasScores ? <Archive className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -1127,7 +1260,7 @@ export function EventsTab({
                         className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold border border-emerald-600 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
-                        <span>+ Add Participants</span>
+                        <span>Add Participants</span>
                       </button>
                     ) : (
                       <button
@@ -1156,7 +1289,7 @@ export function EventsTab({
                         className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold border border-emerald-600 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>+ Add Judges</span>
+                        <span>Add Judges</span>
                       </button>
                     ) : (
                       <button
@@ -1424,7 +1557,7 @@ export function EventsTab({
                     {activeParticipantsModalEvent.name}
                   </h2>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
-                    {(activeParticipantsModalEvent.assigned_participants || []).length} Enrolled
+                    {(activeParticipantsModalEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).length} Enrolled
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -1494,7 +1627,7 @@ export function EventsTab({
                 </div>
 
                 {participants.filter(
-                  (p) => !(activeParticipantsModalEvent.assigned_participants || []).includes(p.id)
+                  (p) => p.is_active !== false && !(activeParticipantsModalEvent.assigned_participants || []).includes(p.id)
                 ).length === 0 ? (
                   <p className="text-xs text-zinc-500 text-center py-2">
                     All registered participants in your organization are already enrolled.
@@ -1503,7 +1636,7 @@ export function EventsTab({
                   <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                     {participants
                       .filter(
-                        (p) => !(activeParticipantsModalEvent.assigned_participants || []).includes(p.id)
+                        (p) => p.is_active !== false && !(activeParticipantsModalEvent.assigned_participants || []).includes(p.id)
                       )
                       .map((p) => (
                         <div
@@ -1537,8 +1670,14 @@ export function EventsTab({
             <div className="space-y-2">
               {(() => {
                 const isLiveLocked = (activeParticipantsModalEvent.status || 'draft').toLowerCase() === 'active';
-                const assignedIds = activeParticipantsModalEvent.assigned_participants || [];
-                const participantMap = new Map(participants.map((p) => [p.id, p]));
+                const assignedIds = (activeParticipantsModalEvent.assigned_participants || []).filter((id) =>
+                  activeParticipantIdSet.has(id)
+                );
+                const participantMap = new Map(
+                  participants
+                    .filter((p) => p.is_active !== false)
+                    .map((p) => [p.id, p])
+                );
                 const enrolledList = assignedIds
                   .map((id) => participantMap.get(id))
                   .filter((p): p is SupabaseParticipant => Boolean(p));
@@ -1742,7 +1881,7 @@ export function EventsTab({
                     {activeJudgesModalEvent.name}
                   </h2>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
-                    {(activeJudgesModalEvent.assigned_judges || []).length} Judges
+                    {(activeJudgesModalEvent.assigned_judges || []).filter((id) => activeJudgeIdSet.has(id)).length} Judges
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -1814,7 +1953,7 @@ export function EventsTab({
                 </div>
 
                 {judges.filter(
-                  (j) => !(activeJudgesModalEvent.assigned_judges || []).includes(j.id)
+                  (j) => j.is_active !== false && !(activeJudgesModalEvent.assigned_judges || []).includes(j.id)
                 ).length === 0 ? (
                   <p className="text-xs text-zinc-500 text-center py-2">
                     All registered judges are already assigned to this event.
@@ -1823,7 +1962,7 @@ export function EventsTab({
                   <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                     {judges
                       .filter(
-                        (j) => !(activeJudgesModalEvent.assigned_judges || []).includes(j.id)
+                        (j) => j.is_active !== false && !(activeJudgesModalEvent.assigned_judges || []).includes(j.id)
                       )
                       .map((j) => (
                         <div
@@ -1856,8 +1995,10 @@ export function EventsTab({
             {/* List of Assigned Judges */}
             <div className="space-y-2">
               {(() => {
-                const assignedIds = activeJudgesModalEvent.assigned_judges || [];
-                const assignedList = judges.filter((j) => assignedIds.includes(j.id));
+                const assignedIds = (activeJudgesModalEvent.assigned_judges || []).filter((id) =>
+                  activeJudgeIdSet.has(id)
+                );
+                const assignedList = judges.filter((j) => j.is_active !== false && assignedIds.includes(j.id));
                 const filtered = assignedList.filter(
                   (j) =>
                     judgeSearch.trim() === '' ||
@@ -1989,17 +2130,17 @@ export function EventsTab({
               {/* Section 2: Assigned Judges */}
               <div className="space-y-2">
                 <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px] block">
-                  Jury Panel ({(dossierEvent.assigned_judges || []).length})
+                  Jury Panel ({(dossierEvent.assigned_judges || []).filter((id) => activeJudgeIdSet.has(id)).length})
                 </span>
 
-                {(dossierEvent.assigned_judges || []).length === 0 ? (
+                {(dossierEvent.assigned_judges || []).filter((id) => activeJudgeIdSet.has(id)).length === 0 ? (
                   <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 text-zinc-400 text-center">
                     No judges assigned yet.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {(dossierEvent.assigned_judges || []).map((jId) => {
-                      const jObj = judges.find((j) => j.id === jId);
+                    {(dossierEvent.assigned_judges || []).filter((id) => activeJudgeIdSet.has(id)).map((jId) => {
+                      const jObj = judgeMap.get(jId);
                       return (
                         <div
                           key={jId}
@@ -2021,17 +2162,17 @@ export function EventsTab({
               {/* Section 3: Assigned Participants */}
               <div className="space-y-2">
                 <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px] block">
-                  Enrolled Competitors ({(dossierEvent.assigned_participants || []).length})
+                  Enrolled Competitors ({(dossierEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).length})
                 </span>
 
-                {(dossierEvent.assigned_participants || []).length === 0 ? (
+                {(dossierEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).length === 0 ? (
                   <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 text-zinc-400 text-center">
                     No participants enrolled yet.
                   </div>
                 ) : (
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                    {(dossierEvent.assigned_participants || []).map((pId, idx) => {
-                      const pObj = participants.find((p) => p.id === pId);
+                    {(dossierEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).map((pId, idx) => {
+                      const pObj = participantMap.get(pId);
                       const serial =
                         dossierEvent.participant_sl_numbers?.[pId] ||
                         String(idx + 1).padStart(2, '0');
@@ -2080,49 +2221,132 @@ export function EventsTab({
       {eventModalState && eventModalState.isOpen ? (
         <div className="fixed inset-0 z-[140] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 pointer-events-auto">
           <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
-            {eventModalState.type === 'delete' ? (
+            {eventModalState.type === 'delete_draft' ? (
               <>
                 <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
                   <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
-                    {eventModalState.canDelete ? <Trash2 className="w-5 h-5" /> : <Archive className="w-5 h-5" />}
+                    <Trash2 className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
-                      {eventModalState.canDelete ? 'Delete Event?' : 'Archive Event?'}
+                      Delete Event?
                     </h3>
                     <p className="text-xs text-red-600 dark:text-red-400 font-mono">
-                      {eventModalState.canDelete ? 'Permanent removal' : 'Ledger protected'}
+                      Double-confirmation required
                     </p>
                   </div>
                 </div>
 
                 <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                  {eventModalState.canDelete ? (
-                    <>
-                      Permanently delete <strong className="text-zinc-900 dark:text-white">{eventModalState.eventName}</strong>? This action cannot be undone.
-                    </>
-                  ) : (
-                    <>
-                      Scores exist for <strong className="text-zinc-900 dark:text-white">{eventModalState.eventName}</strong>. To preserve audit and ledger integrity, this event will be archived instead of purged.
-                    </>
-                  )}
+                  Permanently delete <strong className="text-zinc-900 dark:text-white">{eventModalState.eventName}</strong>? This action cannot be undone.
                 </p>
 
-                <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1.5 pt-1">
+                  <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                    Type <span className="font-mono font-bold text-red-500">DELETE</span> or the event name:
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder={`Type "DELETE" or "${eventModalState.eventName}"`}
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    className="w-full min-h-[42px] px-3.5 text-xs bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-2">
                   <button
                     type="button"
-                    onClick={() => setEventModalState(null)}
+                    onClick={() => {
+                      setEventModalState(null);
+                      setDeleteConfirmText('');
+                    }}
                     className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
+                    disabled={
+                      deleteConfirmText.trim() !== 'DELETE' &&
+                      deleteConfirmText.trim() !== eventModalState.eventName.trim()
+                    }
                     onClick={handleConfirmModalAction}
-                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {eventModalState.canDelete ? <Trash2 className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-                    <span>{eventModalState.canDelete ? 'Delete Event' : 'Archive Event'}</span>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Event</span>
+                  </button>
+                </div>
+              </>
+            ) : eventModalState.type === 'delete_ended' ? (
+              <>
+                <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
+                  <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
+                      Delete Ended Event
+                    </h3>
+                    <p className="text-xs text-amber-500 font-mono">
+                      Master Password Required
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  <strong className="text-zinc-900 dark:text-white">{eventModalState.eventName}</strong> has completed. To protect ledger integrity, verify your <strong className="text-zinc-900 dark:text-white">Organization Master Password</strong> to authorize permanent deletion (works 100% offline).
+                </p>
+
+                <div className="space-y-1.5 pt-1">
+                  <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                    Master Password:
+                  </label>
+                  <input
+                    type="password"
+                    autoFocus
+                    placeholder="Enter Organization Master Password"
+                    value={masterPasswordInput}
+                    onChange={(e) => {
+                      setMasterPasswordInput(e.target.value);
+                      setPasswordError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && masterPasswordInput.trim()) {
+                        handleConfirmModalAction();
+                      }
+                    }}
+                    className="w-full min-h-[42px] px-3.5 text-xs bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                  />
+                  {passwordError && (
+                    <p className="text-[11px] text-red-500 font-medium animate-in fade-in">
+                      {passwordError}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEventModalState(null);
+                      setMasterPasswordInput('');
+                      setPasswordError(null);
+                    }}
+                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!masterPasswordInput.trim()}
+                    onClick={handleConfirmModalAction}
+                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    <span>Verify &amp; Delete</span>
                   </button>
                 </div>
               </>
