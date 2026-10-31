@@ -25,7 +25,6 @@ import { EventsTab } from './tabs/EventsTab';
 import { PeopleTab } from './tabs/PeopleTab';
 import { InsightsTab } from './tabs/InsightsTab';
 import { PullToRefresh } from '../common/PullToRefresh';
-import { OfflineTelemetry } from '../common/OfflineTelemetry';
 
 export type OrganiserNavTab = 'live' | 'events' | 'people' | 'insights';
 
@@ -186,7 +185,7 @@ export function OrganiserDashboard({
         </button>
 
         {/* Center: Branding & Organisation Name */}
-        <div className="flex flex-col items-center justify-center text-center px-1">
+        <div className="flex-1 min-w-0 flex flex-col items-center justify-center text-center px-2">
           {/* Top Line: App Logo + Fair Judge */}
           <div className="flex items-center space-x-2">
             <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shadow-sm shadow-emerald-500/20">
@@ -198,37 +197,34 @@ export function OrganiserDashboard({
           </div>
 
           {/* Bottom Line: Actual Organisation Name + Verified Tick */}
-          <div className="flex items-center space-x-1 mt-0.5">
-            <span className="text-[11px] sm:text-xs font-bold text-zinc-700 dark:text-zinc-300 tracking-wide uppercase truncate max-w-[140px] sm:max-w-xs md:max-w-sm">
+          <div className="flex items-center space-x-1 mt-0.5 max-w-full justify-center">
+            <span className="text-[11px] sm:text-xs font-bold text-zinc-700 dark:text-zinc-300 tracking-wide uppercase truncate max-w-[180px] sm:max-w-xs md:max-w-sm">
               {organization.name}
             </span>
             {verificationStatus === 'verified' && (
-              <span title="Verified Organization" className="inline-flex">
+              <span title="Verified Organization" className="inline-flex shrink-0">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
               </span>
             )}
           </div>
         </div>
 
-        {/* Right: Telemetry Pill & Account Icon with Status Dot */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <OfflineTelemetry compact={true} />
-          <button
-            type="button"
-            onClick={() => setIsAccountModalOpen(true)}
-            className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all duration-200 active:scale-[0.96] flex items-center justify-center cursor-pointer"
-            aria-label="Open Account Settings"
-          >
-            <CircleUser className="w-5 h-5 stroke-[2.2]" />
-            {verificationStatus !== 'verified' && (
-              <span
-                className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
-                  verificationStatus === 'rejected' ? 'bg-red-500 animate-ping' : 'bg-amber-500'
-                }`}
-              />
-            )}
-          </button>
-        </div>
+        {/* Right: Account Modal Icon */}
+        <button
+          type="button"
+          onClick={() => setIsAccountModalOpen(true)}
+          className="relative w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all duration-200 active:scale-[0.96] flex items-center justify-center cursor-pointer"
+          aria-label="Open Account Settings"
+        >
+          <CircleUser className="w-5 h-5 stroke-[2.2]" />
+          {verificationStatus !== 'verified' && (
+            <span
+              className={`absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
+                verificationStatus === 'rejected' ? 'bg-red-500 animate-ping' : 'bg-amber-500'
+              }`}
+            />
+          )}
+        </button>
       </header>
 
       {/* ======================================================== */}
