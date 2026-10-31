@@ -135,7 +135,7 @@ export function PublicLeaderboard({
       setPublicSettings(dbService.getPublicSettings(orgId));
       setLastSyncedTime(new Date().toLocaleTimeString());
     } catch (err) {
-      console.error('Error fetching leaderboard data:', err);
+      console.warn('Leaderboard data fetch failed (using cached state):', err);
     } finally {
       if (!silent) {
         setTimeout(() => setIsRefreshing(false), 400);

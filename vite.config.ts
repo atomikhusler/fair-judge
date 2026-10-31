@@ -59,6 +59,8 @@ export default defineConfig(({ command }) => {
       dedupe: ['react', 'react-dom'],
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),
+        react: path.resolve(import.meta.dirname, 'node_modules/react'),
+        'react-dom': path.resolve(import.meta.dirname, 'node_modules/react-dom'),
       },
     },
     optimizeDeps: {
@@ -66,15 +68,29 @@ export default defineConfig(({ command }) => {
         'react',
         'react-dom',
         'react-dom/client',
+        'react-dom/server',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
         'lucide-react',
         'xlsx',
         '@supabase/supabase-js',
         'idb',
         'qrcode.react',
         'html5-qrcode',
+        'zxcvbn',
       ],
     },
     server: {
+      proxy: process.env.VITE_SUPABASE_URL
+        ? {
+            '/supabase-proxy': {
+              target: process.env.VITE_SUPABASE_URL,
+              changeOrigin: true,
+              rewrite: (path: string) => path.replace(/^\/supabase-proxy/, ''),
+              secure: false,
+            },
+          }
+        : undefined,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

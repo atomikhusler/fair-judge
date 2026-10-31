@@ -245,7 +245,9 @@ export function AccountModal({
                   Account &amp; Security
                 </h2>
                 {verificationStatus === 'verified' && (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" title="Verified Organization" />
+                  <span title="Verified Organization" className="inline-flex">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  </span>
                 )}
               </div>
               <p className="text-[11px] text-zinc-500 font-mono">

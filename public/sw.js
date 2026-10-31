@@ -45,14 +45,18 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Bypass Google APIs, Firebase Firestore & Auth network requests
+  // Bypass Google APIs, Firebase, Supabase, internal APIs, and Vite dev server paths/modules
   if (
     url.hostname.includes('supabase.co') ||
     url.hostname.includes('firestore.googleapis.com') ||
     url.hostname.includes('firebase') ||
     url.hostname.includes('identitytoolkit') ||
     url.hostname.includes('googleapis.com') ||
-    url.pathname.startsWith('/api/')
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.includes('hot-update') ||
+    url.searchParams.has('v')
   ) {
     return;
   }
@@ -99,4 +103,18 @@ self.addEventListener('fetch', (event) => {
       });
     })
   );
+});
+
+// Native BackgroundSync API Listener:
+// When the OS detects network restoration, wake up and signal clients to flush offline mutations
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'fairjudge-offline-sync' || event.tag === 'sync-mutations') {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({ type: 'TRIGGER_BACKGROUND_SYNC' });
+        });
+      })
+    );
+  }
 });

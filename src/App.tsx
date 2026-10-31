@@ -3,13 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { AuthScreen } from './components/auth/AuthScreen';
-import { OrganiserDashboard } from './components/organiser/OrganiserDashboard';
-import { ScoringPanel } from './components/judge/ScoringPanel';
-import { JudgeLobby } from './components/judge/JudgeLobby';
-import { PublicLeaderboard } from './components/public/PublicLeaderboard';
 import { NetworkStatusIndicator } from './components/NetworkStatusIndicator';
+import { ToastManager } from './components/common/ToastManager';
 import { Organization, SupabaseJudge, SupabaseEvent } from './lib/supabaseTypes';
 import {
   dbService,
@@ -18,14 +15,32 @@ import {
   setStoredSession,
   StoredUserSession,
 } from './lib/supabase';
+import { initCacheStorage } from './lib/db/indexedDB';
 import { initOfflineSyncListener } from './lib/offlineQueue';
 import { Scale } from 'lucide-react';
+import { ResourceLoader } from './components/common/ResourceLoader';
+
+// Code Splitting: Asynchronously load major route panels to minimize initial JS payload
+const OrganiserDashboard = lazy(() =>
+  import('./components/organiser/OrganiserDashboard').then((m) => ({ default: m.OrganiserDashboard }))
+);
+const ScoringPanel = lazy(() =>
+  import('./components/judge/ScoringPanel').then((m) => ({ default: m.ScoringPanel }))
+);
+const JudgeLobby = lazy(() =>
+  import('./components/judge/JudgeLobby').then((m) => ({ default: m.JudgeLobby }))
+);
+const PublicLeaderboard = lazy(() =>
+  import('./components/public/PublicLeaderboard').then((m) => ({ default: m.PublicLeaderboard }))
+);
 
 export type UserSession = StoredUserSession;
 
 export default function App() {
   const [isBooting, setIsBooting] = useState(true);
-  const [bootFadingOut, setBootFadingOut] = useState(false);
+  const [isBootFading, setIsBootFading] = useState(false);
+  const [bootProgress, setBootProgress] = useState(0);
+  const [bootStatus, setBootStatus] = useState('Mounting Local Cache...');
   const [session, setSession] = useState<UserSession | null>(getStoredSession);
   const [judgeEvents, setJudgeEvents] = useState<SupabaseEvent[]>([]);
   const [activeJudgeEvent, setActiveJudgeEvent] = useState<SupabaseEvent | null>(null);
@@ -35,25 +50,58 @@ export default function App() {
   const [publicOrgId, setPublicOrgId] = useState('');
   const [publicEventId, setPublicEventId] = useState<string | null>(null);
 
-  // Boot Animation Lifecycle (2 second premium cinematic entrance before resolving app shell)
+  // Data-Driven PWA Boot Sequence & App Hydration
   useEffect(() => {
-    const fadeTimer = setTimeout(() => {
-      setBootFadingOut(true);
-    }, 1700);
+    let isCancelled = false;
+    let unsubSync: (() => void) | null = null;
 
-    const finishTimer = setTimeout(() => {
-      setIsBooting(false);
-    }, 2000);
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    return () => {
-      clearTimeout(fadeTimer);
-      clearTimeout(finishTimer);
+    const runBootSequence = async () => {
+      try {
+        // Phase 1 (0-35%): Mounting Asynchronous IndexedDB Cache...
+        setBootStatus('Mounting IndexedDB Cache...');
+        setBootProgress(15);
+        await initCacheStorage();
+        if (isCancelled) return;
+
+        // Initialize and hydrate stored session from cache
+        const stored = getStoredSession();
+        setSession(stored);
+        setBootProgress(35);
+        await delay(200);
+        if (isCancelled) return;
+
+        // Phase 2 (35-80%): Verifying Cryptographic Ledger...
+        setBootStatus('Verifying Cryptographic Ledger...');
+        setBootProgress(60);
+        unsubSync = initOfflineSyncListener();
+        await delay(350);
+        if (isCancelled) return;
+
+        setBootProgress(80);
+        await delay(250);
+        if (isCancelled) return;
+
+        // Phase 3 (80-100%): Command Center Ready.
+        setBootStatus('Command Center Ready.');
+        setBootProgress(100);
+        await delay(450);
+        if (isCancelled) return;
+
+        // Initiate smooth 700ms fade-out transition
+        setIsBootFading(true);
+        await delay(700);
+        if (isCancelled) return;
+
+        setIsBooting(false);
+      } catch (err) {
+        console.warn('Boot sequence error:', err);
+        setIsBooting(false);
+      }
     };
-  }, []);
 
-  // Initialize offline sync and URL parameters
-  useEffect(() => {
-    const unsubSync = initOfflineSyncListener();
+    runBootSequence();
 
     const handleSessionEvent = () => {
       const stored = getStoredSession();
@@ -72,7 +120,8 @@ export default function App() {
     }
 
     return () => {
-      unsubSync();
+      isCancelled = true;
+      if (unsubSync) unsubSync();
       window.removeEventListener('fairjudge_session_change', handleSessionEvent);
     };
   }, []);
@@ -182,47 +231,6 @@ export default function App() {
     setIsPublicView(true);
   };
 
-  // 0. BOOT ANIMATION: Industry gold-standard 2-second premium entrance
-  if (isBooting) {
-    return (
-      <div
-        className={`fixed inset-0 z-50 bg-black text-white flex flex-col items-center justify-center p-4 selection:bg-emerald-500 selection:text-black overflow-hidden transition-opacity duration-300 ease-out select-none ${
-          bootFadingOut ? 'opacity-0' : 'opacity-100'
-        }`}
-      >
-        {/* Subtle radial emerald luminescent bloom */}
-        <div className="absolute w-[380px] h-[380px] bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none" />
-
-        <div className="relative flex flex-col items-center text-center px-4 animate-in fade-in zoom-in-95 duration-500">
-          {/* Brand Logo Badge + Brand Name Row */}
-          <div className="flex items-center justify-center gap-3">
-            <div className="w-10 h-10 md:w-11 md:h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shadow-lg shadow-emerald-500/25">
-              <Scale className="w-5 h-5 md:w-6 md:h-6 stroke-[2.2]" />
-            </div>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white font-sans">
-              Fair Judge
-            </h1>
-          </div>
-
-          {/* Refined Tagline */}
-          <p className="text-xs md:text-sm font-medium text-emerald-400/90 tracking-wide mt-2">
-            Transparency in Judgement
-          </p>
-
-          {/* Micro progress laser bar */}
-          <div className="w-40 sm:w-48 h-[2px] bg-zinc-900 rounded-full overflow-hidden mt-8 border border-zinc-800/80">
-            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full animate-boot-progress" />
-          </div>
-
-          {/* Version string */}
-          <p className="text-[10px] font-mono text-zinc-500 tracking-wider mt-4">
-            Fair Judge v12.10.0
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   // Active Screen Content based on session and route
   const renderScreenContent = () => {
     // 1. PUBLIC PROJECTOR SCREEN
@@ -292,8 +300,75 @@ export default function App() {
 
   return (
     <>
+      {/* ======================================================== */}
+      {/* FRAMER-GRADE PWA INITIALIZATION BOOT SCREEN              */}
+      {/* ======================================================== */}
+      {isBooting && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed inset-0 z-[200] flex flex-col items-center justify-center bg-zinc-950 select-none overflow-hidden pb-safe transition-all duration-700 ease-in-out ${
+            isBootFading
+              ? 'opacity-0 scale-[0.99] pointer-events-none'
+              : 'opacity-100 scale-100 pointer-events-auto'
+          }`}
+        >
+          {/* 1. Backdrop Glow: Radial emerald glow in the center */}
+          <div className="absolute w-[380px] h-[380px] rounded-full bg-emerald-500/5 blur-[120px] pointer-events-none" />
+
+          <div className="relative flex flex-col items-center text-center px-6 max-w-sm w-full animate-in fade-in zoom-in-95 duration-500">
+            {/* 2. Brand Core: Pulsating Emerald scale icon */}
+            <div className="relative flex items-center justify-center mb-4">
+              <div className="absolute -inset-2 rounded-3xl border border-emerald-500/30 animate-ping opacity-25 pointer-events-none" />
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center relative z-10 shadow-lg shadow-emerald-500/20">
+                <Scale className="w-7 h-7 stroke-[2.2]" />
+              </div>
+            </div>
+
+            {/* Bold Brand Typography */}
+            <h1 className="text-2xl font-bold tracking-tight text-white font-sans">
+              Fair Judge
+            </h1>
+
+            {/* 3. The Progress Engine */}
+            <div className="w-full max-w-xs mt-5">
+              <div
+                className="w-full max-w-xs h-1.5 bg-zinc-900 border border-zinc-800 rounded-full overflow-hidden relative shadow-inner"
+                role="progressbar"
+                aria-valuenow={bootProgress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-300 ease-out relative overflow-hidden"
+                  style={{ width: `${bootProgress}%` }}
+                >
+                  {bootProgress < 100 && (
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-progress-shimmer pointer-events-none" />
+                  )}
+                </div>
+              </div>
+
+              {/* Dynamic monospace status string */}
+              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono mt-3 text-center transition-colors duration-200">
+                {bootStatus}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <NetworkStatusIndicator />
-      {renderScreenContent()}
+      <Suspense
+        fallback={
+          <div className="h-screen w-full bg-zinc-950 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin" />
+          </div>
+        }
+      >
+        {renderScreenContent()}
+      </Suspense>
+      <ToastManager />
     </>
   );
 }

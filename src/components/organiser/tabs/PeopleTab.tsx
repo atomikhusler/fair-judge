@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as XLSX from 'xlsx';
 import { QRCodeSVG } from 'qrcode.react';
@@ -33,6 +33,7 @@ import {
   Eye
 } from 'lucide-react';
 import { dbService, subscribeToDatabase, generateUUID } from '../../../lib/supabase';
+import { eventBus } from '../../../lib/eventBus';
 import { 
   Organization, 
   SupabaseParticipant, 
@@ -40,7 +41,6 @@ import {
   CustomParticipantField,
   SupabaseEvent
 } from '../../../lib/supabaseTypes';
-import { PullToRefresh } from '../../common/PullToRefresh';
 
 // ========================================================
 // ALGORITHM #5: LEVENSHTEIN DISTANCE & FUZZY MATCH ENGINE
@@ -244,8 +244,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     setIsEditingCategoryLabel(false);
   };
 
-  // Participants State
-  const [participants, setParticipants] = useState<SupabaseParticipant[]>([]);
+  // Participants State (Optimistically seeded from local cache)
+  const [participants, setParticipants] = useState<SupabaseParticipant[]>(() =>
+    dbService.getCachedParticipants(organization.org_id)
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadNotice, setUploadNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
@@ -265,9 +267,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     custom_values: {} as Record<string, string>,
   });
 
-  // Judges State
-  const [judges, setJudges] = useState<SupabaseJudge[]>([]);
-  const [events, setEvents] = useState<SupabaseEvent[]>([]);
+  // Judges State (Optimistically seeded from local cache)
+  const [judges, setJudges] = useState<SupabaseJudge[]>(() =>
+    dbService.getCachedJudges(organization.org_id)
+  );
+  const [events, setEvents] = useState<SupabaseEvent[]>(() =>
+    dbService.getCachedEvents(organization.org_id)
+  );
   const [showJudgeModal, setShowJudgeModal] = useState(false);
   const [editingJudge, setEditingJudge] = useState<SupabaseJudge | null>(null);
   const [judgeForm, setJudgeForm] = useState({
@@ -301,29 +307,35 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     setCustomFields(organization.custom_participant_fields || []);
   }, [organization.custom_participant_fields]);
 
-  // Load Data
-  const loadData = useCallback(async () => {
-    try {
-      const [pList, jList, eList] = await Promise.all([
-        dbService.getParticipants(organization.org_id),
-        dbService.getJudges(organization.org_id),
-        dbService.getEvents(organization.org_id),
-      ]);
-      setParticipants(pList);
-      setJudges(jList);
-      setEvents(eList);
-    } catch (err) {
-      console.error('Failed to load roster:', err);
-    }
+  // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
+  useEffect(() => {
+    const unsubBus = eventBus.on('cache_updated', (payload) => {
+      const table = payload?.table;
+      if (!table || table === 'participants' || table === 'all') {
+        setParticipants(dbService.getCachedParticipants(organization.org_id));
+      }
+      if (!table || table === 'judges' || table === 'all') {
+        setJudges(dbService.getCachedJudges(organization.org_id));
+      }
+      if (!table || table === 'events' || table === 'all') {
+        setEvents(dbService.getCachedEvents(organization.org_id));
+      }
+    });
+
+    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
+    dbService.getParticipants(organization.org_id);
+    dbService.getJudges(organization.org_id);
+    dbService.getEvents(organization.org_id);
+
+    return () => unsubBus();
   }, [organization.org_id]);
 
-  useEffect(() => {
-    loadData();
-    const unsub = subscribeToDatabase(() => {
-      loadData();
-    });
-    return () => unsub();
-  }, [loadData]);
+  const refreshFromCache = useCallback(() => {
+    setParticipants(dbService.getCachedParticipants(organization.org_id));
+    setJudges(dbService.getCachedJudges(organization.org_id));
+    setEvents(dbService.getCachedEvents(organization.org_id));
+  }, [organization.org_id]);
+  const loadData = refreshFromCache;
 
   // ========================================================
   // CUSTOM HEADERS MANAGEMENT (Delete/Remove Custom Headers)

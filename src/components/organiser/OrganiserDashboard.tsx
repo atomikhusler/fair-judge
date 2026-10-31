@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Menu, 
   CircleUser, 
@@ -15,7 +15,9 @@ import {
   X
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
-import { dbService, subscribeToDatabase, setStoredSession } from '../../lib/supabase';
+import { dbService, subscribeToDatabase, setStoredSession, invalidateCache } from '../../lib/supabase';
+import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
+import { eventBus } from '../../lib/eventBus';
 import { SettingsDrawer } from './SettingsDrawer';
 import { AccountModal } from './AccountModal';
 import { LiveTab } from './tabs/LiveTab';
@@ -23,6 +25,7 @@ import { EventsTab } from './tabs/EventsTab';
 import { PeopleTab } from './tabs/PeopleTab';
 import { InsightsTab } from './tabs/InsightsTab';
 import { PullToRefresh } from '../common/PullToRefresh';
+import { OfflineTelemetry } from '../common/OfflineTelemetry';
 
 export type OrganiserNavTab = 'live' | 'events' | 'people' | 'insights';
 
@@ -31,6 +34,23 @@ interface OrganiserDashboardProps {
   onLogout: () => void;
   onOpenPublicView: (eventId?: string) => void;
   onSwitchToJudgeView?: () => void;
+}
+
+function areOrganizationsEqual(a: Organization, b: Organization): boolean {
+  if (a === b) return true;
+  return (
+    a.id === b.id &&
+    a.org_id === b.org_id &&
+    a.name === b.name &&
+    a.email === b.email &&
+    a.verification_status === b.verification_status &&
+    a.tie_breaker_enabled === b.tie_breaker_enabled &&
+    a.tie_breaker_method === b.tie_breaker_method &&
+    a.blind_judging_enabled === b.blind_judging_enabled &&
+    a.auto_advance_enabled === b.auto_advance_enabled &&
+    a.grace_period_enabled === b.grace_period_enabled &&
+    a.isolated_jury_enabled === b.isolated_jury_enabled
+  );
 }
 
 export function OrganiserDashboard({
@@ -48,37 +68,73 @@ export function OrganiserDashboard({
 
   const verificationStatus = organization.verification_status || 'pending';
 
-  // Sync organization status in real-time from Supabase (detects Admin approval/rejection/deletion)
+  // Stable refs for mutable values to prevent dependency cycling & infinite loops
+  const orgIdRef = useRef(organization.org_id);
+  const statusRef = useRef(organization.verification_status);
+  const onLogoutRef = useRef(onLogout);
+
+  useEffect(() => {
+    orgIdRef.current = organization.org_id;
+    statusRef.current = organization.verification_status;
+  }, [organization.org_id, organization.verification_status]);
+
+  useEffect(() => {
+    onLogoutRef.current = onLogout;
+  }, [onLogout]);
+
+  // Sync organization status with deduplication and stable callback reference
   const syncOrganizationStatus = useCallback(async () => {
+    const currentOrgId = orgIdRef.current;
+    if (!currentOrgId) return;
+
     try {
-      const freshOrg = await dbService.getOrganizationByOrgId(organization.org_id);
+      const freshOrg = await dbService.getOrganizationByOrgId(currentOrgId);
       if (!freshOrg) {
         // Organization was deleted by Admin/Security Team
-        onLogout();
+        onLogoutRef.current();
         return;
       }
-      setOrganization(freshOrg);
-      setStoredSession({
-        role: 'organiser',
-        org: freshOrg,
+
+      setOrganization((prev) => {
+        if (areOrganizationsEqual(prev, freshOrg)) {
+          return prev;
+        }
+        setStoredSession({
+          role: 'organiser',
+          org: freshOrg,
+        });
+        return freshOrg;
       });
-      // If status changes, we might want to un-dismiss the banner so the user sees the new status
-      if (freshOrg.verification_status !== organization.verification_status) {
+
+      // Only transition banner dismiss state when verification_status actually changed
+      if (freshOrg.verification_status !== statusRef.current) {
+        statusRef.current = freshOrg.verification_status;
         setIsBannerDismissed(false);
       }
     } catch (err) {
       console.warn('Could not sync organization status:', err);
     }
-  }, [organization.org_id, organization.verification_status, onLogout]);
+  }, []);
 
+  // Singleton Supabase Realtime subscription lifecycle - mounts once and cleans up on unmount
   useEffect(() => {
     syncOrganizationStatus();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const unsub = subscribeToDatabase((table) => {
-      if (table === 'organizations' || table === 'all') {
-        syncOrganizationStatus();
+      // Debounce and only trigger organization status check if organization changed
+      if (table === 'organizations') {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          syncOrganizationStatus();
+        }, 300);
       }
     });
-    return () => unsub();
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsub();
+    };
   }, [syncOrganizationStatus]);
 
   const handleUpdateOrganization = (updated: Organization) => {
@@ -89,15 +145,18 @@ export function OrganiserDashboard({
     });
   };
 
-  // Full cloud refresh triggered by PullToRefresh
+  // Full cloud refresh triggered by PullToRefresh (bypasses 5-minute cache throttle)
   const handleManualPullRefresh = async () => {
+    invalidateCache();
+    await flushOfflineQueueToSupabase();
     await Promise.all([
       syncOrganizationStatus(),
-      dbService.getEvents(organization.org_id),
-      dbService.getParticipants(organization.org_id),
-      dbService.getJudges(organization.org_id),
-      dbService.getAllScores(),
+      dbService.getEvents(organization.org_id, true),
+      dbService.getParticipants(organization.org_id, true),
+      dbService.getJudges(organization.org_id, true),
+      dbService.getAllScores(true),
     ]);
+    eventBus.emit('cache_updated', { table: 'all' });
   };
 
   // Tab definitions
@@ -114,7 +173,7 @@ export function OrganiserDashboard({
       {/* ======================================================== */}
       {/* 1. THE TOP HEADER (Framer-Grade Premium Navigation)     */}
       {/* ======================================================== */}
-      <header className="h-[10dvh] min-h-[72px] max-h-[90px] shrink-0 bg-white dark:bg-zinc-950 border-b border-stone-200 dark:border-zinc-800/80 flex items-center justify-between px-4 transition-colors z-30">
+      <header className="h-[10dvh] min-h-[72px] max-h-[90px] shrink-0 bg-white dark:bg-zinc-950 border-b border-stone-200 dark:border-zinc-800/80 flex items-center justify-between px-3 sm:px-4 transition-colors z-30">
         
         {/* Left: Hamburger Menu Icon */}
         <button
@@ -127,44 +186,49 @@ export function OrganiserDashboard({
         </button>
 
         {/* Center: Branding & Organisation Name */}
-        <div className="flex flex-col items-center justify-center text-center px-2">
+        <div className="flex flex-col items-center justify-center text-center px-1">
           {/* Top Line: App Logo + Fair Judge */}
-          <div className="flex items-center space-x-2.5">
-            <div className="w-7 h-7 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shadow-sm shadow-emerald-500/20">
-              <Scale className="w-4 h-4 stroke-[2.5]" />
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shadow-sm shadow-emerald-500/20">
+              <Scale className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
             </div>
-            <span className="text-lg font-black tracking-tight text-zinc-900 dark:text-white">
+            <span className="text-base sm:text-lg font-black tracking-tight text-zinc-900 dark:text-white">
               Fair Judge
             </span>
           </div>
 
           {/* Bottom Line: Actual Organisation Name + Verified Tick */}
-          <div className="flex items-center space-x-1 mt-1">
-            <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 tracking-wide uppercase truncate max-w-[190px] sm:max-w-xs md:max-w-sm">
+          <div className="flex items-center space-x-1 mt-0.5">
+            <span className="text-[11px] sm:text-xs font-bold text-zinc-700 dark:text-zinc-300 tracking-wide uppercase truncate max-w-[140px] sm:max-w-xs md:max-w-sm">
               {organization.name}
             </span>
             {verificationStatus === 'verified' && (
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" title="Verified Organization" />
+              <span title="Verified Organization" className="inline-flex">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              </span>
             )}
           </div>
         </div>
 
-        {/* Right: Premium Account Icon with Status Dot */}
-        <button
-          type="button"
-          onClick={() => setIsAccountModalOpen(true)}
-          className="relative w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all duration-200 active:scale-[0.96] flex items-center justify-center cursor-pointer"
-          aria-label="Open Account Settings"
-        >
-          <CircleUser className="w-5 h-5 stroke-[2.2]" />
-          {verificationStatus !== 'verified' && (
-            <span
-              className={`absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
-                verificationStatus === 'rejected' ? 'bg-red-500 animate-ping' : 'bg-amber-500'
-              }`}
-            />
-          )}
-        </button>
+        {/* Right: Telemetry Pill & Account Icon with Status Dot */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <OfflineTelemetry compact={true} />
+          <button
+            type="button"
+            onClick={() => setIsAccountModalOpen(true)}
+            className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all duration-200 active:scale-[0.96] flex items-center justify-center cursor-pointer"
+            aria-label="Open Account Settings"
+          >
+            <CircleUser className="w-5 h-5 stroke-[2.2]" />
+            {verificationStatus !== 'verified' && (
+              <span
+                className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
+                  verificationStatus === 'rejected' ? 'bg-red-500 animate-ping' : 'bg-amber-500'
+                }`}
+              />
+            )}
+          </button>
+        </div>
       </header>
 
       {/* ======================================================== */}

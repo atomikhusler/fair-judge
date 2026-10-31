@@ -26,6 +26,7 @@ import {
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
 import { getPendingCount, subscribeToQueueChanges } from '../../../lib/offlineQueue';
+import { eventBus } from '../../../lib/eventBus';
 
 interface LiveTabProps {
   organization: Organization;
@@ -33,13 +34,19 @@ interface LiveTabProps {
 }
 
 export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
-  // 1. Core Data State
-  const [events, setEvents] = useState<SupabaseEvent[]>([]);
-  const [allParticipants, setAllParticipants] = useState<SupabaseParticipant[]>([]);
-  const [judges, setJudges] = useState<SupabaseJudge[]>([]);
-  const [allScores, setAllScores] = useState<SupabaseScore[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
+  // 1. Core Data State (Optimistically seeded from local cache to prevent flashing)
+  const [events, setEvents] = useState<SupabaseEvent[]>(() =>
+    dbService.getCachedEvents(organization.org_id)
+  );
+  const [allParticipants, setAllParticipants] = useState<SupabaseParticipant[]>(() =>
+    dbService.getCachedParticipants(organization.org_id)
+  );
+  const [judges, setJudges] = useState<SupabaseJudge[]>(() =>
+    dbService.getCachedJudges(organization.org_id)
+  );
+  const [allScores, setAllScores] = useState<SupabaseScore[]>(() =>
+    dbService.getCachedScores()
+  );
   // 2. Command Bar & Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
@@ -56,41 +63,21 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   // 5. Double-Confirmation Modal State for Ending Session
   const [confirmingEvent, setConfirmingEvent] = useState<SupabaseEvent | null>(null);
 
-  // Load foundational data
-  const loadData = useCallback(async () => {
-    try {
-      const [loadedEvents, loadedParticipants, loadedJudges, loadedScores, pendingCount] = await Promise.all([
-        dbService.getEvents(organization.org_id),
-        dbService.getParticipants(organization.org_id),
-        dbService.getJudges(organization.org_id),
-        dbService.getAllScores(),
-        getPendingCount(),
-      ]);
-
-      setEvents(loadedEvents);
-      setAllParticipants(loadedParticipants);
-      setJudges(loadedJudges);
-      setAllScores(loadedScores);
-      setPendingScoresCount(pendingCount);
-    } catch (err) {
-      console.error('Failed to load LiveTab data:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [organization.org_id]);
-
-  // Initial load and realtime subscription
+  // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
   useEffect(() => {
-    loadData();
-    const unsubscribeDb = subscribeToDatabase((table) => {
-      if (
-        table === 'fairjudge_supabase_events' ||
-        table === 'fairjudge_supabase_scores' ||
-        table === 'fairjudge_supabase_participants' ||
-        table === 'fairjudge_supabase_judges' ||
-        table === 'all'
-      ) {
-        loadData();
+    const unsubBus = eventBus.on('cache_updated', (payload) => {
+      const table = payload?.table;
+      if (!table || table === 'events' || table === 'all') {
+        setEvents(dbService.getCachedEvents(organization.org_id));
+      }
+      if (!table || table === 'participants' || table === 'all') {
+        setAllParticipants(dbService.getCachedParticipants(organization.org_id));
+      }
+      if (!table || table === 'judges' || table === 'all') {
+        setJudges(dbService.getCachedJudges(organization.org_id));
+      }
+      if (!table || table === 'scores' || table === 'all') {
+        setAllScores(dbService.getCachedScores());
       }
     });
 
@@ -100,11 +87,18 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       });
     });
 
+    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
+    dbService.getEvents(organization.org_id);
+    dbService.getParticipants(organization.org_id);
+    dbService.getJudges(organization.org_id);
+    dbService.getAllScores();
+    getPendingCount().then((count) => setPendingScoresCount(count));
+
     return () => {
-      unsubscribeDb();
+      unsubBus();
       unsubscribeQueue();
     };
-  }, [loadData]);
+  }, [organization.org_id]);
 
   // Dynamic ticking interval for any live event timer
   const hasLiveEvent = useMemo(() => {
@@ -428,14 +422,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       {/* PART 3: THE EXPANDABLE EVENT CARDS (Accordion Logic)     */}
       {/* ======================================================== */}
       <div className="mt-4 space-y-3.5">
-        {isLoading ? (
-          <div className="py-20 flex flex-col items-center justify-center text-center gap-3">
-            <div className="w-8 h-8 border-2 border-stone-300 dark:border-zinc-700 border-t-stone-800 dark:border-t-white rounded-full animate-spin" />
-            <p className="text-xs font-semibold text-stone-500 dark:text-zinc-400 uppercase tracking-wider">
-              Connecting Command Center...
-            </p>
-          </div>
-        ) : filteredEvents.length === 0 ? (
+        {filteredEvents.length === 0 ? (
           <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-8 text-center shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-stone-100 dark:bg-zinc-800/80 flex items-center justify-center mx-auto text-stone-500 dark:text-zinc-400 mb-3">
               <Radio className="w-6 h-6 stroke-[2]" />

@@ -112,7 +112,7 @@ export function PullToRefresh({
           await Promise.resolve(onRefresh());
         }
       } catch (err) {
-        console.error('PullToRefresh sync failed:', err);
+        console.warn('PullToRefresh sync failed (using cached state):', err);
       } finally {
         setTimeout(() => {
           setIsRefreshing(false);

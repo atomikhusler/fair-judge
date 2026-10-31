@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Plus, 
   Search, 
@@ -37,6 +37,7 @@ import {
   RubricCriterion 
 } from '../../../lib/supabaseTypes';
 import { dbService, generateUUID, subscribeToDatabase } from '../../../lib/supabase';
+import { eventBus } from '../../../lib/eventBus';
 
 interface EventsTabProps {
   organization: Organization;
@@ -92,13 +93,26 @@ export function EventsTab({
   onNavigateToLiveControl,
 }: EventsTabProps) {
   // ========================================================
-  // 1. MAIN EVENT LIBRARY STATE
+  // 1. MAIN EVENT LIBRARY STATE (Optimistically seeded from local cache)
   // ========================================================
-  const [events, setEvents] = useState<SupabaseEvent[]>([]);
-  const [participants, setParticipants] = useState<SupabaseParticipant[]>([]);
-  const [judges, setJudges] = useState<SupabaseJudge[]>([]);
-  const [scoresMap, setScoresMap] = useState<Record<string, number>>({});
-  const [isLoading, setIsLoading] = useState(true);
+  const [events, setEvents] = useState<SupabaseEvent[]>(() =>
+    dbService.getCachedEvents(organization.org_id)
+  );
+  const [participants, setParticipants] = useState<SupabaseParticipant[]>(() =>
+    dbService.getCachedParticipants(organization.org_id)
+  );
+  const [judges, setJudges] = useState<SupabaseJudge[]>(() =>
+    dbService.getCachedJudges(organization.org_id)
+  );
+  const [scoresMap, setScoresMap] = useState<Record<string, number>>(() => {
+    const cachedScores = dbService.getCachedScores();
+    const counts: Record<string, number> = {};
+    cachedScores.forEach((sc) => {
+      counts[sc.event_id] = (counts[sc.event_id] || 0) + 1;
+    });
+    return counts;
+  });
+
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -216,46 +230,51 @@ export function EventsTab({
   }, []);
 
   // ========================================================
-  // 4. DATA LOADING & REALTIME SYNC (Stable dependencies)
+  // 4. EVENT-DRIVEN SYNC (Pure EventBus with Zero-Flash Hydration)
   // ========================================================
-  const loadData = useCallback(async () => {
-    try {
-      const [eList, pList, jList] = await Promise.all([
-        dbService.getEvents(organization.org_id),
-        dbService.getParticipants(organization.org_id),
-        dbService.getJudges(organization.org_id),
-      ]);
-      setEvents(eList);
-      setParticipants(pList);
-      setJudges(jList);
+  useEffect(() => {
+    const unsubBus = eventBus.on('cache_updated', (payload) => {
+      const table = payload?.table;
+      if (!table || table === 'events' || table === 'all') {
+        setEvents(dbService.getCachedEvents(organization.org_id));
+      }
+      if (!table || table === 'participants' || table === 'all') {
+        setParticipants(dbService.getCachedParticipants(organization.org_id));
+      }
+      if (!table || table === 'judges' || table === 'all') {
+        setJudges(dbService.getCachedJudges(organization.org_id));
+      }
+      if (!table || table === 'scores' || table === 'all') {
+        const cachedScores = dbService.getCachedScores();
+        const scoreCounts: Record<string, number> = {};
+        cachedScores.forEach((sc) => {
+          scoreCounts[sc.event_id] = (scoreCounts[sc.event_id] || 0) + 1;
+        });
+        setScoresMap(scoreCounts);
+      }
+    });
 
-      // Load score counts for ledger immutability checking
-      const scoreCounts: Record<string, number> = {};
-      await Promise.all(
-        eList.map(async (ev) => {
-          try {
-            const sc = await dbService.getScores(ev.id);
-            scoreCounts[ev.id] = sc.length;
-          } catch {
-            scoreCounts[ev.id] = 0;
-          }
-        })
-      );
-      setScoresMap(scoreCounts);
-    } catch (err) {
-      console.error('Failed to load events data:', err);
-    } finally {
-      setIsLoading(false);
-    }
+    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
+    dbService.getEvents(organization.org_id);
+    dbService.getParticipants(organization.org_id);
+    dbService.getJudges(organization.org_id);
+    dbService.getAllScores();
+
+    return () => unsubBus();
   }, [organization.org_id]);
 
-  useEffect(() => {
-    loadData();
-    const unsubscribe = subscribeToDatabase(() => {
-      loadData();
+  const refreshFromCache = useCallback(() => {
+    setEvents(dbService.getCachedEvents(organization.org_id));
+    setParticipants(dbService.getCachedParticipants(organization.org_id));
+    setJudges(dbService.getCachedJudges(organization.org_id));
+    const cachedScores = dbService.getCachedScores();
+    const scoreCounts: Record<string, number> = {};
+    cachedScores.forEach((sc) => {
+      scoreCounts[sc.event_id] = (scoreCounts[sc.event_id] || 0) + 1;
     });
-    return () => unsubscribe();
-  }, [loadData]);
+    setScoresMap(scoreCounts);
+  }, [organization.org_id]);
+  const loadData = refreshFromCache;
 
   // Draft recovery check
   const checkForDraft = useCallback((): DraftState | null => {
@@ -393,7 +412,6 @@ export function EventsTab({
     }
 
     // Allowed for upcoming or draft
-    setIsLoading(true);
     try {
       const scores = await dbService.getScores(evt.id);
       setEditingEventId(evt.id);
@@ -419,8 +437,6 @@ export function EventsTab({
     } catch (err) {
       console.error('Failed to open event for edit:', err);
       showToast('Error opening event editor.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -963,16 +979,7 @@ export function EventsTab({
         {/* ======================================================== */}
         {/* EVENT CARDS LIST (REDESIGNED LAYOUT)                     */}
         {/* ======================================================== */}
-        {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((n) => (
-              <div
-                key={n}
-                className="h-32 rounded-2xl bg-stone-100 dark:bg-zinc-900/60 animate-pulse border border-stone-200/50 dark:border-zinc-800/50"
-              />
-            ))}
-          </div>
-        ) : filteredEvents.length === 0 ? (
+        {filteredEvents.length === 0 ? (
           <div className="p-8 text-center bg-white dark:bg-zinc-950 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl">
             <Layers className="w-10 h-10 mx-auto text-stone-300 dark:text-zinc-700 mb-3" />
             <h3 className="text-base font-bold text-stone-800 dark:text-white">No Events Found</h3>

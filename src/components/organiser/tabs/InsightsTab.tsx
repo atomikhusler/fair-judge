@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   Trophy, 
@@ -31,6 +31,7 @@ import {
   SupabaseScore 
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
+import { eventBus } from '../../../lib/eventBus';
 
 interface InsightsTabProps {
   organization: Organization;
@@ -48,14 +49,20 @@ interface ParticipantStanding {
 }
 
 export function InsightsTab({ organization }: InsightsTabProps) {
-  // --- STATE ---
+  // --- STATE (Optimistically seeded from local cache to prevent flashing) ---
   const [activePillar, setActivePillar] = useState<InsightsPillar>('results');
-  const [events, setEvents] = useState<SupabaseEvent[]>([]);
-  const [judges, setJudges] = useState<SupabaseJudge[]>([]);
-  const [participants, setParticipants] = useState<SupabaseParticipant[]>([]);
-  const [allScores, setAllScores] = useState<SupabaseScore[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
+  const [events, setEvents] = useState<SupabaseEvent[]>(() =>
+    dbService.getCachedEvents(organization.org_id)
+  );
+  const [judges, setJudges] = useState<SupabaseJudge[]>(() =>
+    dbService.getCachedJudges(organization.org_id)
+  );
+  const [participants, setParticipants] = useState<SupabaseParticipant[]>(() =>
+    dbService.getCachedParticipants(organization.org_id)
+  );
+  const [allScores, setAllScores] = useState<SupabaseScore[]>(() =>
+    dbService.getCachedScores()
+  );
   // Accordion state for Stats section
   const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({});
 
@@ -66,34 +73,31 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   const [isEventDropdownOpen, setIsEventDropdownOpen] = useState(false);
   const [isJudgeDropdownOpen, setIsJudgeDropdownOpen] = useState(false);
 
-  // --- DATA FETCHING (Live Supabase / Firestore) ---
-  const loadData = async () => {
-    try {
-      const [eList, jList, pList] = await Promise.all([
-        dbService.getEvents(organization.org_id),
-        dbService.getJudges(organization.org_id),
-        dbService.getParticipants(organization.org_id),
-      ]);
-      setEvents(eList);
-      setJudges(jList);
-      setParticipants(pList);
-
-      const scorePromises = eList.map((e) => dbService.getScores(e.id));
-      const scoreResults = await Promise.all(scorePromises);
-      setAllScores(scoreResults.flat());
-    } catch (err) {
-      console.error('Failed to load insights data:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
   useEffect(() => {
-    loadData();
-    const unsub = subscribeToDatabase(() => {
-      loadData();
+    const unsubBus = eventBus.on('cache_updated', (payload) => {
+      const table = payload?.table;
+      if (!table || table === 'events' || table === 'all') {
+        setEvents(dbService.getCachedEvents(organization.org_id));
+      }
+      if (!table || table === 'judges' || table === 'all') {
+        setJudges(dbService.getCachedJudges(organization.org_id));
+      }
+      if (!table || table === 'participants' || table === 'all') {
+        setParticipants(dbService.getCachedParticipants(organization.org_id));
+      }
+      if (!table || table === 'scores' || table === 'all') {
+        setAllScores(dbService.getCachedScores());
+      }
     });
-    return () => unsub();
+
+    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
+    dbService.getEvents(organization.org_id);
+    dbService.getJudges(organization.org_id);
+    dbService.getParticipants(organization.org_id);
+    dbService.getAllScores();
+
+    return () => unsubBus();
   }, [organization.org_id]);
 
   // --- LOOKUP MAPS ---
@@ -998,14 +1002,6 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
     exportToExcelWithMasterHeader('FairJudge_Ledger_Logs', 'Cryptographic_Logs', headers, rows);
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-xs font-mono text-zinc-500 py-16">
-        Syncing Enterprise Telemetry...
-      </div>
-    );
-  }
 
   return (
     <div className="flex-1 overflow-y-auto relative pb-32">
