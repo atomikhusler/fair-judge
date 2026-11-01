@@ -470,65 +470,64 @@ export const dbService = {
   },
 
   async createOrganization(name: string, email?: string, password?: string): Promise<Organization> {
-    let newOrgId = generateOrgId();
-    const newOrg: Organization = {
-      id: generateUUID(),
-      org_id: newOrgId,
-      name: name.trim(),
-      email: email?.trim(),
-      password: password?.trim() || 'password123',
-      verification_status: 'pending',
-      tie_breaker_enabled: false,
-      tie_breaker_method: 'olympic',
-      created_at: new Date().toISOString(),
-    };
-
-    // Optimistically write to local cache
-    const orgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
-    saveCache(STORAGE_KEYS.ORGS, [newOrg, ...orgs], false);
-    invalidateCache(STORAGE_KEYS.ORGS);
-
-    if (isSupabaseConfigured) {
-      const payload = {
-        org_id: newOrg.org_id,
-        name: newOrg.name,
-        email: newOrg.email || null,
-        password: newOrg.password,
-        verification_status: 'pending' as VerificationStatus,
-        tie_breaker_enabled: false,
-        tie_breaker_method: 'olympic',
-        custom_participant_fields: [],
-        blind_judging_enabled: false,
-        auto_advance_enabled: true,
-        grace_period_enabled: false,
-        isolated_jury_enabled: false,
-      };
-
-      try {
-        const { data, error } = await supabase
-          .from('organizations')
-          .insert([payload])
-          .select()
-          .single();
-
-        if (error) throw error;
-        if (data) {
-          const created = normalizeOrg(data);
-          const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
-          saveCache(
-            STORAGE_KEYS.ORGS,
-            [created, ...currentOrgs.filter((o) => o.org_id !== created.org_id)],
-            true
-          );
-          return created;
-        }
-      } catch (err: any) {
-        console.warn('Offline mode: organization saved locally, deferring cloud sync:', err?.message || err);
-        await queueMutationLocally('organizations', 'INSERT', newOrg.org_id, payload);
-      }
+    // 1. Strict Cloud-First Network Enforcement: Cannot register account offline
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('Registration requires an active internet connection. Please connect to the network to create an organization.');
     }
 
-    return newOrg;
+    const cleanName = name.trim();
+    if (!cleanName) {
+      throw new Error('Please enter a valid organisation name.');
+    }
+
+    const cleanEmail = email?.trim() || null;
+    const cleanPassword = password?.trim() || 'password123';
+    const newOrgId = generateOrgId();
+    const newOrgUuid = generateUUID();
+
+    const insertPayload = {
+      id: newOrgUuid,
+      org_id: newOrgId,
+      name: cleanName,
+      email: cleanEmail,
+      password: cleanPassword,
+      verification_status: 'pending' as VerificationStatus,
+      tie_breaker_enabled: false,
+      tie_breaker_method: 'olympic' as TieBreakerMethod,
+      custom_participant_fields: [],
+      blind_judging_enabled: false,
+      auto_advance_enabled: true,
+      grace_period_enabled: false,
+      isolated_jury_enabled: false,
+    };
+
+    // 2. The Database Insert: Await direct Supabase insertion
+    const { data, error } = await supabase
+      .from('organizations')
+      .insert([insertPayload])
+      .select()
+      .single();
+
+    // 3. Error Handling: Halt registration if database insertion fails
+    if (error) {
+      console.error('Supabase organization registration error:', error);
+      throw new Error(error.message || 'Database registration failed. Please try again.');
+    }
+
+    const created = data
+      ? normalizeOrg(data)
+      : normalizeOrg({ ...insertPayload, created_at: new Date().toISOString() });
+
+    // 4. Update cache ONLY AFTER successful cloud insertion
+    const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
+    saveCache(
+      STORAGE_KEYS.ORGS,
+      [created, ...currentOrgs.filter((o) => o.org_id !== created.org_id)],
+      false
+    );
+    invalidateCache(STORAGE_KEYS.ORGS);
+
+    return created;
   },
 
   async updateOrganization(orgId: string, updates: Partial<Organization>): Promise<Organization> {
