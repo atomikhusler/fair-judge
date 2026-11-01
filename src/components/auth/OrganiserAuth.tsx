@@ -10,7 +10,8 @@ import {
   Eye, 
   EyeOff, 
   ChevronLeft,
-  ShieldCheck
+  ShieldCheck,
+  Scale
 } from 'lucide-react';
 import { dbService } from '../../lib/supabase';
 import { Organization } from '../../lib/supabaseTypes';
@@ -40,7 +41,7 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Password entropy analysis
+  // Password entropy analysis for registration
   const passwordResult = adminPassword ? zxcvbn(adminPassword) : null;
   const passwordScore = passwordResult ? passwordResult.score : 0;
 
@@ -94,11 +95,9 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
         onOrganiserLogin(createdOrg);
       } catch (err: any) {
         console.error('Registration error intercepted:', err);
-        // Directive 1: Strict Error Sanitization
         const sanitized = sanitizeAuthError(err);
         setErrorMessage(sanitized);
         showToast(sanitized, 'error');
-        // Data Integrity: Do NOT push user to dashboard
       } finally {
         setIsSubmitting(false);
       }
@@ -128,7 +127,6 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
           return;
         }
 
-        const expectedPassword = org.password || 'password123';
         if (org.password && org.password !== password) {
           const passErr = 'Incorrect password. Please verify and try again.';
           setErrorMessage(passErr);
@@ -141,11 +139,9 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
         onOrganiserLogin(org);
       } catch (err: any) {
         console.error('Login error intercepted:', err);
-        // Directive 1: Strict Error Sanitization
         const sanitized = sanitizeAuthError(err);
         setErrorMessage(sanitized);
         showToast(sanitized, 'error');
-        // Data Integrity: Do NOT push user to dashboard
       } finally {
         setIsSubmitting(false);
       }
@@ -154,31 +150,38 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
 
   return (
     <div className="w-full max-w-md mx-auto bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-3xl p-6 md:p-8 shadow-2xl shadow-black/80 relative animate-in fade-in zoom-in-95 duration-200">
-      {/* Top Header with Back Button */}
-      <div className="flex items-center justify-between pb-4 border-b border-zinc-800/80 mb-5">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-white transition-colors cursor-pointer"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          <span>Role Selection</span>
-        </button>
-        <span className="text-[11px] font-mono uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5">
-          <Building2 className="w-3.5 h-3.5" />
-          <span>Organiser Portal</span>
+      {/* Floating Glassmorphic Back Button */}
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="Back to role selection"
+        className="w-10 h-10 rounded-full bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-95 shadow-lg z-20"
+      >
+        <ChevronLeft className="w-5 h-5" />
+      </button>
+
+      {/* Persistent Shrinked App Logo & Centered Header Anchor */}
+      <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
+        <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-1.5 shadow-sm shadow-emerald-500/10">
+          <Scale className="w-5 h-5" />
+        </div>
+        <h1 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+          Organiser Portal
+        </h1>
+        <span className="text-[10px] uppercase tracking-widest text-zinc-500">
+          Fair Judge
         </span>
       </div>
 
-      {/* Directive 3: Segmented Control - Single, premium pill-shaped toggle at top */}
-      <div className="bg-zinc-900 border border-zinc-800 p-1 rounded-full flex mb-6">
+      {/* The Segmented Toggle: Premium pill container */}
+      <div className="bg-zinc-900/80 p-1 rounded-xl flex mb-6 border border-zinc-800/80">
         <button
           type="button"
           onClick={() => {
             setAuthMode('login');
             setErrorMessage('');
           }}
-          className={`flex-1 py-2 text-xs font-bold transition-all rounded-full flex items-center justify-center cursor-pointer ${
+          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg flex items-center justify-center cursor-pointer ${
             authMode === 'login'
               ? 'bg-zinc-800 text-emerald-400 shadow-md border border-zinc-700/60'
               : 'text-zinc-400 hover:text-white'
@@ -192,29 +195,27 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
             setAuthMode('register');
             setErrorMessage('');
           }}
-          className={`flex-1 py-2 text-xs font-bold transition-all rounded-full flex items-center justify-center cursor-pointer ${
+          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg flex items-center justify-center cursor-pointer ${
             authMode === 'register'
               ? 'bg-zinc-800 text-emerald-400 shadow-md border border-zinc-700/60'
               : 'text-zinc-400 hover:text-white'
           }`}
         >
-          Register New Org
+          Register
         </button>
       </div>
 
-      {/* Form */}
+      {/* Forms with Industry-Standard Linear/Vercel Aesthetic */}
       <form onSubmit={handleSubmit} className="space-y-4">
         {authMode === 'register' ? (
           <>
             {/* Org Name */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
                 Organisation / Event Name
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                  <Building2 className="w-4 h-4" />
-                </div>
+              <div className="bg-zinc-950 border border-zinc-800 focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+                <Building2 className="w-4 h-4 text-zinc-500 shrink-0" />
                 <input
                   type="text"
                   placeholder="e.g. State Science Fair"
@@ -222,27 +223,25 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
                   onChange={(e) => setOrgName(e.target.value)}
                   required
                   disabled={isSubmitting}
-                  className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all rounded-xl text-sm font-medium text-white placeholder-zinc-500 outline-none disabled:opacity-50"
+                  className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full"
                 />
               </div>
             </div>
 
             {/* Admin Email */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
                 Admin Email Address
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                  <Mail className="w-4 h-4" />
-                </div>
+              <div className="bg-zinc-950 border border-zinc-800 focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+                <Mail className="w-4 h-4 text-zinc-500 shrink-0" />
                 <input
                   type="email"
                   placeholder="admin@organisation.org"
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
                   disabled={isSubmitting}
-                  className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all rounded-xl text-sm font-medium text-white placeholder-zinc-500 outline-none disabled:opacity-50"
+                  className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full"
                 />
               </div>
             </div>
@@ -250,13 +249,13 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
             {/* Master Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
                   Master Password
                 </label>
                 <button
                   type="button"
                   onClick={() => setShowAdminPassword(!showAdminPassword)}
-                  className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   {showAdminPassword ? (
                     <>
@@ -271,10 +270,8 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
                   )}
                 </button>
               </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                  <KeyRound className="w-4 h-4" />
-                </div>
+              <div className="bg-zinc-950 border border-zinc-800 focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+                <KeyRound className="w-4 h-4 text-zinc-500 shrink-0" />
                 <input
                   type={showAdminPassword ? 'text' : 'password'}
                   placeholder="Minimum 6 characters"
@@ -282,55 +279,44 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
                   onChange={(e) => setAdminPassword(e.target.value)}
                   required
                   disabled={isSubmitting}
-                  className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all rounded-xl text-sm font-medium text-white placeholder-zinc-500 outline-none disabled:opacity-50"
+                  className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full"
                 />
               </div>
 
-              {/* Entropy Bar */}
+              {/* Entropy Meter */}
               {adminPassword && (
                 <div className="mt-2 space-y-1">
-                  <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400">
-                    <span>Entropy Level</span>
-                    <span className={passwordScore >= 3 ? 'text-emerald-400 font-bold' : 'text-zinc-400'}>
-                      {getEntropyBar().label}
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                  <div className="h-1 w-full bg-zinc-800 rounded-full overflow-hidden">
                     <div
                       className={`h-full transition-all duration-300 ${getEntropyBar().color}`}
                       style={{ width: getEntropyBar().width }}
                     />
                   </div>
+                  <div className="flex justify-between items-center text-[10px] font-mono text-zinc-500">
+                    <span>Security Strength</span>
+                    <span className="font-semibold text-zinc-400">{getEntropyBar().label}</span>
+                  </div>
                 </div>
               )}
-            </div>
-
-            <div className="pt-1 flex items-start gap-2 text-[11px] text-zinc-400 leading-relaxed">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <span>
-                Account registration connects to the cloud ledger for official accreditation.
-              </span>
             </div>
           </>
         ) : (
           <>
             {/* Login Identifier */}
             <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
                 Organisation ID or Email
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                  <Building2 className="w-4 h-4" />
-                </div>
+              <div className="bg-zinc-950 border border-zinc-800 focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+                <Building2 className="w-4 h-4 text-zinc-500 shrink-0" />
                 <input
                   type="text"
-                  placeholder="e.g. FJ-9A2X or admin@state.org"
+                  placeholder="e.g. FJ-ORG-9102 or admin@event.com"
                   value={loginIdentifier}
                   onChange={(e) => setLoginIdentifier(e.target.value)}
                   required
                   disabled={isSubmitting}
-                  className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all rounded-xl text-sm font-medium text-white placeholder-zinc-500 outline-none disabled:opacity-50"
+                  className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full"
                 />
               </div>
             </div>
@@ -338,13 +324,13 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
             {/* Login Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
                   Master Password
                 </label>
                 <button
                   type="button"
                   onClick={() => setShowLoginPassword(!showLoginPassword)}
-                  className="text-[10px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   {showLoginPassword ? (
                     <>
@@ -359,18 +345,16 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
                   )}
                 </button>
               </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                  <KeyRound className="w-4 h-4" />
-                </div>
+              <div className="bg-zinc-950 border border-zinc-800 focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+                <KeyRound className="w-4 h-4 text-zinc-500 shrink-0" />
                 <input
                   type={showLoginPassword ? 'text' : 'password'}
-                  placeholder="••••••••••••"
+                  placeholder="Enter your master password"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   required
                   disabled={isSubmitting}
-                  className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all rounded-xl text-sm font-medium text-white placeholder-zinc-500 outline-none disabled:opacity-50"
+                  className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full"
                 />
               </div>
             </div>
@@ -389,24 +373,27 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+          className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-black font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-2"
         >
           {isSubmitting ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-              <span>
-                {authMode === 'register' ? 'Registering Organisation...' : 'Signing In...'}
-              </span>
+              <Loader2 className="w-4 h-4 animate-spin text-black" />
+              <span>{authMode === 'register' ? 'Registering Organisation...' : 'Signing In...'}</span>
             </>
           ) : (
             <>
-              <span>
-                {authMode === 'register' ? 'Create & Launch Dashboard' : 'Enter Dashboard'}
-              </span>
+              <span>{authMode === 'register' ? 'Create Organisation' : 'Access Command Center'}</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}
         </button>
+
+        {authMode === 'register' && (
+          <p className="text-[10px] text-zinc-500 text-center flex items-center justify-center gap-1.5 pt-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Master credentials protect event deletion and roster actions.</span>
+          </p>
+        )}
       </form>
     </div>
   );

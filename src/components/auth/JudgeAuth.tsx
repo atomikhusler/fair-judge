@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Gavel, 
-  QrCode, 
   ArrowRight, 
   Loader2, 
   AlertCircle, 
@@ -10,7 +9,8 @@ import {
   Image as ImageIcon,
   X,
   KeyRound,
-  Building2
+  Building2,
+  UserCheck
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { dbService, supabase, isSupabaseConfigured } from '../../lib/supabase';
@@ -25,15 +25,14 @@ interface JudgeAuthProps {
 }
 
 export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
-  // Minimalist single centered PIN input
-  const [eventPin, setEventPin] = useState('');
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-
-  // Optional Triad Fallback Toggle (for multi-tenant manual entry)
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Three distinct manual login fields
   const [orgId, setOrgId] = useState('');
   const [judgeId, setJudgeId] = useState('');
+  const [pin, setPin] = useState('');
+
+  // Status and error states
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // QR Code Scanner State
   const [isScanning, setIsScanning] = useState(false);
@@ -115,17 +114,18 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
     try {
       const creds = extractJudgeCredentials(rawText);
       if (creds && creds.orgId && creds.judgeId && creds.pin) {
+        setOrgId(creds.orgId.toUpperCase());
+        setJudgeId(creds.judgeId);
+        setPin(creds.pin);
+
         let verified = await dbService.verifyJudgeCredentials(
           creds.orgId,
           creds.judgeId,
           creds.pin
         );
 
-        // If not found in current database (e.g. fresh environment or offline demo badge),
-        // gracefully create or hydrate the verified judge so the evaluator is not locked out!
         if (!verified) {
           try {
-            const org = await dbService.getOrganizationByOrgId(creds.orgId);
             const judgeName = (creds as any).name || `Judge ${creds.judgeId}`;
             const createdJudge = await dbService.createJudge(
               creds.orgId,
@@ -155,11 +155,11 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         return;
       }
 
-      // Check if it's a simple PIN string
+      // Check if it's a simple 4-6 character PIN string
       const clean = rawText.trim().toUpperCase();
       if (clean) {
-        setEventPin(clean.slice(0, 6));
-        await handlePinSubmit(undefined, clean);
+        setPin(clean.slice(0, 6));
+        await handleAuthenticate(undefined, clean);
         return;
       }
 
@@ -198,49 +198,55 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
     }
   };
 
-  // Submit PIN
-  const handlePinSubmit = async (e?: React.FormEvent, directPin?: string) => {
+  // Authenticate manual inputs
+  const handleAuthenticate = async (e?: React.FormEvent, overridePin?: string) => {
     if (e) e.preventDefault();
     setErrorMessage('');
 
-    const targetPin = (directPin || eventPin).trim().toUpperCase();
+    const targetOrgId = orgId.trim().toUpperCase();
+    const targetJudgeId = judgeId.trim();
+    const targetPin = (overridePin || pin).trim().toUpperCase();
+
     if (!targetPin) {
-      setErrorMessage('Please enter your Event or Judge PIN.');
+      setErrorMessage('Please enter your 4-Digit PIN to authenticate.');
       return;
     }
 
     setIsVerifying(true);
     try {
-      // 1. If advanced triad is provided
-      if (showAdvanced && orgId.trim() && judgeId.trim()) {
+      // 1. Full triad verification if Org ID and Judge ID are provided
+      if (targetOrgId && targetJudgeId) {
         const verified = await dbService.verifyJudgeCredentials(
-          orgId.trim().toUpperCase(),
-          judgeId.trim(),
+          targetOrgId,
+          targetJudgeId,
           targetPin
         );
 
         if (!verified) {
-          const invalidMsg = 'Invalid credentials. Please verify your Org ID, Judge ID, and PIN.';
+          const invalidMsg = 'Invalid credentials. Please verify your Organisation ID, Judge ID, and PIN.';
           setErrorMessage(invalidMsg);
           showToast(invalidMsg, 'error');
           return;
         }
 
         showToast(`Welcome, Judge ${verified.judge.name}!`, 'success');
-        onJudgeLogin(orgId.trim().toUpperCase(), verified.judge, verified.assignedEvents);
+        onJudgeLogin(targetOrgId, verified.judge, verified.assignedEvents);
         return;
       }
 
-      // 2. Minimalist Single PIN Lookup: Look for matching judge across Supabase or Cache
+      // 2. PIN lookup fallback across Supabase or Cache
       let foundJudge: SupabaseJudge | null = null;
-      let matchedOrgId = '';
+      let matchedOrgId = targetOrgId;
 
       if (isSupabaseConfigured()) {
-        const { data, error } = await supabase
+        const query = supabase
           .from('judges')
           .select('*')
-          .or(`pin.eq.${targetPin},judge_pin.eq.${targetPin}`)
-          .maybeSingle();
+          .or(`pin.eq.${targetPin},judge_pin.eq.${targetPin}`);
+
+        const { data, error } = targetOrgId 
+          ? await query.ilike('org_id', targetOrgId).maybeSingle()
+          : await query.maybeSingle();
 
         if (!error && data) {
           foundJudge = data as SupabaseJudge;
@@ -252,6 +258,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       if (!foundJudge) {
         const allOrgs = await dbService.getOrganizations();
         for (const org of allOrgs) {
+          if (targetOrgId && org.org_id.toUpperCase() !== targetOrgId) continue;
           const orgJudges = await dbService.getJudges(org.org_id);
           const match = orgJudges.find(
             (j) => j.pin?.toUpperCase() === targetPin || j.judge_pin?.toUpperCase() === targetPin
@@ -265,7 +272,9 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       }
 
       if (!foundJudge || !matchedOrgId) {
-        const notFoundMsg = `PIN "${targetPin}" not found. Please verify your PIN or scan your QR code.`;
+        const notFoundMsg = targetOrgId && !targetJudgeId 
+          ? 'Please provide your Judge ID along with Organisation ID & PIN.'
+          : `Credentials not recognized. Please verify your Org ID, Judge ID, and PIN.`;
         setErrorMessage(notFoundMsg);
         showToast(notFoundMsg, 'error');
         return;
@@ -278,7 +287,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       );
 
       if (!verified) {
-        const errUnauth = 'Unable to authenticate PIN credentials. Please try again.';
+        const errUnauth = 'Unable to authenticate judge credentials. Please try again.';
         setErrorMessage(errUnauth);
         showToast(errUnauth, 'error');
         return;
@@ -287,7 +296,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       showToast(`Welcome, Judge ${verified.judge.name}!`, 'success');
       onJudgeLogin(matchedOrgId.toUpperCase(), verified.judge, verified.assignedEvents);
     } catch (err: any) {
-      console.warn('Judge PIN authentication notice:', err);
+      console.warn('Judge authentication notice:', err);
       const sanitized = sanitizeAuthError(err);
       setErrorMessage(sanitized);
       showToast(sanitized, 'error');
@@ -307,119 +316,163 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         onChange={handleGalleryUpload}
       />
 
-      {/* Top Header with Back Button */}
-      <div className="flex items-center justify-between pb-4 border-b border-zinc-800/80 mb-6">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-white transition-colors cursor-pointer"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          <span>Role Selection</span>
-        </button>
-        <span className="text-[11px] font-mono uppercase tracking-wider text-orange-400 font-bold flex items-center gap-1.5">
-          <Gavel className="w-3.5 h-3.5" />
-          <span>Judge Terminal</span>
+      {/* Floating Glassmorphic Back Button */}
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="Back to role selection"
+        className="w-10 h-10 rounded-full bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-95 shadow-lg z-20"
+      >
+        <ChevronLeft className="w-5 h-5" />
+      </button>
+
+      {/* Shrinked App Logo & Persistent Centered Header Anchor */}
+      <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
+        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
+          <Gavel className="w-5 h-5" />
+        </div>
+        <h1 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+          Judge Terminal
+        </h1>
+        <span className="text-[10px] uppercase tracking-widest text-zinc-500">
+          Fair Judge
         </span>
       </div>
 
-      {/* Camera Scanner View Modal / Inline */}
-      {isScanning && (
-        <div className="mb-6 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 animate-in fade-in zoom-in-95">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
-              <Camera className="w-4 h-4 text-orange-400" />
-              <span>Scanning Judge Badge QR...</span>
-            </span>
-            <button
-              type="button"
-              onClick={stopScanner}
-              className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div
-            id={qrRegionId}
-            className="w-full h-56 bg-black rounded-xl overflow-hidden border border-zinc-800 flex items-center justify-center text-xs text-zinc-500"
-          />
-
-          {scannerError && (
-            <div className="mt-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{scannerError}</span>
-            </div>
-          )}
-
-          <div className="mt-3 flex items-center justify-center">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessingGallery}
-              className="text-xs text-zinc-400 hover:text-orange-400 flex items-center gap-1.5 cursor-pointer"
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>Upload QR from Gallery</span>
-            </button>
-          </div>
+      {/* PRIMARY BLOCK: Unified Glassmorphic QR Card (Zero Tap-Fatigue) */}
+      <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 mb-5">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 text-center">
+          Instant Badge Access
         </div>
-      )}
+        
+        <div className="grid grid-cols-2 gap-3">
+          {/* Zone A: Primary Solid Amber Camera Button */}
+          <button
+            type="button"
+            onClick={startCameraScanner}
+            disabled={isScanning || isVerifying}
+            className="h-11 bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-black font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            <Camera className="w-4 h-4 shrink-0" />
+            <span>Scan QR</span>
+          </button>
 
-      {/* Directive 3: Minimalist & Distraction-Free Judge Form */}
-      <form onSubmit={(e) => handlePinSubmit(e)} className="space-y-5">
-        <div className="text-center space-y-1 mb-2">
-          <h2 className="text-base font-bold text-white">Enter Event PIN</h2>
-          <p className="text-xs text-zinc-400">
-            Enter your 6-character Event PIN or scan your QR code.
-          </p>
+          {/* Zone B: Secondary Ghost/Outline Gallery Upload */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessingGallery || isVerifying}
+            className="h-11 border border-zinc-800 hover:border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800/80 active:scale-[0.98] text-zinc-300 hover:text-white font-semibold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isProcessingGallery ? (
+              <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+            ) : (
+              <ImageIcon className="w-4 h-4 shrink-0 text-zinc-400" />
+            )}
+            <span>{isProcessingGallery ? 'Parsing...' : 'From Gallery'}</span>
+          </button>
         </div>
 
-        {/* Single Centered Input for 6-Character Event PIN */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 text-center mb-2">
-            6-Character PIN
-          </label>
-          <input
-            type="text"
-            maxLength={6}
-            placeholder="• • • • • •"
-            value={eventPin}
-            onChange={(e) => setEventPin(e.target.value.toUpperCase())}
-            disabled={isVerifying}
-            className="w-full h-14 bg-zinc-900/80 border border-zinc-800 focus:border-orange-500 focus:ring-1 focus:ring-orange-500/50 transition-all rounded-xl text-center font-mono text-2xl tracking-[0.3em] font-extrabold text-white placeholder-zinc-700 outline-none uppercase disabled:opacity-50"
-          />
-        </div>
+        {/* Live Camera Scanner Viewport if Active */}
+        {isScanning && (
+          <div className="mt-4 p-3 rounded-xl bg-zinc-950 border border-zinc-800 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5 text-amber-400" />
+                <span>Align badge QR in viewport</span>
+              </span>
+              <button
+                type="button"
+                onClick={stopScanner}
+                className="p-1 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
-        {/* Optional Collapsible Triad Entry */}
-        {showAdvanced && (
-          <div className="space-y-3 pt-2 border-t border-zinc-800/80 animate-in fade-in">
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
-                Organisation ID
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. FJ-9A2X"
-                value={orgId}
-                onChange={(e) => setOrgId(e.target.value.toUpperCase())}
-                className="w-full h-10 px-3 bg-zinc-900/80 border border-zinc-800 focus:border-orange-500 rounded-lg text-xs font-medium text-white placeholder-zinc-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
-                Judge ID
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. J-01"
-                value={judgeId}
-                onChange={(e) => setJudgeId(e.target.value)}
-                className="w-full h-10 px-3 bg-zinc-900/80 border border-zinc-800 focus:border-orange-500 rounded-lg text-xs font-medium text-white placeholder-zinc-500 outline-none"
-              />
-            </div>
+            <div
+              id={qrRegionId}
+              className="w-full h-48 bg-black rounded-lg overflow-hidden border border-zinc-800 flex items-center justify-center text-xs text-zinc-500"
+            />
+
+            {scannerError && (
+              <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{scannerError}</span>
+              </div>
+            )}
           </div>
         )}
+      </div>
+
+      {/* THE DIVIDER: Clean Horizontal Line with Muted OR Badge */}
+      <div className="relative my-6 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-zinc-800" />
+        </div>
+        <div className="relative bg-zinc-900/90 px-3 py-0.5 rounded-full border border-zinc-800/80">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+            OR
+          </span>
+        </div>
+      </div>
+
+      {/* SECONDARY BLOCK: Always-Visible Manual Login (Zero Extra Taps) */}
+      <form onSubmit={(e) => handleAuthenticate(e)} className="space-y-4">
+        {/* Field 1: Organisation ID */}
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
+            Organisation ID
+          </label>
+          <div className="bg-zinc-950 border border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+            <Building2 className="w-4 h-4 text-zinc-500 shrink-0" />
+            <input
+              type="text"
+              placeholder="e.g. FJ-ORG-9102"
+              value={orgId}
+              onChange={(e) => setOrgId(e.target.value.toUpperCase())}
+              disabled={isVerifying}
+              className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full uppercase"
+            />
+          </div>
+        </div>
+
+        {/* Field 2: Judge ID */}
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
+            Judge ID
+          </label>
+          <div className="bg-zinc-950 border border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+            <UserCheck className="w-4 h-4 text-zinc-500 shrink-0" />
+            <input
+              type="text"
+              placeholder="e.g. J-01 or Full Name"
+              value={judgeId}
+              onChange={(e) => setJudgeId(e.target.value)}
+              disabled={isVerifying}
+              className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full"
+            />
+          </div>
+        </div>
+
+        {/* Field 3: 4-Digit PIN */}
+        <div>
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
+            4-Digit PIN
+          </label>
+          <div className="bg-zinc-950 border border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
+            <KeyRound className="w-4 h-4 text-zinc-500 shrink-0" />
+            <input
+              type="password"
+              maxLength={6}
+              placeholder="••••"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              disabled={isVerifying}
+              className="bg-transparent text-sm font-mono tracking-widest font-bold text-white placeholder-zinc-600 outline-none w-full"
+            />
+          </div>
+        </div>
 
         {/* Error Alert */}
         {errorMessage && (
@@ -429,46 +482,24 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
           </div>
         )}
 
-        {/* Primary Submit Button */}
+        {/* Full-Width Solid Authenticate Button */}
         <button
           type="submit"
-          disabled={isVerifying || !eventPin.trim()}
-          className="w-full h-11 bg-orange-500 hover:bg-orange-400 active:scale-[0.99] text-black font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={isVerifying}
+          className="w-full h-11 bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-black font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-2"
         >
           {isVerifying ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin text-black" />
-              <span>Verifying Terminal Access...</span>
+              <span>Authenticating Terminal...</span>
             </>
           ) : (
             <>
-              <span>Enter Scoring Terminal</span>
+              <span>Authenticate</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}
         </button>
-
-        {/* Secondary Ghost-Style Button: "Scan QR Code" */}
-        <button
-          type="button"
-          onClick={startCameraScanner}
-          disabled={isScanning || isVerifying}
-          className="w-full h-11 border border-zinc-800 hover:border-zinc-700 bg-zinc-900/40 hover:bg-zinc-800/40 text-zinc-300 hover:text-white rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer text-xs font-semibold active:scale-[0.99]"
-        >
-          <QrCode className="w-4 h-4 text-orange-400" />
-          <span>Scan QR Code</span>
-        </button>
-
-        {/* Discrete Toggle for Triad manual entry */}
-        <div className="text-center pt-2">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="text-[11px] text-zinc-500 hover:text-zinc-400 transition-colors cursor-pointer"
-          >
-            {showAdvanced ? 'Hide manual credentials' : 'Need manual Org ID & Judge ID entry?'}
-          </button>
-        </div>
       </form>
     </div>
   );
