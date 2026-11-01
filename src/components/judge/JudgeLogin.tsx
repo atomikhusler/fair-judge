@@ -14,6 +14,7 @@ import {
 import { dbService } from '../../lib/supabase';
 import { SupabaseJudge, SupabaseEvent } from '../../lib/supabaseTypes';
 import { parseQrCodeFromImageFile, extractJudgeCredentials } from '../../lib/qrCodeParser';
+import { sanitizeAuthError } from '../auth/authSanitizer';
 
 interface JudgeLoginProps {
   onJudgeLogin: (orgId: string, judge: SupabaseJudge, assignedEvents: SupabaseEvent[]) => void;
@@ -115,7 +116,7 @@ export function JudgeLogin({ onJudgeLogin, onBack }: JudgeLoginProps) {
       onJudgeLogin(targetOrg.toUpperCase(), verified.judge, verified.assignedEvents);
     } catch (err: any) {
       setIsVerifyingJudge(false);
-      setJudgeError(err.message || 'Failed to authenticate credentials.');
+      setJudgeError(sanitizeAuthError(err));
     }
   };
 
@@ -216,7 +217,7 @@ export function JudgeLogin({ onJudgeLogin, onBack }: JudgeLoginProps) {
       }
     } catch (err: any) {
       console.warn('Gallery QR parsing failed:', err);
-      setJudgeError(err.message || 'Could not detect a valid QR code in this image.');
+      setJudgeError(sanitizeAuthError(err));
     } finally {
       setIsProcessingGalleryQR(false);
       if (e.target) e.target.value = '';

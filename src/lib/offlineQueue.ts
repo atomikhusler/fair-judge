@@ -165,7 +165,7 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { syncedCount: 0, failedCount: 0 };
   }
-  if (!isSupabaseConfigured) {
+  if (!isSupabaseConfigured()) {
     return { syncedCount: 0, failedCount: 0 };
   }
 
@@ -367,7 +367,7 @@ export async function flushOfflineQueueToSupabase(): Promise<{
   let scoreSynced = 0;
   let scoreFailed = 0;
 
-  if (isSupabaseConfigured && rawScores.length > 0) {
+  if (isSupabaseConfigured() && rawScores.length > 0) {
     // OCC Deduplication: Group by event_id + participant_id + judge_id
     const dedupedScoreMap = new Map<string, PendingScoreRecord>();
     const obsoleteScoreIds: string[] = [];

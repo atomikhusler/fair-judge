@@ -20,28 +20,114 @@ import {
 import { eventBus } from './eventBus';
 import { calculateRankings as engineCalculateRankings, calculateRankingsAsync as engineCalculateRankingsAsync } from './tieBreakerEngine';
 
-// Environment variable credentials
-const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+// ==========================================
+// SUPABASE CREDENTIALS & DYNAMIC CLIENT INJECTION
+// ==========================================
 
-export const isSupabaseConfigured = Boolean(
-  import.meta.env.VITE_SUPABASE_URL &&
-  import.meta.env.VITE_SUPABASE_ANON_KEY &&
-  !import.meta.env.VITE_SUPABASE_URL.includes('placeholder') &&
-  !import.meta.env.VITE_SUPABASE_URL.includes('paste_your_url_here')
-);
+export const SUPABASE_STORAGE_CONFIG_KEYS = {
+  URL: 'fairjudge_supabase_url',
+  ANON_KEY: 'fairjudge_supabase_anon_key',
+};
 
-// In browser environment, route through same-origin /supabase-proxy to eliminate iframe sandbox & CORS network errors
-const supabaseUrl =
-  typeof window !== 'undefined' && isSupabaseConfigured
-    ? `${window.location.origin}/supabase-proxy`
-    : rawSupabaseUrl;
+export function getSupabaseCredentials(): { url: string; anonKey: string } {
+  let url = '';
+  let anonKey = '';
+  if (typeof window !== 'undefined') {
+    try {
+      url = localStorage.getItem(SUPABASE_STORAGE_CONFIG_KEYS.URL) || '';
+      anonKey = localStorage.getItem(SUPABASE_STORAGE_CONFIG_KEYS.ANON_KEY) || '';
+    } catch {}
+  }
+  if (!url) {
+    url = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  }
+  if (!anonKey) {
+    anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+  }
+  return { url: url.trim(), anonKey: anonKey.trim() };
+}
 
-// Standard Supabase client instance
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
+export function setSupabaseCredentials(url: string, anonKey: string): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(SUPABASE_STORAGE_CONFIG_KEYS.URL, url.trim());
+    localStorage.setItem(SUPABASE_STORAGE_CONFIG_KEYS.ANON_KEY, anonKey.trim());
+  }
+  resetSupabaseClient();
+}
+
+export function clearSupabaseCredentials(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(SUPABASE_STORAGE_CONFIG_KEYS.URL);
+    localStorage.removeItem(SUPABASE_STORAGE_CONFIG_KEYS.ANON_KEY);
+  }
+  resetSupabaseClient();
+}
+
+export function isSupabaseConfigured(): boolean {
+  const { url, anonKey } = getSupabaseCredentials();
+  return Boolean(
+    url &&
+    anonKey &&
+    url.startsWith('http') &&
+    !url.includes('placeholder') &&
+    !url.includes('paste_your_url_here')
+  );
+}
+
+// Intercepts and sanitizes error payloads to eliminate raw HTML dumps (Directive 1)
+export function sanitizeDbError(err: any): Error {
+  const rawMsg = err?.message || (typeof err === 'string' ? err : JSON.stringify(err || ''));
+  const lower = rawMsg.toLowerCase();
+
+  if (
+    lower.includes('<!doctype') ||
+    lower.includes('<html') ||
+    lower.includes('<head') ||
+    lower.includes('<body') ||
+    lower.includes('send was called before connect') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('unexpected token <') ||
+    lower.includes('is not valid json') ||
+    (lower.includes('404') && lower.includes('supabase-proxy'))
+  ) {
+    return new Error('Network Error: Could not reach the database. Check Supabase credentials.');
+  }
+
+  return new Error(rawMsg || 'Database operation failed.');
+}
+
+let activeClient: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient {
+  if (!activeClient) {
+    const { url, anonKey } = getSupabaseCredentials();
+    const validUrl = isSupabaseConfigured() ? url : 'https://placeholder.supabase.co';
+    const validKey = anonKey || 'placeholder-anon-key';
+
+    activeClient = createClient(validUrl, validKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
+  }
+  return activeClient;
+}
+
+export function resetSupabaseClient(): void {
+  activeClient = null;
+}
+
+// Standard Supabase client instance (proxied dynamically to localStorage or env credentials)
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    const client = getSupabaseClient();
+    const val = (client as any)[prop];
+    if (typeof val === 'function') {
+      return val.bind(client);
+    }
+    return val;
   },
 });
 
@@ -197,7 +283,7 @@ function notifyDatabaseChange(table: string) {
 let realtimeChannel: RealtimeChannel | null = null;
 
 function ensureRealtimeSubscription() {
-  if (!isSupabaseConfigured || realtimeChannel || typeof window === 'undefined') return;
+  if (!isSupabaseConfigured() || realtimeChannel || typeof window === 'undefined') return;
 
   try {
     realtimeChannel = supabase
@@ -380,7 +466,7 @@ export const dbService = {
       return cachedOrgs;
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('organizations')
@@ -414,7 +500,7 @@ export const dbService = {
       return normalizeOrg(found);
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('organizations')
@@ -447,7 +533,7 @@ export const dbService = {
 
   async getOrganizationByIdentifier(identifier: string): Promise<Organization | null> {
     const clean = identifier.trim();
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('organizations')
@@ -502,32 +588,36 @@ export const dbService = {
     };
 
     // 2. The Database Insert: Await direct Supabase insertion
-    const { data, error } = await supabase
-      .from('organizations')
-      .insert([insertPayload])
-      .select()
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('organizations')
+        .insert([insertPayload])
+        .select()
+        .single();
 
-    // 3. Error Handling: Halt registration if database insertion fails
-    if (error) {
-      console.error('Supabase organization registration error:', error);
-      throw new Error(error.message || 'Database registration failed. Please try again.');
+      // 3. Error Handling: Halt registration if database insertion fails
+      if (error) {
+        console.error('Supabase organization registration error:', error);
+        throw sanitizeDbError(error);
+      }
+
+      const created = data
+        ? normalizeOrg(data)
+        : normalizeOrg({ ...insertPayload, created_at: new Date().toISOString() });
+
+      // 4. Update cache ONLY AFTER successful cloud insertion
+      const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
+      saveCache(
+        STORAGE_KEYS.ORGS,
+        [created, ...currentOrgs.filter((o) => o.org_id !== created.org_id)],
+        false
+      );
+      invalidateCache(STORAGE_KEYS.ORGS);
+
+      return created;
+    } catch (err: any) {
+      throw sanitizeDbError(err);
     }
-
-    const created = data
-      ? normalizeOrg(data)
-      : normalizeOrg({ ...insertPayload, created_at: new Date().toISOString() });
-
-    // 4. Update cache ONLY AFTER successful cloud insertion
-    const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
-    saveCache(
-      STORAGE_KEYS.ORGS,
-      [created, ...currentOrgs.filter((o) => o.org_id !== created.org_id)],
-      false
-    );
-    invalidateCache(STORAGE_KEYS.ORGS);
-
-    return created;
   },
 
   async updateOrganization(orgId: string, updates: Partial<Organization>): Promise<Organization> {
@@ -550,7 +640,7 @@ export const dbService = {
     saveCache(STORAGE_KEYS.ORGS, orgs, false);
     invalidateCache(`${STORAGE_KEYS.ORGS}_${cleanOrgId}`);
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('organizations')
@@ -616,7 +706,7 @@ export const dbService = {
 
     invalidateCache();
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         await Promise.all([
           supabase.from('events').delete().ilike('org_id', cleanOrgId),
@@ -642,7 +732,7 @@ export const dbService = {
     setStoredSession(null);
     invalidateCache();
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { error } = await supabase
           .from('organizations')
@@ -702,7 +792,7 @@ export const dbService = {
       return cachedEvents;
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('events')
@@ -728,7 +818,7 @@ export const dbService = {
   },
 
   async getEventById(eventId: string): Promise<SupabaseEvent | null> {
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('events')
@@ -785,7 +875,7 @@ export const dbService = {
     invalidateCache(`${STORAGE_KEYS.EVENTS}_${cleanOrgId}`);
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       const payload = {
         id: newEvent.id,
         org_id: newEvent.org_id,
@@ -859,7 +949,7 @@ export const dbService = {
     }
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       const dbUpdates: Record<string, any> = {
         ...updates,
         updated_at: updated.updated_at,
@@ -919,7 +1009,7 @@ export const dbService = {
   },
 
   async canDeleteEvent(eventId: string): Promise<boolean> {
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { count, error } = await supabase
           .from('scores')
@@ -942,7 +1032,7 @@ export const dbService = {
       invalidateCache(`${STORAGE_KEYS.EVENTS}_${target.org_id.toUpperCase()}`);
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { error } = await supabase.from('events').delete().eq('id', eventId);
         if (error) throw error;
@@ -983,7 +1073,7 @@ export const dbService = {
       return cachedJudges;
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('judges')
@@ -993,7 +1083,9 @@ export const dbService = {
 
         if (!error && data) {
           const normalized = data.map(normalizeJudge);
-          saveCache(STORAGE_KEYS.JUDGES, normalized, true); // SILENT
+          const currentJudges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+          const otherJudges = currentJudges.filter((j) => j.org_id.toUpperCase() !== cleanOrgId);
+          saveCache(STORAGE_KEYS.JUDGES, [...otherJudges, ...normalized], true); // SILENT
           updateCacheTimestamp(cacheKey);
           return normalized;
         }
@@ -1008,7 +1100,7 @@ export const dbService = {
   },
 
   async getJudgeById(judgeId: string): Promise<SupabaseJudge | null> {
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('judges')
@@ -1057,7 +1149,7 @@ export const dbService = {
     invalidateCache(`${STORAGE_KEYS.JUDGES}_${cleanOrgId}`);
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       const payload = {
         id: newJudge.id,
         org_id: newJudge.org_id,
@@ -1118,7 +1210,7 @@ export const dbService = {
     }
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       const dbUpdates: Record<string, any> = { ...updates };
       if (cleanPin) dbUpdates.pin = cleanPin;
       delete dbUpdates.judge_pin;
@@ -1159,7 +1251,7 @@ export const dbService = {
       invalidateCache(`${STORAGE_KEYS.JUDGES}_${target.org_id.toUpperCase()}`);
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { error } = await supabase.from('judges').delete().eq('id', judgeId);
         if (error) throw error;
@@ -1175,24 +1267,64 @@ export const dbService = {
     judgeIdOrPin: string,
     pinOrEventId?: string
   ): Promise<{ judge: SupabaseJudge; assignedEvents: SupabaseEvent[] } | null> {
-    const judges = await this.getJudges(orgId);
+    const cleanOrgId = orgId ? orgId.trim().toUpperCase() : '';
+    let judges = cleanOrgId ? await this.getJudges(cleanOrgId) : [];
     let matchedJudge: SupabaseJudge | undefined;
 
-    if (pinOrEventId && pinOrEventId.trim()) {
-      const targetJudgeId = judgeIdOrPin.trim().toLowerCase();
-      const targetPin = pinOrEventId.trim();
+    const findMatch = (list: SupabaseJudge[]) => {
+      if (pinOrEventId && pinOrEventId.trim()) {
+        const targetJudgeId = judgeIdOrPin.trim().toLowerCase();
+        const targetPin = pinOrEventId.trim().toLowerCase();
 
-      matchedJudge = judges.find((j) => {
-        const idMatches =
-          j.id.toLowerCase() === targetJudgeId ||
-          (j.judge_id && j.judge_id.toLowerCase() === targetJudgeId) ||
-          j.name.toLowerCase().includes(targetJudgeId);
-        const pinMatches = j.pin === targetPin || j.judge_pin === targetPin;
-        return idMatches && pinMatches;
-      });
-    } else {
-      const targetPin = judgeIdOrPin.trim();
-      matchedJudge = judges.find((j) => j.pin === targetPin || j.judge_pin === targetPin);
+        return list.find((j) => {
+          const idMatches =
+            j.id.toLowerCase() === targetJudgeId ||
+            (j.judge_id && j.judge_id.toLowerCase() === targetJudgeId) ||
+            j.name.toLowerCase().includes(targetJudgeId);
+          const pinMatches =
+            String(j.pin || '').trim().toLowerCase() === targetPin ||
+            String(j.judge_pin || '').trim().toLowerCase() === targetPin;
+          return idMatches && pinMatches;
+        });
+      } else {
+        const targetPin = judgeIdOrPin.trim().toLowerCase();
+        return list.find(
+          (j) =>
+            String(j.pin || '').trim().toLowerCase() === targetPin ||
+            String(j.judge_pin || '').trim().toLowerCase() === targetPin
+        );
+      }
+    };
+
+    matchedJudge = findMatch(judges);
+
+    // Tier 2: Check global cache across all organizations
+    if (!matchedJudge) {
+      const allCachedJudges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+      matchedJudge = findMatch(allCachedJudges);
+    }
+
+    // Tier 3: Search Supabase directly by PIN or Judge ID if configured
+    if (!matchedJudge && isSupabaseConfigured()) {
+      try {
+        const targetPin = (pinOrEventId && pinOrEventId.trim()) ? pinOrEventId.trim() : judgeIdOrPin.trim();
+        const { data: dbJudges } = await supabase
+          .from('judges')
+          .select('*')
+          .or(`pin.eq.${targetPin},judge_pin.eq.${targetPin}`);
+
+        if (dbJudges && dbJudges.length > 0) {
+          matchedJudge = findMatch(dbJudges.map(normalizeJudge));
+          if (matchedJudge) {
+            const currentList = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+            if (!currentList.some((j) => j.id === matchedJudge!.id)) {
+              saveCache(STORAGE_KEYS.JUDGES, [matchedJudge, ...currentList], true);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase judge direct lookup notice:', err);
+      }
     }
 
     if (!matchedJudge) return null;
@@ -1235,7 +1367,7 @@ export const dbService = {
       return cached;
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('participants')
@@ -1298,7 +1430,7 @@ export const dbService = {
     invalidateCache(`${STORAGE_KEYS.PARTICIPANTS}_${cleanOrgId}`);
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       const payload = {
         id: newParticipant.id,
         org_id: newParticipant.org_id,
@@ -1382,7 +1514,7 @@ export const dbService = {
     invalidateCache(`${STORAGE_KEYS.PARTICIPANTS}_${cleanOrgId}`);
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       const payloads = newItems.map((item) => ({
         id: item.id,
         org_id: item.org_id,
@@ -1448,7 +1580,7 @@ export const dbService = {
     }
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('participants')
@@ -1563,7 +1695,7 @@ export const dbService = {
       invalidateCache(`${STORAGE_KEYS.PARTICIPANTS}_${target.org_id.toUpperCase()}`);
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { error } = await supabase.from('participants').delete().eq('id', participantId);
         if (error) throw error;
@@ -1587,7 +1719,7 @@ export const dbService = {
       return eventCached;
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('scores')
@@ -1623,7 +1755,7 @@ export const dbService = {
       return cached;
     }
 
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('scores')
@@ -1651,7 +1783,7 @@ export const dbService = {
     judgeId: string,
     participantId: string
   ): Promise<SupabaseScore | null> {
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('scores')
@@ -1767,7 +1899,7 @@ export const dbService = {
     invalidateCache(STORAGE_KEYS.SCORES);
 
     // 5. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured()) {
       try {
         if (existing && isWithinGrace) {
           const { data, error } = await supabase

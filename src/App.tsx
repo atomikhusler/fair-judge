@@ -14,7 +14,9 @@ import {
   getStoredSession,
   setStoredSession,
   StoredUserSession,
+  isSupabaseConfigured,
 } from './lib/supabase';
+import { SuperAdminSetupModal } from './components/auth/SuperAdminSetupModal';
 import { initCacheStorage } from './lib/db/indexedDB';
 import { initOfflineSyncListener } from './lib/offlineQueue';
 import { Scale } from 'lucide-react';
