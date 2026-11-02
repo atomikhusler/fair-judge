@@ -11,7 +11,13 @@ import {
   Sliders,
   Sparkles,
   Radio,
-  FileText
+  FileText,
+  Eye,
+  EyeOff,
+  QrCode,
+  Focus,
+  Clock,
+  Send
 } from 'lucide-react';
 import { Organization, TieBreakerMethod, CustomParticipantField } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
@@ -54,12 +60,28 @@ export function SettingsDrawer({
   // 3. Global Notification Service
   const { showToast } = useToast();
 
-  // 4. Public Leaderboard Preferences State
+  // 4. Public Leaderboard & Broadcast Preferences State (Phase 14.3)
   const [leaderboardDelay, setLeaderboardDelay] = useState<number>(30);
   const [roundOffScores, setRoundOffScores] = useState<boolean>(true);
-  const [displayMode, setDisplayMode] = useState<'full' | 'rank_only'>('full');
   const [isPublicPublished, setIsPublicPublished] = useState<boolean>(true);
   const [copiedPublicLink, setCopiedPublicLink] = useState(false);
+
+  // The 6 Explicit Broadcast Controls
+  const [blindMode, setBlindMode] = useState<boolean>(() => {
+    return Boolean(dbService.getPublicSettings(organization.org_id).blindMode);
+  });
+  const [spotlightMode, setSpotlightMode] = useState<boolean>(() => {
+    return dbService.getPublicSettings(organization.org_id).spotlightMode ?? true;
+  });
+  const [tickerText, setTickerText] = useState<string>(() => {
+    return dbService.getPublicSettings(organization.org_id).tickerText || '';
+  });
+  const [showAppQr, setShowAppQr] = useState<boolean>(() => {
+    return Boolean(dbService.getPublicSettings(organization.org_id).showAppQr);
+  });
+  const [paginationTimer, setPaginationTimer] = useState<number>(() => {
+    return dbService.getPublicSettings(organization.org_id).paginationTimer || 60;
+  });
 
   // 5. Intelligent Features State
   const [predictiveScheduleEnabled, setPredictiveScheduleEnabled] = useState<boolean>(() => {
@@ -595,95 +617,216 @@ export function SettingsDrawer({
           </div>
 
           {/* -------------------------------------------------------- */}
-          {/* SECTION 4: PUBLIC PROJECTOR PREFERENCES                  */}
+          {/* SECTION 4: BROADCAST CONTROL ROOM (Phase 14.3)           */}
           {/* -------------------------------------------------------- */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
-              Public Projector Preferences
-            </h4>
-            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
-              {/* Broadcast Delay */}
-              <div className="p-4 flex items-center justify-between gap-3">
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                    Broadcast Latency
-                  </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
-                    Hold score reveal on live projector.
-                  </p>
-                </div>
-                <div className="flex items-center space-x-1.5 shrink-0">
-                  <input
-                    type="number"
-                    min={0}
-                    max={300}
-                    value={leaderboardDelay}
-                    onChange={(e) => setLeaderboardDelay(Number(e.target.value))}
-                    className="w-16 min-h-[38px] px-2 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl font-mono text-xs text-center text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
-                  />
-                  <span className="text-xs font-mono text-zinc-500">sec</span>
-                </div>
-              </div>
+            <div className="flex items-center justify-between ml-4 mr-2 mb-2 mt-6">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                Broadcast Control Room
+              </h4>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                Projector Live
+              </span>
+            </div>
 
-              {/* Score Round-off */}
+            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
+              
+              {/* 1. SCORE SECRECY (BLIND MODE) */}
               <div className="p-4 flex items-center justify-between gap-3">
                 <div className="space-y-0.5 min-w-0 flex-1">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                    Score Round-Off
-                  </span>
+                  <div className="flex items-center space-x-1.5">
+                    {blindMode ? <EyeOff className="w-4 h-4 text-amber-500" /> : <Eye className="w-4 h-4 text-zinc-500" />}
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                      Score Secrecy (Blind Mode)
+                    </span>
+                  </div>
                   <p className="text-[11px] text-zinc-500 truncate">
-                    Standardize to 2 decimals on display.
+                    Hide actual points; show relative standings only.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setRoundOffScores(!roundOffScores)}
-                  aria-pressed={roundOffScores}
+                  onClick={() => {
+                    const next = !blindMode;
+                    setBlindMode(next);
+                    dbService.savePublicSettings(organization.org_id, { blindMode: next });
+                    showToast(next ? 'Blind Mode active on projector.' : 'Numeric scores unhidden.');
+                  }}
+                  aria-pressed={blindMode}
                   className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
-                    roundOffScores ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
+                    blindMode ? 'bg-amber-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
                   <span
                     className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
-                      roundOffScores ? 'translate-x-5' : 'translate-x-0'
+                      blindMode ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
                 </button>
               </div>
 
-              {/* Display Mode */}
+              {/* 2. SPOTLIGHT / FOCUS MODE */}
+              <div className="p-4 flex items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <Focus className="w-4 h-4 text-emerald-500" />
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                      Spotlight / Focus Mode
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 truncate">
+                    Auto-enlarge participant actively under jury evaluation.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !spotlightMode;
+                    setSpotlightMode(next);
+                    dbService.savePublicSettings(organization.org_id, { spotlightMode: next });
+                    showToast(next ? 'Contender spotlight enabled.' : 'Spotlight disabled.');
+                  }}
+                  aria-pressed={spotlightMode}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+                    spotlightMode ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
+                      spotlightMode ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* 3. CUSTOM BROADCAST TICKER */}
               <div className="p-4 space-y-2">
                 <div className="space-y-0.5">
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                    Display Mode
+                    Custom Broadcast Ticker
                   </span>
                   <p className="text-[11px] text-zinc-500">
-                    Full scores or blind rank-only.
+                    Live announcement marquee scrolling at the bottom of the screen.
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setDisplayMode('full')}
-                    className={`min-h-[40px] px-3 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer ${
-                      displayMode === 'full'
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold'
-                        : 'bg-stone-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 border border-stone-200/50 dark:border-zinc-800/50'
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. Finals award ceremony starts at 5:00 PM • Audited by Jury"
+                    value={tickerText}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setTickerText(text);
+                      dbService.savePublicSettings(organization.org_id, { tickerText: text });
+                    }}
+                    className="flex-1 min-h-[38px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  {tickerText && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTickerText('');
+                        dbService.savePublicSettings(organization.org_id, { tickerText: '' });
+                      }}
+                      className="text-[10px] font-mono px-2 py-2 text-zinc-400 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. CONFETTI TRIGGER */}
+              <div className="p-4 flex items-center justify-between gap-3 bg-amber-500/5 dark:bg-amber-950/20">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                      Celebration Confetti
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 truncate">
+                    Blast celebratory particle shower across the broadcast screen.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dbService.savePublicSettings(organization.org_id, { confettiTrigger: Date.now() });
+                    window.dispatchEvent(new CustomEvent('fairjudge_confetti'));
+                    showToast('Celebration confetti launched on projector!', 'success');
+                  }}
+                  className="min-h-[38px] px-4 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-amber-500/20 flex items-center space-x-1.5 cursor-pointer shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5 fill-black" />
+                  <span>Fire Confetti</span>
+                </button>
+              </div>
+
+              {/* 5. APP LOGIN QR */}
+              <div className="p-4 flex items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <QrCode className="w-4 h-4 text-emerald-500" />
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                      App Spectator QR
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 truncate">
+                    Show public web QR badge for audience &amp; spectator access.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !showAppQr;
+                    setShowAppQr(next);
+                    dbService.savePublicSettings(organization.org_id, { showAppQr: next });
+                    showToast(next ? 'Spectator QR enabled on screen.' : 'Spectator QR hidden.');
+                  }}
+                  aria-pressed={showAppQr}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+                    showAppQr ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
+                      showAppQr ? 'translate-x-5' : 'translate-x-0'
                     }`}
-                  >
-                    Full List &amp; Scores
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDisplayMode('rank_only')}
-                    className={`min-h-[40px] px-3 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] cursor-pointer ${
-                      displayMode === 'rank_only'
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold'
-                        : 'bg-stone-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 border border-stone-200/50 dark:border-zinc-800/50'
-                    }`}
-                  >
-                    Rank Only (Blind)
-                  </button>
+                  />
+                </button>
+              </div>
+
+              {/* 6. CUSTOM PAGINATION TIMER */}
+              <div className="p-4 flex items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <Clock className="w-4 h-4 text-emerald-500" />
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                      Carousel Interval
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 truncate">
+                    Event rotation window duration.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <input
+                    type="range"
+                    min={15}
+                    max={180}
+                    step={5}
+                    value={paginationTimer}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setPaginationTimer(val);
+                      dbService.savePublicSettings(organization.org_id, { paginationTimer: val });
+                    }}
+                    className="w-20 accent-emerald-500 cursor-pointer"
+                  />
+                  <span className="font-mono text-xs font-bold w-12 text-right text-emerald-600 dark:text-emerald-400">
+                    {paginationTimer}s
+                  </span>
                 </div>
               </div>
 

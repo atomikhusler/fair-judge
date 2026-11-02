@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { dbService, supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { authService } from '../../lib/authService';
 import { SupabaseJudge, SupabaseEvent } from '../../lib/supabaseTypes';
 import { showToast } from '../common/ToastProvider';
 import { sanitizeAuthError } from './authSanitizer';
@@ -113,64 +114,40 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
     try {
       const creds = extractJudgeCredentials(rawText);
-      if (creds && creds.orgId && creds.judgeId && creds.pin) {
-        setOrgId(creds.orgId.toUpperCase());
-        setJudgeId(creds.judgeId);
+      if (creds && creds.pin) {
+        if (creds.orgId) setOrgId(creds.orgId.toUpperCase());
+        if (creds.judgeId) setJudgeId(creds.judgeId);
         setPin(creds.pin);
 
-        let verified = await dbService.verifyJudgeCredentials(
-          creds.orgId,
-          creds.judgeId,
-          creds.pin
-        );
-
-        if (!verified) {
-          try {
-            const judgeName = (creds as any).name || `Judge ${creds.judgeId}`;
-            const createdJudge = await dbService.createJudge(
-              creds.orgId,
-              judgeName,
-              creds.pin,
-              creds.judgeId
-            );
-            const events = await dbService.getEvents(creds.orgId);
-            verified = {
-              judge: createdJudge,
-              assignedEvents: events,
-            };
-          } catch (autoHydrateErr) {
-            console.warn('Auto-hydration fallback notice:', autoHydrateErr);
-          }
-        }
-
-        if (!verified) {
-          const msg = 'Invalid QR credentials. No matching judge found for this badge.';
-          setErrorMessage(msg);
-          showToast(msg, 'error');
-          return;
-        }
+        // Strict read-only authentication via authService (pure SELECT, zero auto-creation)
+        const verified = await authService.authenticateJudge({
+          orgId: creds.orgId,
+          judgeId: creds.judgeId,
+          pin: creds.pin,
+          eventId: creds.eventId,
+        });
 
         showToast(`Authenticated as Judge: ${verified.judge.name}`, 'success');
-        onJudgeLogin(creds.orgId.toUpperCase(), verified.judge, verified.assignedEvents);
+        onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
         return;
       }
 
       // Check if it's a simple 4-6 character PIN string
       const clean = rawText.trim().toUpperCase();
-      if (clean) {
+      if (clean && clean.length >= 4 && clean.length <= 8) {
         setPin(clean.slice(0, 6));
         await handleAuthenticate(undefined, clean);
         return;
       }
 
-      const notFoundMsg = 'No valid judge credentials detected in this QR code.';
-      setErrorMessage(notFoundMsg);
-      showToast(notFoundMsg, 'error');
+      throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
     } catch (err: any) {
       console.warn('QR authentication notice:', err);
-      const sanitized = sanitizeAuthError(err);
-      setErrorMessage(sanitized);
-      showToast(sanitized, 'error');
+      const msg = err.message?.includes('Authentication Failed')
+        ? err.message
+        : 'Authentication Failed: Invalid ID or PIN. Please request a new QR code.';
+      setErrorMessage(msg);
+      showToast(msg, 'error');
     } finally {
       setIsVerifying(false);
     }
@@ -205,7 +182,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
     const targetOrgId = orgId.trim().toUpperCase();
     const targetJudgeId = judgeId.trim();
-    const targetPin = (overridePin || pin).trim().toUpperCase();
+    const targetPin = (overridePin || pin).trim();
 
     if (!targetPin) {
       setErrorMessage('Please enter your 4-Digit PIN to authenticate.');
@@ -214,92 +191,22 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
     setIsVerifying(true);
     try {
-      // 1. Full triad verification if Org ID and Judge ID are provided
-      if (targetOrgId && targetJudgeId) {
-        const verified = await dbService.verifyJudgeCredentials(
-          targetOrgId,
-          targetJudgeId,
-          targetPin
-        );
-
-        if (!verified) {
-          const invalidMsg = 'Invalid credentials. Please verify your Organisation ID, Judge ID, and PIN.';
-          setErrorMessage(invalidMsg);
-          showToast(invalidMsg, 'error');
-          return;
-        }
-
-        showToast(`Welcome, Judge ${verified.judge.name}!`, 'success');
-        onJudgeLogin(targetOrgId, verified.judge, verified.assignedEvents);
-        return;
-      }
-
-      // 2. PIN lookup fallback across Supabase or Cache
-      let foundJudge: SupabaseJudge | null = null;
-      let matchedOrgId = targetOrgId;
-
-      if (isSupabaseConfigured()) {
-        const query = supabase
-          .from('judges')
-          .select('*')
-          .or(`pin.eq.${targetPin},judge_pin.eq.${targetPin}`);
-
-        const { data, error } = targetOrgId 
-          ? await query.ilike('org_id', targetOrgId).maybeSingle()
-          : await query.maybeSingle();
-
-        if (!error && data) {
-          foundJudge = data as SupabaseJudge;
-          matchedOrgId = data.org_id;
-        }
-      }
-
-      // Fallback to local cache if offline or unconfigured
-      if (!foundJudge) {
-        const allOrgs = await dbService.getOrganizations();
-        for (const org of allOrgs) {
-          if (targetOrgId && org.org_id.toUpperCase() !== targetOrgId) continue;
-          const orgJudges = await dbService.getJudges(org.org_id);
-          const match = orgJudges.find(
-            (j) => j.pin?.toUpperCase() === targetPin || j.judge_pin?.toUpperCase() === targetPin
-          );
-          if (match) {
-            foundJudge = match;
-            matchedOrgId = org.org_id;
-            break;
-          }
-        }
-      }
-
-      if (!foundJudge || !matchedOrgId) {
-        const notFoundMsg = targetOrgId && !targetJudgeId 
-          ? 'Please provide your Judge ID along with Organisation ID & PIN.'
-          : `Credentials not recognized. Please verify your Org ID, Judge ID, and PIN.`;
-        setErrorMessage(notFoundMsg);
-        showToast(notFoundMsg, 'error');
-        return;
-      }
-
-      const verified = await dbService.verifyJudgeCredentials(
-        matchedOrgId,
-        foundJudge.id,
-        targetPin
-      );
-
-      if (!verified) {
-        const errUnauth = 'Unable to authenticate judge credentials. Please try again.';
-        setErrorMessage(errUnauth);
-        showToast(errUnauth, 'error');
-        return;
-      }
+      // Pure SELECT query via zero-trust authService (zero auto-creation, strict rejection)
+      const verified = await authService.authenticateJudge({
+        orgId: targetOrgId || undefined,
+        judgeId: targetJudgeId || undefined,
+        pin: targetPin,
+      });
 
       showToast(`Welcome, Judge ${verified.judge.name}!`, 'success');
-      onJudgeLogin(matchedOrgId.toUpperCase(), verified.judge, verified.assignedEvents);
+      onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
     } catch (err: any) {
       console.warn('Judge authentication notice:', err);
-      const sanitized = sanitizeAuthError(err);
-      setErrorMessage(sanitized);
-      showToast(sanitized, 'error');
+      const msg = err.message?.includes('Authentication Failed')
+        ? err.message
+        : 'Authentication Failed: Invalid ID or PIN. Please request a new QR code.';
+      setErrorMessage(msg);
+      showToast(msg, 'error');
     } finally {
       setIsVerifying(false);
     }

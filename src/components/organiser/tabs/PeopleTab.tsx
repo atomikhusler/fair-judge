@@ -1342,29 +1342,51 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       <div className="print:hidden flex-1 overflow-y-auto px-4 pt-2 pb-32 relative">
         {/* Pinned Sticky Control Header directly under main app header */}
         <div className="sticky top-0 z-40 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md pb-3 pt-1 -mx-4 px-4 border-b border-stone-200/80 dark:border-zinc-800/80 space-y-2.5">
-          {/* Sticky Search Bar */}
-          <div className="relative w-full">
-            <Search className="w-4 h-4 text-stone-400 dark:text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
+          {/* Sticky Search Bar + Desktop Action Trigger */}
+          <div className="flex items-center gap-3 w-full">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-stone-400 dark:text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={
+                  activeSubTab === 'participants'
+                    ? `Search by name, school, or ${categoryLabel.toLowerCase()}...`
+                    : 'Search judges by name, PIN, or ID...'
+                }
+                className="w-full min-h-[44px] pl-10 pr-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all shadow-xs"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Static Desktop Action Trigger (Collision-Free) */}
+            <button
+              type="button"
+              onClick={() => {
+                if (activeSubTab === 'participants') {
+                  handleOpenAddParticipant();
+                } else {
+                  handleOpenAddJudge();
+                }
+              }}
+              className={`hidden md:flex items-center gap-2 h-11 px-4 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeSubTab === 'participants'
-                  ? `Search by name, school, or ${categoryLabel.toLowerCase()}...`
-                  : 'Search judges by name, PIN, or ID...'
-              }
-              className="w-full min-h-[44px] pl-10 pr-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all shadow-xs"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+                  ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20'
+                  : 'bg-amber-600 hover:bg-amber-500 shadow-amber-900/20'
+              }`}
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>{activeSubTab === 'participants' ? 'Add Competitor' : 'Add Judge'}</span>
+            </button>
           </div>
 
           {/* Segmented Control with Baked-in Counts */}
@@ -1831,7 +1853,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               handleOpenAddJudge();
             }
           }}
-          className={`fixed bottom-24 right-6 z-50 w-14 h-14 text-white rounded-2xl shadow-xl flex items-center justify-center active:scale-95 transition-all cursor-pointer ${
+          className={`md:hidden fixed bottom-24 right-6 z-50 w-14 h-14 text-white rounded-2xl shadow-xl flex items-center justify-center active:scale-95 transition-all cursor-pointer ${
             activeSubTab === 'participants'
               ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
               : 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30'

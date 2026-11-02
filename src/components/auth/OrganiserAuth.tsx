@@ -14,6 +14,7 @@ import {
   Scale
 } from 'lucide-react';
 import { dbService } from '../../lib/supabase';
+import { authService } from '../../lib/authService';
 import { Organization } from '../../lib/supabaseTypes';
 import { showToast } from '../common/ToastProvider';
 import { sanitizeAuthError } from './authSanitizer';
@@ -85,7 +86,8 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
 
       setIsSubmitting(true);
       try {
-        const createdOrg = await dbService.createOrganization(
+        // Pre-flight check & strict INSERT via zero-trust authService
+        const createdOrg = await authService.registerOrganiser(
           cleanName,
           cleanEmail || undefined,
           cleanPassword
@@ -95,14 +97,16 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
         onOrganiserLogin(createdOrg);
       } catch (err: any) {
         console.error('Registration error intercepted:', err);
-        const sanitized = sanitizeAuthError(err);
-        setErrorMessage(sanitized);
-        showToast(sanitized, 'error');
+        const msg = err.message?.includes('Registration Failed')
+          ? err.message
+          : sanitizeAuthError(err);
+        setErrorMessage(msg);
+        showToast(msg, 'error');
       } finally {
         setIsSubmitting(false);
       }
     } else {
-      // Login mode
+      // Login mode: Strict SELECT query matching org_id/email AND password
       const identifier = loginIdentifier.trim();
       const password = loginPassword.trim();
 
@@ -117,31 +121,18 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
 
       setIsSubmitting(true);
       try {
-        const org = await dbService.getOrganizationByIdentifier(identifier);
-
-        if (!org) {
-          const notFound = `Account "${identifier}" not found. Verify Org ID or email.`;
-          setErrorMessage(notFound);
-          showToast(notFound, 'error');
-          setIsSubmitting(false);
-          return;
-        }
-
-        if (org.password && org.password !== password) {
-          const passErr = 'Incorrect password. Please verify and try again.';
-          setErrorMessage(passErr);
-          showToast(passErr, 'error');
-          setIsSubmitting(false);
-          return;
-        }
+        // Strict read-only login validation via authService (no auto-registration fallback)
+        const org = await authService.loginOrganiser(identifier, password);
 
         showToast(`Welcome back, ${org.name}!`, 'success');
         onOrganiserLogin(org);
       } catch (err: any) {
         console.error('Login error intercepted:', err);
-        const sanitized = sanitizeAuthError(err);
-        setErrorMessage(sanitized);
-        showToast(sanitized, 'error');
+        const msg = err.message?.includes('Invalid Organization ID')
+          ? err.message
+          : 'Invalid Organization ID or Master Password.';
+        setErrorMessage(msg);
+        showToast(msg, 'error');
       } finally {
         setIsSubmitting(false);
       }

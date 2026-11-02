@@ -17,7 +17,11 @@ import {
   Clock,
   XCircle,
   Send,
-  Mail
+  Mail,
+  Scale,
+  MessageCircle,
+  Coffee,
+  ExternalLink
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
@@ -606,6 +610,83 @@ export function AccountModal({
           </div>
 
           {/* ======================================================== */}
+          {/* SECTION: ABOUT & SUPPORT (Directive 3)                   */}
+          {/* ======================================================== */}
+          <div>
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+              About &amp; Support
+            </h4>
+            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
+              {/* Brand Anchor */}
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center shadow-sm">
+                    <Scale className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-zinc-900 dark:text-white block font-mono">
+                      Fair Judge
+                    </span>
+                    <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono">
+                      Audited Scoring Terminal
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full text-emerald-500 bg-emerald-500/10 border border-emerald-500/20">
+                  v1.0.0 (Phase 14)
+                </span>
+              </div>
+
+              {/* Actionable Glassmorphic Links */}
+              {/* Telegram Community */}
+              <a
+                href="https://t.me/+ljTOKLi5dQs1MTM9"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-4 flex items-center justify-between hover:bg-stone-50 dark:hover:bg-zinc-900/40 transition-colors group cursor-pointer"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <MessageCircle className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-zinc-900 dark:text-white block group-hover:text-blue-400 transition-colors">
+                      Join our Telegram Community
+                    </span>
+                    <span className="text-[10px] text-zinc-500">
+                      Product updates, live support &amp; feedback
+                    </span>
+                  </div>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-400 group-hover:text-blue-400 transition-colors" />
+              </a>
+
+              {/* Ko-fi Developer Support */}
+              <a
+                href="https://ko-fi.com/sahilkumarrout"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-4 flex items-center justify-between hover:bg-stone-50 dark:hover:bg-zinc-900/40 transition-colors group cursor-pointer"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Coffee className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-zinc-900 dark:text-white block group-hover:text-amber-400 transition-colors">
+                      Support the Developer
+                    </span>
+                    <span className="text-[10px] text-zinc-500">
+                      Fuel development via Ko-fi
+                    </span>
+                  </div>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-400 transition-colors" />
+              </a>
+            </div>
+          </div>
+
+          {/* ======================================================== */}
           {/* CARD 3: DANGER ZONE                                      */}
           {/* ======================================================== */}
           <div>
@@ -647,6 +728,11 @@ export function AccountModal({
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Animated Developer Signature Footer */}
+          <div className="text-[10px] uppercase tracking-widest text-zinc-600 text-center pb-4 pt-6 select-none">
+            Engineered with intent. <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold">&lt;/&gt;</span> Sahil Kumar Rout
           </div>
 
         </div>

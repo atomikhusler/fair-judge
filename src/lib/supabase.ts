@@ -132,7 +132,7 @@ export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
 });
 
 // Cache storage keys (persisted asynchronously in IndexedDB)
-const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   ORGS: 'fairjudge_supabase_orgs',
   EVENTS: 'fairjudge_supabase_events',
   JUDGES: 'fairjudge_supabase_judges',
@@ -390,6 +390,13 @@ export interface PublicLinkSettings {
   isPaused: boolean;
   isRevoked: boolean;
   lastUpdated: string;
+  // Phase 14.3: 6 Broadcast Settings
+  blindMode?: boolean; // 1. Score Secrecy (Blind Mode)
+  spotlightMode?: boolean; // 2. Spotlight / Focus Mode
+  tickerText?: string; // 3. Custom Broadcast Ticker
+  confettiTrigger?: number; // 4. Confetti Trigger timestamp
+  showAppQr?: boolean; // 5. App Login QR
+  paginationTimer?: number; // 6. Custom Pagination Timer in seconds
 }
 
 // ==========================================
@@ -587,7 +594,32 @@ export const dbService = {
       isolated_jury_enabled: false,
     };
 
-    // 2. The Database Insert: Await direct Supabase insertion
+    // 2. Pre-Flight Duplicate Check (Strict Zero-Trust)
+    if (isSupabaseConfigured()) {
+      if (cleanEmail) {
+        const { data: existingEmail } = await supabase
+          .from('organizations')
+          .select('id, email')
+          .ilike('email', cleanEmail)
+          .maybeSingle();
+
+        if (existingEmail) {
+          throw new Error('Registration Failed: Organization ID or Email is already in use.');
+        }
+      }
+
+      const { data: existingOrgId } = await supabase
+        .from('organizations')
+        .select('id, org_id')
+        .ilike('org_id', newOrgId)
+        .maybeSingle();
+
+      if (existingOrgId) {
+        throw new Error('Registration Failed: Organization ID or Email is already in use.');
+      }
+    }
+
+    // 3. The Database Insert: Await direct Supabase insertion (Pure INSERT)
     try {
       const { data, error } = await supabase
         .from('organizations')
@@ -595,8 +627,11 @@ export const dbService = {
         .select()
         .single();
 
-      // 3. Error Handling: Halt registration if database insertion fails
+      // 4. Error Handling: Halt registration if database insertion fails
       if (error) {
+        if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+          throw new Error('Registration Failed: Organization ID or Email is already in use.');
+        }
         console.error('Supabase organization registration error:', error);
         throw sanitizeDbError(error);
       }
@@ -759,6 +794,12 @@ export const dbService = {
       isPaused: false,
       isRevoked: false,
       lastUpdated: new Date().toISOString(),
+      blindMode: false,
+      spotlightMode: true,
+      tickerText: '',
+      confettiTrigger: 0,
+      showAppQr: false,
+      paginationTimer: 60,
     };
   },
 

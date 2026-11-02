@@ -26,6 +26,7 @@ import {
   RubricCriterion,
   Organization 
 } from '../../lib/supabaseTypes';
+import { PullToRefresh } from '../common/PullToRefresh';
 
 export interface ScoringPanelProps {
   orgId: string;
@@ -43,6 +44,13 @@ export function ScoringPanel({
   event,
   onBackToLobby,
 }: ScoringPanelProps) {
+  // Active Event state that refreshes on pull
+  const [activeEvent, setActiveEvent] = useState<SupabaseEvent>(event);
+
+  useEffect(() => {
+    setActiveEvent(event);
+  }, [event]);
+
   // Navigation View: 'list' (Initial List View) vs 'scoring' (Scoring Carousel)
   const [viewMode, setViewMode] = useState<'list' | 'scoring'>('list');
 
@@ -109,8 +117,16 @@ export function ScoringPanel({
         setOrganization(freshOrg);
       }
 
+      // Re-fetch the active SupabaseEvent
+      const allEvents = await dbService.getEvents(targetOrgId, true);
+      const freshEvt = allEvents.find((e) => e.id === event.id);
+      if (freshEvt) {
+        setActiveEvent(freshEvt);
+      }
+
+      const assignedList = freshEvt ? freshEvt.assigned_participants : event.assigned_participants;
       const allP = await dbService.getParticipants(targetOrgId);
-      const filteredP = allP.filter((p) => event.assigned_participants.includes(p.id));
+      const filteredP = allP.filter((p) => (assignedList || []).includes(p.id));
       setParticipants(filteredP);
 
       const allScores = await dbService.getScores(event.id);
@@ -122,6 +138,15 @@ export function ScoringPanel({
     } catch (err) {
       console.error('Error loading evaluation stage:', err);
     }
+  };
+
+  const handlePullRefresh = async () => {
+    try {
+      await flushOfflineQueueToSupabase();
+    } catch (err) {
+      console.warn('Pull-to-refresh queue flush note:', err);
+    }
+    await loadData();
   };
 
   // Dedicated Organization settings synchronization for Jury Terminal rules
@@ -488,7 +513,8 @@ export function ScoringPanel({
         </header>
 
         {/* Scrollable Content Area */}
-        <main className="flex-1 overflow-y-auto px-4 pt-4 pb-40 space-y-5">
+        <PullToRefresh onRefresh={handlePullRefresh} accentColor="amber" className="flex-1 overflow-hidden flex flex-col">
+          <main className="flex-1 overflow-y-auto px-4 pt-4 pb-40 space-y-5">
           {/* Smart Search Bar */}
           <div className="relative">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3.5" />
@@ -646,6 +672,7 @@ export function ScoringPanel({
             </div>
           </div>
         </main>
+      </PullToRefresh>
       </div>
     );
   }
@@ -753,11 +780,12 @@ export function ScoringPanel({
       {/* ============================================================ */}
       {/* SCROLLABLE CRITERIA SLIDERS CONTAINER (flex-1 overflow-y-auto) */}
       {/* ============================================================ */}
-      <main
-        className={`w-full flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-[140px] relative z-10 transition-transform duration-200 ${
-          slideDirection === 'left' ? 'translate-x-2' : slideDirection === 'right' ? '-translate-x-2' : ''
-        }`}
-      >
+      <PullToRefresh onRefresh={handlePullRefresh} accentColor="amber" className="w-full flex-1 overflow-hidden flex flex-col">
+        <main
+          className={`w-full flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-[140px] relative z-10 transition-transform duration-200 ${
+            slideDirection === 'left' ? 'translate-x-2' : slideDirection === 'right' ? '-translate-x-2' : ''
+          }`}
+        >
         {existingScore && !isWithinGracePeriod && (
           <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-400 font-semibold shadow-sm">
             <div className="flex items-center space-x-2">
@@ -888,6 +916,7 @@ export function ScoringPanel({
           })}
         </div>
       </main>
+      </PullToRefresh>
 
       {/* ============================================================ */}
       {/* PART 5.2: THE STICKY GAMEPAD FOOTER (Bottom Fixed)           */}

@@ -17,6 +17,8 @@ import {
 import { SupabaseJudge, SupabaseEvent, Organization } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
+import { PullToRefresh } from '../common/PullToRefresh';
+import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
 
 interface JudgeLobbyProps {
   orgId: string;
@@ -66,6 +68,11 @@ export function JudgeLobby({
   };
 
   const handleRefresh = async () => {
+    try {
+      await flushOfflineQueueToSupabase();
+    } catch (err) {
+      console.warn('Queue flush note:', err);
+    }
     window.dispatchEvent(new CustomEvent('fairjudge_db_change', { detail: { table: 'all' } }));
     await new Promise((r) => setTimeout(r, 600));
   };
@@ -134,7 +141,8 @@ export function JudgeLobby({
       {/* ======================================================== */}
       {/* ASSIGNED EVENTS FEED WITH GENEROUS pb-40                 */}
       {/* ======================================================== */}
-      <main className="w-full max-w-lg px-4 pt-3 pb-40 space-y-4 relative z-10">
+      <PullToRefresh onRefresh={handleRefresh} accentColor="amber" className="w-full flex-1 flex flex-col items-center">
+        <main className="w-full max-w-lg px-4 pt-3 pb-40 space-y-4 relative z-10">
           <div className="flex items-center justify-between px-1">
             <div>
               <h2 className="text-xs font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
@@ -247,6 +255,7 @@ export function JudgeLobby({
             </div>
           )}
         </main>
+      </PullToRefresh>
 
         {/* ======================================================== */}
         {/* PART 3: THE JUDGE ACCOUNT MODAL (Grouped Cards)          */}

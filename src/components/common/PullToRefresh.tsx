@@ -7,6 +7,7 @@ interface PullToRefreshProps {
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
+  accentColor?: 'emerald' | 'amber';
 }
 
 export function PullToRefresh({
@@ -14,6 +15,7 @@ export function PullToRefresh({
   children,
   className = '',
   disabled = false,
+  accentColor = 'emerald',
 }: PullToRefreshProps) {
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -147,7 +149,13 @@ export function PullToRefresh({
         }}
         aria-hidden="true"
       >
-        <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-lg rounded-full p-2.5 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+        <div
+          className={`bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-lg rounded-full p-2.5 flex items-center justify-center ${
+            accentColor === 'amber'
+              ? 'text-amber-500 dark:text-amber-400'
+              : 'text-emerald-600 dark:text-emerald-400'
+          }`}
+        >
           <RefreshCw
             className={`w-4 h-4 stroke-[2.4] ${isRefreshing ? 'animate-spin' : ''}`}
             style={{
