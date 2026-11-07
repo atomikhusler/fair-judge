@@ -1,42 +1,32 @@
 import React, { useState, useEffect } from 'react';
+import { WifiOff, RefreshCw } from 'lucide-react';
+import { subscribeToQueueChanges, getPendingCount } from '../lib/offlineQueue';
 
 export function NetworkStatusIndicator() {
-  const [networkState, setNetworkState] = useState<'offline' | 'reconnected' | 'hidden'>(() => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      return 'offline';
-    }
-    return 'hidden';
-  });
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
 
-    const handleOffline = () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      setNetworkState('offline');
-    };
-
-    const handleOnline = () => {
-      // Transition to glowing green for 2 seconds when device reconnects
-      setNetworkState('reconnected');
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(() => {
-        setNetworkState('hidden');
-      }, 2000);
-    };
-
-    window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const unsub = subscribeToQueueChanges(() => {
+      getPendingCount().then((count) => setPendingCount(count));
+    });
+
+    getPendingCount().then((count) => setPendingCount(count));
 
     return () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      unsub();
     };
   }, []);
 
-  // Do not render any bar when online/reconnected to avoid any visible top green bar
-  if (networkState !== 'offline') {
+  if (isOnline && pendingCount === 0) {
     return null;
   }
 
@@ -44,12 +34,19 @@ export function NetworkStatusIndicator() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed top-2 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none flex flex-col items-center select-none animate-in fade-in zoom-in-95 duration-200"
+      className="fixed top-3 left-1/2 -translate-x-1/2 z-[9990] pointer-events-none select-none max-w-xs w-auto animate-fade-in"
     >
-      <div className="py-1 px-3 rounded-full bg-amber-500/95 text-white text-[11px] font-bold shadow-lg shadow-amber-900/30 flex items-center space-x-1.5 backdrop-blur-md">
-        <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-        <span>Working Offline - Changes will sync automatically</span>
-      </div>
+      {!isOnline ? (
+        <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-semibold backdrop-blur-md shadow-lg">
+          <WifiOff className="w-3.5 h-3.5" />
+          <span>Offline Mode ({pendingCount} queued)</span>
+        </div>
+      ) : pendingCount > 0 ? (
+        <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-semibold backdrop-blur-md shadow-lg">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+          <span>Syncing {pendingCount} offline change{pendingCount > 1 ? 's' : ''}...</span>
+        </div>
+      ) : null}
     </div>
   );
 }

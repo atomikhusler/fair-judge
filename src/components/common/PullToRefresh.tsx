@@ -1,129 +1,67 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, ReactNode, TouchEvent } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
 
 interface PullToRefreshProps {
-  onRefresh?: () => Promise<void> | void;
-  children: React.ReactNode;
+  onRefresh: () => Promise<void> | void;
+  children: ReactNode;
   className?: string;
-  disabled?: boolean;
-  accentColor?: 'emerald' | 'amber';
+  pullThreshold?: number;
+  accentColor?: string;
 }
 
 export function PullToRefresh({
   onRefresh,
   children,
   className = '',
-  disabled = false,
-  accentColor = 'emerald',
+  pullThreshold = 70,
 }: PullToRefreshProps) {
-  const [pullDistance, setPullDistance] = useState(0);
+  const [pullY, setPullY] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isPulling, setIsPulling] = useState(false);
-
-  const containerRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef(0);
-  const startXRef = useRef(0);
-  const isDraggingRef = useRef(false);
+  const isPullingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const threshold = 64;
-  const maxPull = 92;
-
-  // Checks if touch started inside a form control or a horizontally scrolled container
-  const shouldIgnoreTouch = (target: EventTarget | null): boolean => {
-    const root = containerRef.current;
-    if (!root || root.scrollTop > 0) return true;
-
-    if (target instanceof Element) {
-      // Ignore if user is touching an input field or button
-      if (target.closest('input, textarea, select, button')) return true;
-      
-      // Ignore if user is touching inside a horizontally scrollable element (like the Stats table)
-      let el: Element | null = target;
-      while (el && el !== root) {
-        if (el.scrollWidth > el.clientWidth && el.scrollLeft > 0) return true;
-        el = el.parentElement;
-      }
-    }
-    return false;
-  };
-
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (disabled || isRefreshing || e.touches.length !== 1) return;
-
-    if (!shouldIgnoreTouch(e.target)) {
+  const handleTouchStart = (e: TouchEvent<HTMLDivElement>) => {
+    if (isRefreshing) return;
+    const el = containerRef.current;
+    if (el && el.scrollTop <= 0) {
       startYRef.current = e.touches[0].clientY;
-      startXRef.current = e.touches[0].clientX;
-      isDraggingRef.current = true;
-      setIsPulling(false);
-    } else {
-      isDraggingRef.current = false;
+      isPullingRef.current = true;
     }
   };
 
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current || isRefreshing || disabled) return;
-
+  const handleTouchMove = (e: TouchEvent<HTMLDivElement>) => {
+    if (!isPullingRef.current || isRefreshing) return;
     const currentY = e.touches[0].clientY;
-    const currentX = e.touches[0].clientX;
-    const deltaY = currentY - startYRef.current;
-    const deltaX = Math.abs(currentX - startXRef.current);
-
-    // Cancel pull if the user is swiping horizontally more than vertically
-    if (deltaX > Math.abs(deltaY) && deltaX > 10) {
-      isDraggingRef.current = false;
-      setIsPulling(false);
-      setPullDistance(0);
-      return;
-    }
-
-    if (deltaY > 8 && containerRef.current?.scrollTop === 0) {
-      setIsPulling(true);
-      const damped = Math.min((deltaY - 8) * 0.45, maxPull);
-      setPullDistance(damped);
-      
-      // Prevent native scroll chaining while pulling
-      if (e.cancelable) e.preventDefault();
-    } else if (deltaY < 0) {
-      isDraggingRef.current = false;
-      setIsPulling(false);
-      setPullDistance(0);
+    const diff = currentY - startYRef.current;
+    if (diff > 0) {
+      // Apply rubber-band damping resistance
+      const damped = Math.min(diff * 0.45, pullThreshold * 1.5);
+      setPullY(damped);
+    } else {
+      setPullY(0);
     }
   };
 
   const handleTouchEnd = async () => {
-    if (!isDraggingRef.current || isRefreshing || disabled) {
-      isDraggingRef.current = false;
-      setIsPulling(false);
-      return;
-    }
+    if (!isPullingRef.current) return;
+    isPullingRef.current = false;
 
-    isDraggingRef.current = false;
-    setIsPulling(false);
-
-    if (pullDistance >= threshold) {
+    if (pullY >= pullThreshold && !isRefreshing) {
       setIsRefreshing(true);
-      setPullDistance(48); // Lock spinner at this height during refresh
-
+      setPullY(45);
       try {
-        // 1. Flush any offline queued scores to Supabase first
-        await flushOfflineQueueToSupabase();
-        
-        // 2. Run custom cloud refresh handler (this handles UI state updates)
-        if (onRefresh) {
-          await Promise.resolve(onRefresh());
-        }
+        await onRefresh();
       } catch (err) {
-        console.warn('PullToRefresh sync failed (using cached state):', err);
+        console.warn('Pull-to-refresh execution note:', err);
       } finally {
         setTimeout(() => {
           setIsRefreshing(false);
-          setPullDistance(0);
-        }, 320);
+          setPullY(0);
+        }, 300);
       }
     } else {
-      // Snap back if threshold wasn't reached
-      setPullDistance(0);
+      setPullY(0);
     }
   };
 
@@ -133,40 +71,37 @@ export function PullToRefresh({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-      className={`relative w-full overscroll-y-contain ${className}`}
+      className={`relative overflow-y-auto ${className}`}
     >
-      {/* Floating Refresh Spinner */}
+      {/* Pull Indicator */}
       <div
-        className={`absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center justify-center transition-all ${
-          isPulling ? 'duration-75' : 'duration-300 ease-out'
-        }`}
         style={{
-          top: 8,
-          transform: `translate3d(-50%, ${pullDistance}px, 0)`,
-          opacity: pullDistance > 10 || isRefreshing ? 1 : 0,
-          scale: pullDistance > 10 || isRefreshing ? Math.min(pullDistance / 42, 1) : 0.5,
+          transform: `translate3d(0, ${pullY - 45}px, 0)`,
+          opacity: pullY > 10 ? Math.min(pullY / 45, 1) : 0,
+          transition: isPullingRef.current ? 'none' : 'transform 200ms ease-out, opacity 200ms ease-out',
         }}
-        aria-hidden="true"
+        className="absolute top-0 left-0 right-0 h-10 flex items-center justify-center pointer-events-none z-40"
       >
-        <div
-          className={`bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-lg rounded-full p-2.5 flex items-center justify-center ${
-            accentColor === 'amber'
-              ? 'text-amber-500 dark:text-amber-400'
-              : 'text-emerald-600 dark:text-emerald-400'
-          }`}
-        >
+        <div className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-700 shadow-md flex items-center justify-center text-amber-400">
           <RefreshCw
-            className={`w-4 h-4 stroke-[2.4] ${isRefreshing ? 'animate-spin' : ''}`}
+            className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
             style={{
-              transform: !isRefreshing ? `rotate(${pullDistance * 4.5}deg)` : undefined,
-              transition: isPulling ? 'none' : 'transform 0.2s',
+              transform: isRefreshing ? undefined : `rotate(${pullY * 3}deg)`,
             }}
           />
         </div>
       </div>
 
-      {children}
+      {/* Content wrapper with translateY */}
+      <div
+        style={{
+          transform: `translate3d(0, ${pullY}px, 0)`,
+          transition: isPullingRef.current ? 'none' : 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+        }}
+        className="w-full h-full"
+      >
+        {children}
+      </div>
     </div>
   );
 }

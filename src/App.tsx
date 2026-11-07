@@ -14,13 +14,10 @@ import {
   getStoredSession,
   setStoredSession,
   StoredUserSession,
-  isSupabaseConfigured,
 } from './lib/supabase';
-import { SuperAdminSetupModal } from './components/auth/SuperAdminSetupModal';
 import { initCacheStorage } from './lib/db/indexedDB';
 import { initOfflineSyncListener } from './lib/offlineQueue';
 import { Scale } from 'lucide-react';
-import { ResourceLoader } from './components/common/ResourceLoader';
 
 // Code Splitting: Asynchronously load major route panels to minimize initial JS payload
 const OrganiserDashboard = lazy(() =>
@@ -50,7 +47,7 @@ export default function App() {
   const [publicOrgId, setPublicOrgId] = useState('');
   const [publicEventId, setPublicEventId] = useState<string | null>(null);
 
-  // Data-Driven Cold Boot Sequence & App Hydration (Directive 2)
+  // Data-Driven Cold Boot Sequence & App Hydration
   useEffect(() => {
     let isCancelled = false;
     let unsubSync: (() => void) | null = null;
@@ -59,7 +56,6 @@ export default function App() {
 
     const runBootSequence = async () => {
       try {
-        // Hydrate local cache and database state
         await initCacheStorage();
         if (isCancelled) return;
 
@@ -76,7 +72,6 @@ export default function App() {
         await delay(400);
         if (isCancelled) return;
 
-        // Clean unmount from DOM
         setIsBooting(false);
       } catch (err) {
         console.warn('Boot sequence error:', err);
@@ -119,7 +114,6 @@ export default function App() {
         dbService.getOrganizationByOrgId(session.org.org_id),
       ]);
 
-      // Filter events assigned to this judge (or fallback to active events)
       let assigned = allEvents.filter(
         (e) =>
           e.assigned_judges.includes(session.judge!.id) ||
@@ -131,13 +125,11 @@ export default function App() {
 
       setJudgeEvents(assigned);
 
-      // Keep activeJudgeEvent synchronized if the Organiser pauses/ends/updates it
       setActiveJudgeEvent((prev) => {
         if (!prev) return null;
         return allEvents.find((e) => e.id === prev.id) || prev;
       });
 
-      // Keep Organization name & Jury rules synced if updated
       if (freshOrg && freshOrg.name !== session.org.name) {
         const updatedSession: UserSession = { ...session, org: freshOrg };
         setStoredSession(updatedSession);
@@ -169,7 +161,7 @@ export default function App() {
     setSession(newSession);
   };
 
-  // Judge Login Handler - Fetches real Organization record & routes to JudgeLobby
+  // Judge Login Handler
   const handleJudgeLogin = async (
     orgId: string,
     judge: SupabaseJudge,
@@ -184,17 +176,25 @@ export default function App() {
     const newSession: UserSession = {
       role: 'judge',
       org: orgRecord || {
-        id: judge.org_id,
+        id: `org_${cleanOrgId}`,
         org_id: cleanOrgId,
-        name: 'Official Stage',
+        name: cleanOrgId,
+        verification_status: 'verified',
+        tie_breaker_enabled: false,
+        tie_breaker_method: 'olympic',
+        custom_participant_fields: [],
+        blind_judging_enabled: false,
+        auto_advance_enabled: true,
+        grace_period_enabled: false,
+        isolated_jury_enabled: false,
         created_at: new Date().toISOString(),
       },
       judge,
     };
+
     setStoredSession(newSession);
     setSession(newSession);
     setJudgeEvents(assignedEvents);
-    setActiveJudgeEvent(null);
   };
 
   // Logout Handler
@@ -202,54 +202,35 @@ export default function App() {
     setStoredSession(null);
     setSession(null);
     setActiveJudgeEvent(null);
-    setIsPublicView(false);
+    setJudgeEvents([]);
   };
 
-  // Public View Launcher
-  const handleOpenPublicView = (eventId?: string) => {
-    if (session?.org) {
-      setPublicOrgId(session.org.org_id);
-      if (eventId) setPublicEventId(eventId);
-    }
-    setIsPublicView(true);
-  };
-
-  // Active Screen Content based on session and route
   const renderScreenContent = () => {
-    // 1. PUBLIC PROJECTOR SCREEN
     if (isPublicView) {
       return (
         <PublicLeaderboard
-          orgId={publicOrgId}
+          orgId={publicOrgId || session?.org?.org_id || 'DEMO'}
           initialEventId={publicEventId}
           onExit={() => setIsPublicView(false)}
         />
       );
     }
 
-    // 2. STRICT AUTH CHECK: IF !SESSION -> RENDER ONLY AUTH SCREEN
-    if (!session) {
-      return (
-        <AuthScreen
-          onOrganiserLogin={handleOrganiserLogin}
-          onJudgeLogin={handleJudgeLogin}
-        />
-      );
-    }
-
-    // 3. IF ROLE === 'ORGANISER' -> RENDER ONLY ORGANISER DASHBOARD
-    if (session.role === 'organiser') {
+    if (session?.role === 'organiser' && session.org) {
       return (
         <OrganiserDashboard
           organization={session.org}
           onLogout={handleLogout}
-          onOpenPublicView={handleOpenPublicView}
+          onOpenPublicView={(evtId) => {
+            setPublicOrgId(session.org.org_id);
+            setPublicEventId(evtId || null);
+            setIsPublicView(true);
+          }}
         />
       );
     }
 
-    // 4. IF ROLE === 'JUDGE' -> RENDER ONLY SCORING PANEL (JudgeStage)
-    if (session.role === 'judge' && session.judge) {
+    if (session?.role === 'judge' && session.judge && session.org) {
       if (activeJudgeEvent) {
         return (
           <ScoringPanel
@@ -266,13 +247,12 @@ export default function App() {
           orgId={session.org.org_id}
           judge={session.judge}
           events={judgeEvents}
-          onSelectEvent={(ev) => setActiveJudgeEvent(ev)}
+          onSelectEvent={(evt) => setActiveJudgeEvent(evt)}
           onLogout={handleLogout}
         />
       );
     }
 
-    // Fallback to AuthScreen
     return (
       <AuthScreen
         onOrganiserLogin={handleOrganiserLogin}
@@ -283,21 +263,15 @@ export default function App() {
 
   return (
     <ToastProvider>
-      {/* ======================================================== */}
-      {/* DIRECTIVE 2: GPU-ACCELERATED COLD BOOT SPLASH SCREEN     */}
-      {/* ======================================================== */}
+      {/* 60fps Physics Splash Screen Boot Sequence */}
       {isBooting && (
         <div
           role="status"
           aria-live="polite"
-          className={`fixed inset-0 z-[200] flex flex-col items-center justify-center bg-zinc-950 select-none overflow-hidden pb-safe transition-opacity duration-[400ms] ease-out will-change-opacity pointer-events-none ${
-            isBootFading ? 'opacity-0' : 'opacity-100 pointer-events-auto'
+          className={`fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-zinc-950 transition-opacity duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
+            isBootFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
           }`}
         >
-          {/* Subtle Ambient Radial Glow */}
-          <div className="absolute w-[380px] h-[380px] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
-
-          {/* Dead Center Brand Core: scales down (scale-75) & translates up (-translate-y-8) as it fades */}
           <div
             className={`relative flex flex-col items-center text-center px-6 max-w-sm w-full transition-all duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform will-change-opacity ${
               isBootFading
@@ -305,7 +279,6 @@ export default function App() {
                 : 'scale-100 translate-y-0 opacity-100'
             }`}
           >
-            {/* Glowing Fair Judge Scale Logo */}
             <div className="relative flex items-center justify-center mb-4">
               <div className="absolute -inset-2.5 rounded-3xl border border-emerald-500/30 animate-ping opacity-25 pointer-events-none" />
               <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center relative z-10 shadow-xl shadow-emerald-500/25">
@@ -313,7 +286,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Fair Judge Title & Monospace Subtitle */}
             <h1 className="text-3xl font-extrabold tracking-tight text-white font-sans">
               Fair Judge
             </h1>
@@ -332,7 +304,7 @@ export default function App() {
           </div>
         }
       >
-        <div className="w-full h-full animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out will-change-transform">
+        <div className="w-full h-full animate-in fade-in duration-[250ms] ease-out will-change-transform">
           {renderScreenContent()}
         </div>
       </Suspense>

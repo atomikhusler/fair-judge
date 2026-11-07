@@ -123,7 +123,6 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
         onDismiss(item.id);
       }, 200);
     } else {
-      // Spring back to 0
       setDragX(0);
     }
   };
@@ -215,7 +214,6 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
         isFront ? 'cursor-grab active:cursor-grabbing hover:border-zinc-700' : 'cursor-default'
       }`}
     >
-      {/* Visual Accent Glowing Icon Pill */}
       <div className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 ${badgeTheme}`}>
         {isError ? (
           <AlertCircle className="w-4 h-4 stroke-[2.2]" />
@@ -228,14 +226,12 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
         )}
       </div>
 
-      {/* Message Text with High Legibility Micro-Typography */}
       <div className="flex-1 min-w-0 pr-1">
         <p className="text-xs font-semibold text-zinc-100 dark:text-zinc-100 leading-snug break-words line-clamp-2">
           {item.message}
         </p>
       </div>
 
-      {/* Front Toast Subtle Swipe Indicator Pill */}
       {isFront && (
         <div
           onClick={(e) => {
@@ -254,9 +250,6 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
 
 /**
  * Standardized Global ColorOS Stacked Toast Notification Center
- * - Root container has absolute maximum z-index (z-[9999] pointer-events-none)
- * - Fixed bottom floating placement (clears headers and sticky elements)
- * - Holds at most 3 layered notifications with spring-physics transforms
  */
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -282,13 +275,10 @@ export function ToastContainer() {
       };
 
       setToasts((prev) => {
-        // Prevent duplicate spam of identical message
         const filtered = prev.filter((t) => t.message !== msg);
-        // Prepend new toast and keep maximum 3 in the stack
         return [newToast, ...filtered].slice(0, 3);
       });
 
-      // Auto dismiss after duration
       const timer = setTimeout(() => {
         setToasts((current) => current.filter((t) => t.id !== id));
       }, duration);

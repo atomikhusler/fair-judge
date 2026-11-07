@@ -133,7 +133,7 @@ export async function parseQrCodeFromImageFile(file: File): Promise<string> {
           const imageData = ctx.getImageData(0, 0, width, height);
 
           // Dynamically import jsQR only when needed to keep initial bundle tiny
-          const jsQRModule = await import('jsqr');
+          const jsQRModule: any = await import('jsqr');
           const jsQR = jsQRModule.default || jsQRModule;
           const code = jsQR(imageData.data, imageData.width, imageData.height, {
             inversionAttempts: 'attemptBoth',

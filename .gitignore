@@ -4,5 +4,19 @@ dist/
 coverage/
 .DS_Store
 *.log
+
+# Environment variables & local overrides
+.env
+.env.local
+.env.*.local
 .env*
 !.env.example
+
+# Firebase & Cloud credential configs (Prevents GitHub secret leaks)
+firebase-applet-config*
+firebase_applet_config*
+firebase-blueprint.json
+firestore.rules
+*.pem
+*.key
+serviceAccountKey*.json
