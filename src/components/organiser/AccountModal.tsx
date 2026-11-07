@@ -222,7 +222,7 @@ export function AccountModal({
       />
 
       {/* Modal Dialog */}
-      <div className="relative w-full max-w-lg bg-stone-100/50 dark:bg-black text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200 select-none">
+      <div className="relative w-full max-w-lg bg-stone-100/50 dark:bg-black text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-spring-sheet select-none">
         
 
         {/* Modal Header */}

@@ -228,7 +228,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         type="button"
         onClick={onBack}
         aria-label="Back to role selection"
-        className="w-10 h-10 rounded-full bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-95 shadow-lg z-20"
+        className="w-10 h-10 rounded-full bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform shadow-lg z-20"
       >
         <ChevronLeft className="w-5 h-5" />
       </button>
@@ -258,7 +258,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
             type="button"
             onClick={startCameraScanner}
             disabled={isScanning || isVerifying}
-            className="h-11 bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-black font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            className="h-11 bg-amber-500 hover:bg-amber-400 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform text-black font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             <Camera className="w-4 h-4 shrink-0" />
             <span>Scan QR</span>
@@ -269,7 +269,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isProcessingGallery || isVerifying}
-            className="h-11 border border-zinc-800 hover:border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800/80 active:scale-[0.98] text-zinc-300 hover:text-white font-semibold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            className="h-11 border border-zinc-800 hover:border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800/80 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform text-zinc-300 hover:text-white font-semibold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isProcessingGallery ? (
               <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
@@ -362,7 +362,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
           </div>
         </div>
 
-        {/* Field 3: 4-Digit PIN */}
+        {/* Field 3: 4-Digit PIN (Directive 4: Strict 4-Digit Numeric Constraint) */}
         <div>
           <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
             4-Digit PIN
@@ -371,10 +371,12 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
             <KeyRound className="w-4 h-4 text-zinc-500 shrink-0" />
             <input
               type="password"
-              maxLength={6}
+              inputMode="numeric"
+              pattern="\d{4}"
+              maxLength={4}
               placeholder="••••"
               value={pin}
-              onChange={(e) => setPin(e.target.value)}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
               disabled={isVerifying}
               className="bg-transparent text-sm font-mono tracking-widest font-bold text-white placeholder-zinc-600 outline-none w-full"
             />
@@ -393,7 +395,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         <button
           type="submit"
           disabled={isVerifying}
-          className="w-full h-11 bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-black font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-2"
+          className="w-full h-11 bg-amber-500 hover:bg-amber-400 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform text-black font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mt-2"
         >
           {isVerifying ? (
             <>

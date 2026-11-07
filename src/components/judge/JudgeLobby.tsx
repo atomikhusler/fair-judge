@@ -19,6 +19,7 @@ import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
 import { PullToRefresh } from '../common/PullToRefresh';
 import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
+import { showToast } from '../common/ToastProvider';
 
 interface JudgeLobbyProps {
   orgId: string;
@@ -39,10 +40,9 @@ export function JudgeLobby({
   // Organization state for header subtitle
   const [organization, setOrganization] = useState<Organization | null>(null);
 
-  // Modal & Toast states
+  // Modal states
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Load organization details
   useEffect(() => {
@@ -62,11 +62,6 @@ export function JudgeLobby({
     }
   }, [isAccountModalOpen, showLogoutConfirm]);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
-  };
-
   const handleRefresh = async () => {
     try {
       await flushOfflineQueueToSupabase();
@@ -80,15 +75,7 @@ export function JudgeLobby({
   const activeEventsCount = events.filter((e) => e.status === 'active').length;
 
   return (
-    <div className="min-h-[100dvh] overflow-y-auto w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col items-center justify-start selection:bg-emerald-500 selection:text-white transition-colors duration-200 relative">
-      
-      {/* Floating Toast Notification (pointer-events-none to prevent touch intercept) */}
-      {toastMessage ? (
-        <div className="fixed top-4 left-4 right-4 z-50 p-3.5 bg-zinc-900/95 text-white border border-zinc-700 rounded-2xl shadow-2xl flex items-center space-x-2.5 text-xs font-semibold backdrop-blur-md animate-fade-in pointer-events-none">
-          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-          <span>{toastMessage}</span>
-        </div>
-      ) : null}
+    <div className="min-h-[100dvh] overflow-y-auto w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col items-center justify-start selection:bg-amber-500 selection:text-black transition-colors duration-200 relative">
 
       {/* ======================================================== */}
       {/* PART 4: THE JUDGE LOBBY - HEADER                         */}
@@ -100,7 +87,7 @@ export function JudgeLobby({
             type="button"
             onClick={handleRefresh}
             title="Refresh events"
-            className="w-10 h-10 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-sm shrink-0 transition-all active:scale-95 cursor-pointer"
+            className="w-10 h-10 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-sm shrink-0 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
           >
             <Scale className="w-5 h-5 stroke-[2.2]" />
           </button>
@@ -121,7 +108,7 @@ export function JudgeLobby({
           <ThemeToggleButton />
           <button
             onClick={() => setIsAccountModalOpen(true)}
-            className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center transition-colors active:scale-95 cursor-pointer shadow-xs"
+            className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer shadow-xs"
             title="Judge Account & Session"
             aria-label="Judge Account"
           >
@@ -149,7 +136,7 @@ export function JudgeLobby({
                 Assigned Events ({events.length})
               </h2>
               {activeEventsCount > 0 && (
-                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">
+                <p className="text-[11px] text-amber-500 dark:text-amber-400 font-bold mt-0.5">
                   {activeEventsCount} {activeEventsCount === 1 ? 'event is' : 'events are'} currently live
                 </p>
               )}
@@ -188,7 +175,7 @@ export function JudgeLobby({
                     }}
                     className={`w-full p-4 sm:p-5 rounded-3xl border transition-all text-left relative overflow-hidden ${
                       isActive
-                        ? 'bg-white dark:bg-zinc-950 border-stone-200 dark:border-zinc-800 hover:border-emerald-500/50 hover:bg-stone-50 dark:hover:bg-zinc-900/40 cursor-pointer shadow-md active:scale-[0.98]'
+                        ? 'bg-white dark:bg-zinc-950 border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-900/40 cursor-pointer shadow-md active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform'
                         : 'bg-white/50 dark:bg-zinc-950/40 border-stone-200/50 dark:border-zinc-900/60 cursor-not-allowed opacity-65'
                     }`}
                   >
@@ -198,8 +185,8 @@ export function JudgeLobby({
                       </span>
                       <div>
                         {isActive && (
-                          <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 shadow-sm">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-black bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/25 shadow-sm">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                             <span>LIVE NOW</span>
                           </span>
                         )}
@@ -238,7 +225,7 @@ export function JudgeLobby({
 
                       {isActive ? (
                         <div className="shrink-0">
-                          <span className="inline-flex items-center space-x-1 px-3.5 py-2 rounded-xl bg-emerald-600 dark:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-900/20 transition-all">
+                          <span className="inline-flex items-center space-x-1 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black shadow-md shadow-amber-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform">
                             <span>Enter Stage</span>
                             <ChevronRight className="w-4 h-4 stroke-[2.5]" />
                           </span>
@@ -274,7 +261,7 @@ export function JudgeLobby({
               {/* Modal Header */}
               <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center">
                     <CircleUser className="w-5 h-5 stroke-[2.2]" />
                   </div>
                   <div>
@@ -310,7 +297,7 @@ export function JudgeLobby({
                   {/* ID / PIN Row */}
                   <div className="p-3.5 flex items-center justify-between">
                     <span className="text-zinc-500 font-medium">Terminal PIN / ID</span>
-                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-lg border border-blue-500/20">
+                    <span className="font-mono font-bold text-amber-500 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
                       PIN: {judge.pin || judge.judge_pin || '••••'}
                     </span>
                   </div>
@@ -326,7 +313,7 @@ export function JudgeLobby({
                   {/* Assigned Events Count */}
                   <div className="p-3.5 flex items-center justify-between">
                     <span className="text-zinc-500 font-medium">Assigned Events</span>
-                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    <span className="font-mono font-bold text-amber-500 dark:text-amber-400">
                       {events.length} Events
                     </span>
                   </div>

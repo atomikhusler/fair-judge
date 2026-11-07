@@ -43,7 +43,49 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.25s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* 60fps.design Kinematic Physics */
+@keyframes springSlideUp {
+  0% {
+    transform: translateY(100%);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-spring-sheet {
+  animation: springSlideUp 380ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes breatheFade {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-breathe-fade {
+  animation: breatheFade 240ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.tactile-btn {
+  transition: transform 75ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+
+.tactile-btn:active {
+  transform: scale(0.97);
 }
 
 @keyframes bootProgress {

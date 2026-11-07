@@ -343,32 +343,37 @@ export function OrganiserDashboard({
         onRefresh={handleManualPullRefresh}
         className="flex-1 flex flex-col overflow-hidden max-w-4xl w-full mx-auto relative animate-fade-in"
       >
-        {/* Tab 1: Live Control Room */}
-        {activeTab === 'live' && (
-          <LiveTab
-            organization={organization}
-            onOpenPublicView={onOpenPublicView}
-          />
-        )}
+        <div
+          key={activeTab}
+          className="w-full h-full flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out will-change-transform"
+        >
+          {/* Tab 1: Live Control Room */}
+          {activeTab === 'live' && (
+            <LiveTab
+              organization={organization}
+              onOpenPublicView={onOpenPublicView}
+            />
+          )}
 
-        {/* Tab 2: Events Engine & Management View */}
-        {activeTab === 'events' && (
-          <EventsTab
-            organization={organization}
-            onOpenPublicView={onOpenPublicView}
-            onNavigateToLiveControl={() => setActiveTab('live')}
-          />
-        )}
+          {/* Tab 2: Events Engine & Management View */}
+          {activeTab === 'events' && (
+            <EventsTab
+              organization={organization}
+              onOpenPublicView={onOpenPublicView}
+              onNavigateToLiveControl={() => setActiveTab('live')}
+            />
+          )}
 
-        {/* Tab 3: People View */}
-        {activeTab === 'people' && (
-          <PeopleTab organization={organization} />
-        )}
+          {/* Tab 3: People View */}
+          {activeTab === 'people' && (
+            <PeopleTab organization={organization} />
+          )}
 
-        {/* Tab 4: Insights View */}
-        {activeTab === 'insights' && (
-          <InsightsTab organization={organization} />
-        )}
+          {/* Tab 4: Insights View */}
+          {activeTab === 'insights' && (
+            <InsightsTab organization={organization} />
+          )}
+        </div>
       </PullToRefresh>
 
       {/* ======================================================== */}
