@@ -466,11 +466,11 @@ export function ScoringPanel({
 
             <div className="flex items-center space-x-2 shrink-0">
               {isBlindJudging && (
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                <span className="text-[11px] font-mono font-bold uppercase tracking-widest bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full">
                   Blind Judging
                 </span>
               )}
-              <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
+              <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-mono font-bold uppercase tracking-widest bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
                 <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-amber-500' : 'bg-amber-400'}`} />
                 <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
               </div>
@@ -479,21 +479,21 @@ export function ScoringPanel({
 
           <div className="border-t border-stone-200/80 dark:border-zinc-800/80 pt-2.5 mt-2.5 flex items-start justify-between">
             <div className="min-w-0 flex-1 mr-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 dark:text-amber-400 font-extrabold flex items-center space-x-1">
+              <span className="text-[11px] font-mono uppercase tracking-widest text-amber-500 dark:text-amber-400 font-extrabold flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                 <span>{event.category || 'Official Competition'}</span>
               </span>
-              <h1 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white mt-0.5 truncate">
+              <h1 className="text-base sm:text-lg font-black text-zinc-900 dark:text-zinc-50 mt-0.5 truncate">
                 {event.name}
               </h1>
             </div>
 
             {!isIsolatedJury && (
               <div className="text-right shrink-0 bg-stone-100 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-zinc-700">
-                <span className="text-sm font-mono font-black text-zinc-900 dark:text-white">
+                <span className="text-sm font-mono font-black tabular-nums text-zinc-900 dark:text-zinc-50">
                   {scoredCount} / {participants.length}
                 </span>
-                <span className="text-[10px] text-zinc-400 font-mono block">Evaluated</span>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono block">Evaluated</span>
               </div>
             )}
           </div>
@@ -504,18 +504,18 @@ export function ScoringPanel({
           <main className="flex-1 overflow-y-auto px-4 pt-4 pb-40 space-y-5">
           {/* Smart Search Bar */}
           <div className="relative">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3.5" />
+            <Search className="w-4 h-4 text-zinc-500 dark:text-zinc-400 absolute left-3.5 top-3.5" />
             <input
               type="text"
               placeholder={isBlindJudging ? "Search by Sl. No. or ID..." : "Search by Sl. No., Name, or School..."}
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
-              className="w-full pl-10 pr-9 py-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-xs text-zinc-900 dark:text-white placeholder-zinc-400 shadow-sm focus:outline-none focus:border-amber-500"
+              className="w-full pl-10 pr-9 py-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-xs text-zinc-900 dark:text-zinc-50 placeholder-zinc-500 dark:placeholder-zinc-400 shadow-sm focus:outline-none focus:border-amber-500"
             />
             {listSearch && (
               <button
                 onClick={() => setListSearch('')}
-                className="absolute right-3 top-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-white p-0.5 cursor-pointer"
+                className="absolute right-3 top-3 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -530,13 +530,13 @@ export function ScoringPanel({
                   <Clock className="w-3.5 h-3.5 text-amber-500" />
                   <span>Upcoming ({filteredUpcoming.length})</span>
                 </h2>
-                <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase">
+                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-widest">
                   VIP SCORING QUEUE
                 </span>
               </div>
 
               {filteredUpcoming.length === 0 ? (
-                <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-xs text-zinc-400 shadow-sm">
+                <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-xs text-zinc-500 dark:text-zinc-400 shadow-sm">
                   {listSearch ? 'No upcoming competitors match your search.' : 'All assigned competitors have been evaluated! 🎉'}
                 </div>
               ) : (
@@ -550,20 +550,20 @@ export function ScoringPanel({
                         className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-850 rounded-2xl shadow-sm transition-all cursor-pointer group flex items-center justify-between active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
                       >
                         <div className="flex items-center space-x-3.5 min-w-0 mr-3">
-                          <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 font-mono font-black text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                          <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 font-mono font-black tabular-nums text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
                             {participantSerial}
                           </div>
                           <div className="min-w-0">
                             {isBlindJudging ? (
-                              <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white truncate">
+                              <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-zinc-50 truncate">
                                 Participant {p.identity_id || `P-${p.id.slice(0, 4)}`}
                               </h3>
                             ) : (
                               <>
-                                <h3 className="text-sm font-extrabold text-zinc-900 dark:text-white truncate group-hover:text-amber-500 transition-colors">
+                                <h3 className="text-sm font-extrabold text-zinc-900 dark:text-zinc-50 truncate group-hover:text-amber-500 transition-colors">
                                   {p.name}
                                 </h3>
-                                <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
+                                <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate mt-0.5">
                                   {p.school}
                                 </p>
                               </>
@@ -594,17 +594,17 @@ export function ScoringPanel({
             {/* SECTION 2: COMPLETED EVALUATIONS */}
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between px-1">
-                <h2 className="text-xs font-black text-zinc-500 uppercase tracking-wider flex items-center space-x-1.5">
+                <h2 className="text-xs font-black text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center space-x-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
                   <span>Completed ({filteredCompleted.length})</span>
                 </h2>
-                <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase">
+                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-widest">
                   SEALED IN AUDIT LEDGER
                 </span>
               </div>
 
               {filteredCompleted.length === 0 ? (
-                <div className="p-6 bg-stone-100/50 dark:bg-zinc-900/20 border border-stone-200/50 dark:border-zinc-800/40 rounded-2xl text-center text-xs text-zinc-500">
+                <div className="p-6 bg-stone-100/50 dark:bg-zinc-900/20 border border-stone-200/50 dark:border-zinc-800/40 rounded-2xl text-center text-xs text-zinc-500 dark:text-zinc-400">
                   No ballots completed yet. Select an upcoming competitor above to begin scoring.
                 </div>
               ) : (
@@ -619,20 +619,20 @@ export function ScoringPanel({
                         className="p-3.5 sm:p-4 bg-stone-100/80 dark:bg-zinc-900/50 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between gap-3 opacity-90 hover:opacity-100 transition-all cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform shadow-xs"
                       >
                         <div className="flex items-center space-x-3.5 min-w-0 flex-1">
-                          <div className="w-10 h-10 rounded-2xl bg-stone-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-mono font-bold text-xs sm:text-sm flex items-center justify-center shrink-0">
+                          <div className="w-10 h-10 rounded-2xl bg-stone-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono font-bold tabular-nums text-xs sm:text-sm flex items-center justify-center shrink-0">
                             {participantSerial}
                           </div>
                           <div className="min-w-0 flex-1">
                             {isBlindJudging ? (
-                              <h3 className="text-base font-black text-zinc-800 dark:text-zinc-200 truncate">
+                              <h3 className="text-base font-black text-zinc-900 dark:text-zinc-100 truncate">
                                 Participant {p.identity_id || `P-${p.id.slice(0, 4)}`}
                               </h3>
                             ) : (
                               <>
-                                <h3 className="text-xs sm:text-sm font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
+                                <h3 className="text-xs sm:text-sm font-extrabold text-zinc-900 dark:text-zinc-100 truncate">
                                   {p.name}
                                 </h3>
-                                <p className="text-[11px] text-zinc-400 truncate mt-0.5">
+                                <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate mt-0.5">
                                   {p.school}
                                 </p>
                               </>
@@ -642,10 +642,10 @@ export function ScoringPanel({
 
                         <div className="shrink-0 flex items-center space-x-3 text-right">
                           <div className="font-mono text-right">
-                            <span className="text-base sm:text-lg font-black text-amber-500 dark:text-amber-400">
+                            <span className="text-base sm:text-lg font-black tabular-nums tracking-tight text-amber-500 dark:text-amber-400">
                               {scoreRecord?.total_score ?? '—'}
                             </span>
-                            <span className="text-[11px] font-mono text-zinc-400 ml-1">pts</span>
+                            <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400 ml-1">pts</span>
                           </div>
                           <div className="w-8 h-8 rounded-xl bg-stone-200/80 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 hover:text-zinc-800 dark:hover:text-white transition-colors">
                             <Eye className="w-3.5 h-3.5" />
@@ -725,20 +725,20 @@ export function ScoringPanel({
         <div className="shrink-0 z-40 px-4 pt-3 pb-2 bg-stone-100/90 dark:bg-zinc-900/90 backdrop-blur-md border-b border-stone-200/60 dark:border-zinc-800/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 min-w-0 flex-1">
-              <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-amber-500 dark:text-amber-400 shrink-0 shadow-sm">
+              <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black tabular-nums text-sm text-amber-500 dark:text-amber-400 shrink-0 shadow-sm">
                 {event.participant_sl_numbers?.[currentParticipant.id] || currentParticipant.sl_no}
               </div>
               <div className="min-w-0 flex-1">
                 {isBlindJudging ? (
-                  <h2 className="text-lg font-black text-zinc-900 dark:text-white truncate">
+                  <h2 className="text-lg font-black text-zinc-900 dark:text-zinc-50 truncate">
                     Participant {currentParticipant.identity_id || `P-${currentParticipant.id.slice(0, 4)}`}
                   </h2>
                 ) : (
                   <>
-                    <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white truncate">
+                    <h2 className="text-sm font-extrabold text-zinc-900 dark:text-zinc-50 truncate">
                       {currentParticipant.name}
                     </h2>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate">
                       {currentParticipant.school}
                     </p>
                   </>
@@ -748,7 +748,7 @@ export function ScoringPanel({
 
             {/* If Not Isolated Jury, show Queue Counter */}
             {!isIsolatedJury && (
-              <div className="text-right shrink-0 font-mono text-[11px] text-zinc-400 bg-white dark:bg-zinc-800 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-zinc-700">
+              <div className="text-right shrink-0 font-mono tabular-nums text-xs text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-zinc-700">
                 {currentIndex + 1} of {participants.length}
               </div>
             )}
@@ -756,9 +756,9 @@ export function ScoringPanel({
 
           {/* Grace Period Notification Pill */}
           {isWithinGracePeriod && (
-            <div className="mt-2 py-1 px-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-[11px] text-amber-600 dark:text-amber-400 font-mono font-semibold">
+            <div className="mt-2 py-1 px-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-xs text-amber-600 dark:text-amber-400 font-mono font-semibold">
               <span>5m Grace Period Active: Ballots can be re-adjusted</span>
-              <Clock className="w-3 h-3 animate-pulse" />
+              <Clock className="w-3.5 h-3.5 animate-pulse" />
             </div>
           )}
         </div>
@@ -781,7 +781,7 @@ export function ScoringPanel({
             </div>
             <button
               onClick={() => setViewMode('list')}
-              className="px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-[11px] shadow-sm shrink-0 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
+              className="px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow-sm shrink-0 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
             >
               Roster
             </button>
@@ -804,25 +804,25 @@ export function ScoringPanel({
                 {/* Criterion Header */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-0 min-w-0 flex-1">
-                    <h3 className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-wider">
+                    <h3 className="text-xs font-black text-zinc-900 dark:text-zinc-50 uppercase tracking-wider">
                       {crit.name}
                     </h3>
                     {crit.description && (
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2 mt-0.5">
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2 mt-0.5">
                         {crit.description}
                       </p>
                     )}
-                    <span className="text-[10px] text-zinc-400 font-mono block mt-0.5">Max: {max} pts</span>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums block mt-0.5">Max: {max} pts</span>
                   </div>
 
                   <div className="font-mono text-right shrink-0 pl-2">
                     {isScored ? (
-                      <span className="text-2xl sm:text-3xl font-black text-amber-500 dark:text-amber-400 tracking-tight">
+                      <span className="text-2xl sm:text-3xl font-bold tabular-nums tracking-tight text-amber-500 dark:text-amber-400">
                         {currentVal}
-                        <span className="text-xs text-zinc-400 font-normal"> / {max}</span>
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400 font-normal"> / {max}</span>
                       </span>
                     ) : (
-                      <span className="text-[11px] text-zinc-500 bg-stone-100 dark:bg-zinc-800 px-3 py-1 rounded-full border border-stone-200 dark:border-zinc-700 font-sans font-medium">
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400 bg-stone-100 dark:bg-zinc-800 px-3 py-1 rounded-full border border-stone-200 dark:border-zinc-700 font-sans font-medium">
                         Slide to Score
                       </span>
                     )}
@@ -892,7 +892,7 @@ export function ScoringPanel({
                   </div>
 
                   {/* Range Snap Markers */}
-                  <div className="flex justify-between px-14 text-[10px] font-mono font-bold text-zinc-400">
+                  <div className="flex justify-between px-14 text-xs font-mono font-bold tabular-nums text-zinc-500 dark:text-zinc-400">
                     <span>0</span>
                     <span>{Math.floor(max / 2)}</span>
                     <span>{max}</span>
@@ -922,12 +922,12 @@ export function ScoringPanel({
 
         {/* Center: Total: XX / YY pts (Massive, bold, monospace font, perfectly centered) */}
         <div className="text-center font-mono flex flex-col items-center justify-center min-w-0 px-2">
-          <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white tracking-tight leading-none">
+          <div className="text-2xl sm:text-3xl font-bold tracking-tight tabular-nums text-zinc-900 dark:text-zinc-50 leading-none">
             <span className="text-amber-500 dark:text-amber-400">{currentTotal}</span>
-            <span className="text-zinc-400 text-sm font-normal"> / {maxPossible}</span>
-            <span className="text-xs font-normal text-zinc-400 ml-1">pts</span>
+            <span className="text-zinc-500 dark:text-zinc-400 text-sm font-normal"> / {maxPossible}</span>
+            <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400 ml-1">pts</span>
           </div>
-          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest mt-1 font-bold">
+          <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-widest mt-1 font-bold">
             Total Composite
           </span>
         </div>
@@ -955,33 +955,33 @@ export function ScoringPanel({
                 <ShieldCheck className="w-6 h-6 stroke-[2.2]" />
               </div>
               <div>
-                <h3 className="text-base font-extrabold text-zinc-900 dark:text-white">Lock in this score?</h3>
-                <span className="text-[10px] font-mono text-zinc-500">IMMUTABLE CRYPTOGRAPHIC LEDGER</span>
+                <h3 className="text-base font-extrabold text-zinc-900 dark:text-zinc-50">Lock in this score?</h3>
+                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-widest font-bold">IMMUTABLE CRYPTOGRAPHIC LEDGER</span>
               </div>
             </div>
 
             <div className="p-3.5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 rounded-2xl space-y-1.5 text-xs">
               <div className="flex justify-between">
-                <span className="text-zinc-500">Competitor:</span>
-                <span className="font-bold text-zinc-900 dark:text-white">
+                <span className="text-zinc-600 dark:text-zinc-400">Competitor:</span>
+                <span className="font-bold text-zinc-900 dark:text-zinc-50">
                   {isBlindJudging
                     ? `Participant ${currentParticipant?.identity_id || 'P-8492'}`
                     : currentParticipant?.name}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">Serial No.:</span>
-                <span className="font-mono text-amber-500 dark:text-amber-400 font-bold">
+                <span className="text-zinc-600 dark:text-zinc-400">Serial No.:</span>
+                <span className="font-mono tabular-nums text-amber-500 dark:text-amber-400 font-bold">
                   #{event.participant_sl_numbers?.[currentParticipant?.id || ''] || currentParticipant?.sl_no}
                 </span>
               </div>
               <div className="flex justify-between border-t border-stone-200 dark:border-zinc-800 pt-1.5">
-                <span className="text-zinc-500 font-medium">Final Composite:</span>
-                <span className="font-mono text-amber-500 dark:text-amber-400 font-black text-sm">{currentTotal} / {maxPossible} pts</span>
+                <span className="text-zinc-600 dark:text-zinc-400 font-medium">Final Composite:</span>
+                <span className="font-mono font-bold tracking-tight tabular-nums text-amber-500 dark:text-amber-400 text-sm">{currentTotal} / {maxPossible} pts</span>
               </div>
             </div>
 
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
               {isGracePeriod
                 ? 'Your ballot will be recorded immediately. You will have a 5-minute grace window to make any final adjustments.'
                 : 'Once confirmed, this ballot is permanently sealed in the competition audit repository and cannot be altered.'}

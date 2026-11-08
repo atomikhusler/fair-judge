@@ -235,7 +235,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
       {/* Shrinked App Logo & Persistent Centered Header Anchor */}
       <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
-        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
+        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
           <Gavel className="w-5 h-5" />
         </div>
         <h1 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
@@ -303,8 +303,8 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
             />
 
             {scannerError && (
-              <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-center gap-2">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <div className="mt-2.5 p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-500 flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-500" />
                 <span>{scannerError}</span>
               </div>
             )}

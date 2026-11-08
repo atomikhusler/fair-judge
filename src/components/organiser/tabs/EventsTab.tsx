@@ -1133,17 +1133,17 @@ export function EventsTab({
               const isReady = hasParticipants && hasJudges;
 
               let badgeText = 'DRAFT';
-              let badgeClasses = 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20';
+              let badgeClasses = 'bg-orange-500/10 text-orange-500 border border-orange-500/20';
               let badgeDotClasses = 'bg-orange-500';
 
               if (isLive) {
                 badgeText = 'ACTIVE';
-                badgeClasses = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
-                badgeDotClasses = 'bg-emerald-500 animate-pulse';
+                badgeClasses = 'bg-green-500/10 text-green-500 border border-green-500/20';
+                badgeDotClasses = 'bg-green-500 animate-pulse';
               } else if (isPaused) {
                 badgeText = 'PAUSED';
-                badgeClasses = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
-                badgeDotClasses = 'bg-amber-500';
+                badgeClasses = 'bg-orange-500/10 text-orange-500 border border-orange-500/20';
+                badgeDotClasses = 'bg-orange-500';
               } else if (isEnded) {
                 badgeText = 'ENDED';
                 badgeClasses = 'bg-zinc-500/10 text-zinc-500 dark:text-zinc-400 border border-zinc-500/20';
@@ -1154,7 +1154,7 @@ export function EventsTab({
                 badgeDotClasses = 'bg-sky-500';
               } else {
                 badgeText = 'DRAFT';
-                badgeClasses = 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20';
+                badgeClasses = 'bg-orange-500/10 text-orange-500 border border-orange-500/20';
                 badgeDotClasses = 'bg-orange-500';
               }
 
@@ -1270,7 +1270,7 @@ export function EventsTab({
                           setParticipantSearch('');
                           setIsEnrollDrawerOpen(true);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold border border-indigo-600 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold border border-indigo-500 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
                         <span>Add Participants</span>
@@ -1314,7 +1314,7 @@ export function EventsTab({
                         }}
                         className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
-                        <Gavel className="w-3.5 h-3.5 text-amber-500" />
+                        <Gavel className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                         <span>Judges {String(judgeCount).padStart(2, '0')}</span>
                       </button>
                     )}
@@ -1584,7 +1584,7 @@ export function EventsTab({
               <button
                 type="button"
                 onClick={() => setIsEnrollDrawerOpen(!isEnrollDrawerOpen)}
-                className="min-h-[38px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                className="min-h-[38px] px-3.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 <span>Enroll</span>
@@ -1596,8 +1596,8 @@ export function EventsTab({
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
             {/* Event Live / Sealed Banner */}
             {activeParticipantsModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+              <div className="p-3 rounded-xl bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20 text-green-500 text-xs font-medium flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-ping shrink-0" />
                 <span>
                   Event is Live: You can add new participants while the competition continues. Participant removals are locked.
                 </span>
@@ -1668,7 +1668,7 @@ export function EventsTab({
                           <button
                             type="button"
                             onClick={() => handleEnrollParticipantToEvent(p.id)}
-                            className="min-h-[30px] px-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                            className="min-h-[30px] px-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 cursor-pointer shrink-0"
                           >
                             + Add
                           </button>
@@ -1728,7 +1728,7 @@ export function EventsTab({
                   <>
                     {/* Active Lockout Notice */}
                     {isLiveLocked ? (
-                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-500 text-xs font-semibold">
                         <Lock className="w-4 h-4 shrink-0" />
                         <span>Performance Lineup Locked — Order cannot be changed while event is live.</span>
                       </div>
@@ -1816,7 +1816,7 @@ export function EventsTab({
                                   {p.name}
                                 </span>
                                 {/* Global Identity ID badge */}
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shrink-0">
                                   {p.identity_id || `P-${p.sl_no || '0000'}`}
                                 </span>
                               </div>
@@ -1922,8 +1922,8 @@ export function EventsTab({
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
             {/* Event Live / Sealed Warning */}
             {activeJudgesModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
+              <div className="p-3 rounded-xl bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 text-orange-500 text-xs font-medium flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-orange-500 shrink-0" />
                 <span>
                   Event is Live: Jury assignments are locked to ensure score ballot integrity.
                 </span>
@@ -2303,7 +2303,7 @@ export function EventsTab({
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       Delete Ended Event
                     </h3>
-                    <p className="text-xs text-amber-500 font-mono">
+                    <p className="text-xs text-orange-500 font-mono">
                       Master Password Required
                     </p>
                   </div>
