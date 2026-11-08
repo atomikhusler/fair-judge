@@ -1380,8 +1380,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               }}
               className={`hidden md:flex items-center gap-2 h-11 px-4 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer whitespace-nowrap shrink-0 ${
                 activeSubTab === 'participants'
-                  ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-900/20'
-                  : 'bg-amber-600 hover:bg-amber-500 shadow-amber-900/20'
+                  ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20'
+                  : 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-900/20'
               }`}
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -1403,7 +1403,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
               }`}
             >
-              <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              <Users className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Participants ({participants.length})</span>
             </button>
 
@@ -1435,7 +1435,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 onClick={handleDownloadTemplate}
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-stone-600 dark:text-zinc-400 bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
               >
-                <Download className="w-3.5 h-3.5 text-blue-500" />
+                <Download className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                 <span>Download Template</span>
               </button>
             </div>
@@ -1445,13 +1445,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               <button
                 type="button"
                 onClick={handleExportParticipantsExcel}
-                className="min-h-[42px] px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-blue-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer"
+                className="min-h-[42px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Export Excel</span>
               </button>
 
-              <label className="min-h-[42px] px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-blue-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer">
+              <label className="min-h-[42px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer">
                 <Upload className="w-4 h-4 stroke-[2.2]" />
                 <span>Import Excel</span>
                 <input
@@ -1479,9 +1479,9 @@ export function PeopleTab({ organization }: PeopleTabProps) {
         <div className="mt-3.5 space-y-3.5">
           {/* First-Time Setup Prompt: Categorization Preference */}
           {activeSubTab === 'participants' && showCategoryPrompt && (
-            <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+            <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
               <div className="flex items-center space-x-3">
-                <Sparkles className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                 <div>
                   <h4 className="text-xs font-bold text-zinc-900 dark:text-white">
                     Setup Participant Categorization
@@ -1495,7 +1495,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 <button
                   type="button"
                   onClick={() => handleSelectCategoryPreference('Class/Grade')}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
                 >
                   By Class / Grade
                 </button>
@@ -1515,14 +1515,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <div
               className={`p-3.5 rounded-2xl flex items-center space-x-2.5 text-xs font-semibold ${
                 uploadNotice.type === 'success'
-                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                  : 'bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/20'
+                  ? 'bg-green-500/10 text-green-500 border border-green-500/20'
+                  : 'bg-red-500/10 text-red-500 border border-red-500/20'
               }`}
             >
               {uploadNotice.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-green-500" />
               ) : (
-                <AlertCircle className="w-4 h-4 shrink-0" />
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
               )}
               <span>{uploadNotice.msg}</span>
             </div>
@@ -1541,7 +1541,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   className="w-full min-h-[42px] px-3.5 py-2 flex items-center justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/50 transition-all cursor-pointer"
                 >
                   <div className="flex items-center space-x-2">
-                    <Sliders className="w-3.5 h-3.5 text-blue-500" />
+                    <Sliders className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>Columns & Categorization</span>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 text-zinc-500 font-semibold">
                       {3 + customFields.length} Active
@@ -1585,7 +1585,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                       {customFields.map((cf) => (
                         <span
                           key={cf.id}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-400 font-semibold"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-400 font-semibold"
                         >
                           <span>{cf.name}</span>
                           <button
@@ -1855,7 +1855,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           }}
           className={`md:hidden fixed bottom-24 right-6 z-50 w-14 h-14 text-white rounded-2xl shadow-xl flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer ${
             activeSubTab === 'participants'
-              ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
+              ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
               : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30'
           }`}
           title={activeSubTab === 'participants' ? 'Add Competitor' : 'Add Judge'}
@@ -2138,7 +2138,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <button
               type="button"
               onClick={handleSaveParticipant}
-              className="min-h-[36px] px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
+              className="min-h-[36px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Save</span>
@@ -2149,8 +2149,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-blue-600 dark:text-blue-400 tracking-wider uppercase block">
-                Full Name <span className="text-blue-500">*</span>
+              <label className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 tracking-wider uppercase block">
+                Full Name <span className="text-indigo-500">*</span>
               </label>
               <input
                 type="text"
@@ -2167,14 +2167,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               {/* Field: School / Institution (Mandatory) */}
               <div>
                 <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                  School / Institution <span className="text-blue-500">*</span>
+                  School / Institution <span className="text-indigo-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={participantForm.school}
                   onChange={(e) => setParticipantForm({ ...participantForm, school: e.target.value })}
                   placeholder="e.g. Modern High School, DPS, Team Alpha"
-                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                 />
               </div>
 
@@ -2189,7 +2189,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     value={participantForm.class_or_age}
                     onChange={(e) => setParticipantForm({ ...participantForm, class_or_age: e.target.value })}
                     placeholder={categoryLabel.toLowerCase().includes('age') ? '14-16 Yrs' : 'Grade 10'}
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                 </div>
 
@@ -2202,7 +2202,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     value={participantForm.mobile_number}
                     onChange={(e) => setParticipantForm({ ...participantForm, mobile_number: e.target.value })}
                     placeholder="9876543210"
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                 </div>
               </div>
@@ -2211,7 +2211,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               {customFields.map((cf) => (
                 <div key={cf.id}>
                   <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                    {cf.name} {cf.required && <span className="text-blue-500">*</span>}
+                    {cf.name} {cf.required && <span className="text-indigo-500">*</span>}
                   </label>
                   <input
                     type={cf.type || 'text'}
@@ -2225,7 +2225,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         },
                       })
                     }
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                 </div>
               ))}
