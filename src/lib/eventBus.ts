@@ -96,3 +96,44 @@ class EventBus {
 }
 
 export const eventBus = new EventBus();
+
+/**
+ * Fast content-based equality check for arrays of records.
+ * Compares primitive values directly and JSON-compares nested objects/arrays.
+ * Returns true if both arrays have identical content.
+ * Intentionally does NOT rely on updated_at since only events have it.
+ */
+export function areRecordsEqual<T extends Record<string, any>>(prev: T[], next: T[]): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev.length !== next.length) return false;
+
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    if (a === b) continue;
+    if (!a || !b) return false;
+
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+
+    for (const key of keysA) {
+      const valA = a[key];
+      const valB = b[key];
+      if (valA === valB) continue;
+      if (valA === null || valA === undefined || valB === null || valB === undefined) {
+        return false;
+      }
+      if (typeof valA === 'object' && typeof valB === 'object') {
+        if (JSON.stringify(valA) !== JSON.stringify(valB)) {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}

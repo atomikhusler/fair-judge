@@ -31,6 +31,7 @@ export interface PendingMutationRecord {
   queuedAt: string;
   syncStatus: 'pending' | 'syncing' | 'failed';
   retryCount: number;
+  lastError?: string;
 }
 
 interface FairJudgeOfflineDB extends DBSchema {
@@ -152,7 +153,8 @@ export async function removePendingMutation(id: string): Promise<void> {
 export async function getPendingMutationsCount(): Promise<number> {
   try {
     const db = await getOfflineDB();
-    return await db.count('pending_mutations');
+    const all = await db.getAll('pending_mutations');
+    return all.filter((m) => m.syncStatus !== 'failed').length;
   } catch {
     return 0;
   }
@@ -170,7 +172,7 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
     return { syncedCount: 0, failedCount: 0 };
   }
 
-  const rawMutations = await getPendingMutations();
+  const rawMutations = (await getPendingMutations()).filter((m) => m.syncStatus !== 'failed');
   if (rawMutations.length === 0) {
     return { syncedCount: 0, failedCount: 0 };
   }
@@ -183,15 +185,27 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
   // Sort chronological
   rawMutations.sort((a, b) => new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime());
 
+  const db = await getOfflineDB();
+
   for (const item of rawMutations) {
     const key = `${item.table}:${item.entityId}`;
     if (latestMutationMap.has(key)) {
       const prev = latestMutationMap.get(key)!;
-      // If previous was an INSERT and current is UPDATE, merge payloads into INSERT
+      // If previous was an INSERT and current is UPDATE, merge payloads into INSERT and persist BEFORE pruning
       if (prev.operation === 'INSERT' && item.operation === 'UPDATE') {
         prev.payload = { ...(prev.payload || {}), ...(item.payload || {}) };
         prev.queuedAt = item.queuedAt;
+        await db.put('pending_mutations', prev);
         obsoleteMutationIds.push(item.id);
+        continue;
+      }
+      // If previous was UPDATE and current is UPDATE, shallow merge into NEWEST record and persist BEFORE pruning
+      if (prev.operation === 'UPDATE' && item.operation === 'UPDATE') {
+        item.payload = { ...(prev.payload || {}), ...(item.payload || {}) };
+        // item.queuedAt is already the latest
+        await db.put('pending_mutations', item);
+        obsoleteMutationIds.push(prev.id);
+        latestMutationMap.set(key, item);
         continue;
       }
       // If superseded, prune previous
@@ -205,7 +219,7 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
     await Promise.all(obsoleteMutationIds.map((id) => removePendingMutation(id)));
   }
 
-  const mutations = Array.from(latestMutationMap.values());
+  const mutations = Array.from(latestMutationMap.values()).filter((m) => m.syncStatus !== 'failed');
   let syncedCount = 0;
   let failedCount = 0;
 
@@ -258,7 +272,73 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
       await removePendingMutation(item.id);
       syncedCount++;
     } catch (err: any) {
-      console.warn(`Retryable error syncing offline mutation ${item.id} (${item.table}):`, err?.message || err);
+      console.warn(`Error syncing offline mutation ${item.id} (${item.table}):`, err?.message || err);
+
+      const isRosterLocked = Boolean(
+        err?.message?.includes('ROSTER_LOCKED') ||
+        (err?.details && String(err.details).includes('ROSTER_LOCKED'))
+      );
+      const isRls = Boolean(
+        err?.code === '42501' ||
+        err?.message?.toLowerCase().includes('row-level security') ||
+        err?.message?.toLowerCase().includes('permission denied')
+      );
+      const isServerReturned = Boolean(err?.code || isRosterLocked || isRls);
+
+      // On ROSTER_LOCKED: retry once with assigned_participants, assigned_judges and participant_sl_numbers stripped
+      if (isRosterLocked && item.table === 'events' && item.operation === 'UPDATE' && item.payload) {
+        const fullPayload = { ...(item.payload || {}) };
+        const rosterPayload: Record<string, any> = {};
+        const nonRosterPayload: Record<string, any> = {};
+
+        for (const [k, v] of Object.entries(fullPayload)) {
+          if (k === 'assigned_participants' || k === 'assigned_judges' || k === 'participant_sl_numbers') {
+            rosterPayload[k] = v;
+          } else {
+            nonRosterPayload[k] = v;
+          }
+        }
+
+        // Retry the non-roster part (e.g. status changes, timer updates) once
+        if (Object.keys(nonRosterPayload).length > 0) {
+          try {
+            const { error: retryErr } = await supabase
+              .from('events')
+              .update(nonRosterPayload)
+              .eq('id', item.entityId);
+
+            if (!retryErr) {
+              syncedCount++;
+            }
+          } catch (retryEx) {
+            console.warn('Retry with stripped non-roster fields also failed:', retryEx);
+          }
+        }
+
+        // Mark only the roster part failed
+        item.payload = rosterPayload;
+        item.syncStatus = 'failed';
+        item.lastError = 'ROSTER_LOCKED: Roster modifications rejected because event is locked.';
+        await db.put('pending_mutations', item);
+        failedCount++;
+        continue;
+      }
+
+      // If pure network error (no server error code or explicit rejection), do NOT count a strike
+      if (!isServerReturned) {
+        failedCount++;
+        continue;
+      }
+
+      // Count a strike for server-returned errors
+      item.retryCount = (item.retryCount || 0) + 1;
+      item.lastError = err?.message || 'Server rejected mutation';
+
+      if (item.retryCount >= 3 || isRls) {
+        item.syncStatus = 'failed';
+      }
+
+      await db.put('pending_mutations', item);
       failedCount++;
     }
   }
@@ -343,18 +423,55 @@ export async function removePendingScore(scoreId: string): Promise<void> {
   }
 }
 
-// Total pending items count (both mutations & scores)
+// Total pending items count (both mutations & scores, excluding failed items)
 export async function getPendingCount(): Promise<number> {
   try {
     const db = await getOfflineDB();
-    const [scoreCount, mutationCount] = await Promise.all([
-      db.count('pending_scores'),
-      db.count('pending_mutations'),
+    const [allScores, allMutations] = await Promise.all([
+      db.getAll('pending_scores'),
+      db.getAll('pending_mutations'),
     ]);
-    return scoreCount + mutationCount;
+    const pendingScores = allScores.filter((s) => s.syncStatus !== 'failed').length;
+    const pendingMutations = allMutations.filter((m) => m.syncStatus !== 'failed').length;
+    return pendingScores + pendingMutations;
   } catch {
     return 0;
   }
+}
+
+// Get all permanently or capped failed mutations for alerts popover
+export async function getFailedMutations(): Promise<PendingMutationRecord[]> {
+  try {
+    const db = await getOfflineDB();
+    const all = await db.getAll('pending_mutations');
+    return all.filter((m) => m.syncStatus === 'failed');
+  } catch {
+    return [];
+  }
+}
+
+// Retry a failed mutation manually from UI
+export async function retryFailedMutation(id: string): Promise<void> {
+  try {
+    const db = await getOfflineDB();
+    const item = await db.get('pending_mutations', id);
+    if (item) {
+      item.syncStatus = 'pending';
+      item.retryCount = 0;
+      delete item.lastError;
+      await db.put('pending_mutations', item);
+      notifyQueueChange();
+      requestBackgroundSync();
+      flushOfflineQueueToSupabase();
+    }
+  } catch (err) {
+    console.warn('Error retrying failed mutation:', err);
+  }
+}
+
+// Discard a failed mutation manually from UI
+export async function discardFailedMutation(id: string): Promise<void> {
+  await removePendingMutation(id);
 }
 
 // Sync all pending scores and mutations to Supabase with OCC Deduplication & Batched Upsert
@@ -560,6 +677,18 @@ export async function exportDiagnosticLog(): Promise<Record<string, any>> {
     getPendingMutations().catch(() => []),
   ]);
 
+  // Redact payloads to protect participant and scoring data in diagnostic exports
+  const redactedScores = scores.map((s) => ({
+    ...s,
+    score_data: '[REDACTED]',
+    score_payload: '[REDACTED]',
+  }));
+
+  const redactedMutations = mutations.map((m) => ({
+    ...m,
+    payload: m.payload ? '[REDACTED]' : null,
+  }));
+
   let storagePersisted: boolean | null = null;
   try {
     if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persisted) {
@@ -578,8 +707,8 @@ export async function exportDiagnosticLog(): Promise<Record<string, any>> {
       totalPendingMutations: mutations.length,
       isQueueHealthy: scores.length === 0 && mutations.length === 0,
     },
-    pendingScores: scores,
-    pendingMutations: mutations,
+    pendingScores: redactedScores,
+    pendingMutations: redactedMutations,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
   };
 }

@@ -31,7 +31,7 @@ import {
   SupabaseScore 
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
-import { eventBus } from '../../../lib/eventBus';
+import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 
 interface InsightsTabProps {
   organization: Organization;
@@ -78,16 +78,28 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     const unsubBus = eventBus.on('cache_updated', (payload) => {
       const table = payload?.table;
       if (!table || table === 'events' || table === 'all') {
-        setEvents(dbService.getCachedEvents(organization.org_id));
+        setEvents((prev) => {
+          const next = dbService.getCachedEvents(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'judges' || table === 'all') {
-        setJudges(dbService.getCachedJudges(organization.org_id));
+        setJudges((prev) => {
+          const next = dbService.getCachedJudges(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'participants' || table === 'all') {
-        setParticipants(dbService.getCachedParticipants(organization.org_id));
+        setParticipants((prev) => {
+          const next = dbService.getCachedParticipants(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'scores' || table === 'all') {
-        setAllScores(dbService.getCachedScores());
+        setAllScores((prev) => {
+          const next = dbService.getCachedScores();
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
     });
 

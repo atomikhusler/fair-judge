@@ -194,17 +194,19 @@
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
+  0%, 100% {
+    opacity: 0.7;
+    filter: brightness(0.95);
   }
-  100% {
-    background-position: 200% 0;
+  50% {
+    opacity: 1;
+    filter: brightness(1.25);
   }
 }
 
 .animate-shimmer {
-  background-size: 200% auto;
-  animation: shimmer 6s linear infinite;
+  animation: shimmer 4s ease-in-out infinite;
+  will-change: opacity, filter;
 }
 
 @keyframes flipY {

@@ -41,6 +41,7 @@ export interface SupabaseEvent {
   category?: string;
   date?: string;
   status: EventStatus;
+  is_locked?: boolean; // Roster Lock flag (Epic 15.2)
   is_archived?: boolean; // Inbox Zero Archive flag (Phase 13.9)
   started_at?: string | null; // ISO timestamp when session was started
   elapsed_seconds?: number; // total accumulated seconds

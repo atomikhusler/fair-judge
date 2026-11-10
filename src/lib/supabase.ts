@@ -350,6 +350,7 @@ function normalizeEvent(e: any): SupabaseEvent {
   return {
     ...e,
     status: (e.status?.toLowerCase() as EventStatus) || 'draft',
+    is_locked: Boolean(e.is_locked),
     is_archived: Boolean(e.is_archived),
     rubric_schema: schema,
     rubric: schema,
@@ -971,6 +972,18 @@ export const dbService = {
     const idx = events.findIndex((e) => e.id === eventId);
     const existing = idx !== -1 ? events[idx] : null;
 
+    // PRE-CHECK: If locked and the call touches a roster column without setting is_locked: false, throw typed error BEFORE optimistic write
+    const touchesRoster =
+      updates.assigned_participants !== undefined ||
+      updates.assigned_judges !== undefined ||
+      updates.participant_sl_numbers !== undefined;
+
+    if (existing?.is_locked && updates.is_locked !== false && touchesRoster) {
+      const err = new Error(`ROSTER_LOCKED: Cannot modify roster on locked event "${existing.name}". Unlock event first.`);
+      (err as any).code = 'ROSTER_LOCKED';
+      throw err;
+    }
+
     const updated: SupabaseEvent = normalizeEvent({
       ...(existing || {}),
       ...updates,
@@ -1020,6 +1033,30 @@ export const dbService = {
           notifyCloudSync('Event');
         }
       } catch (err: any) {
+        const isRosterLocked = Boolean(
+          err?.code === 'ROSTER_LOCKED' ||
+          err?.message?.includes('ROSTER_LOCKED') ||
+          (err?.details && String(err.details).includes('ROSTER_LOCKED'))
+        );
+        const isServerReturned = Boolean(err?.code || isRosterLocked);
+
+        // If ROSTER_LOCKED or any server-returned error: roll cache back, refetch events and rethrow
+        if (isServerReturned) {
+          const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+          if (existing) {
+            const rollbackList = currentEvents.map((e) => (e.id === eventId ? existing : e));
+            saveCache(STORAGE_KEYS.EVENTS, rollbackList, false);
+          } else {
+            const rollbackList = currentEvents.filter((e) => e.id !== eventId);
+            saveCache(STORAGE_KEYS.EVENTS, rollbackList, false);
+          }
+          if (updated.org_id) {
+            this.getEvents(updated.org_id, true).catch(() => {});
+          }
+          throw err;
+        }
+
+        // Queue ONLY network errors
         console.warn('Offline mode: event update saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('events', 'UPDATE', eventId, dbUpdates);
         notifyOfflineSaved('Event');
@@ -1284,6 +1321,17 @@ export const dbService = {
   },
 
   async deleteJudge(judgeId: string): Promise<void> {
+    // PRE-FLIGHT LOCK CHECK: Check ALL events before any mutation
+    const allEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+    const lockedEvent = allEvents.find(
+      (e) => e.is_locked && (e.assigned_judges || []).some((j) => j === judgeId)
+    );
+    if (lockedEvent) {
+      const err = new Error(`ROSTER_LOCKED: Cannot delete judge. Assigned to locked event "${lockedEvent.name}". Unlock event first.`);
+      (err as any).code = 'ROSTER_LOCKED';
+      throw err;
+    }
+
     const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
     const target = judges.find((j) => j.id === judgeId || j.judge_id === judgeId);
     const remaining = judges.filter((j) => j.id !== judgeId && j.judge_id !== judgeId);
@@ -1702,6 +1750,17 @@ export const dbService = {
   },
 
   async deleteParticipant(participantId: string, forceOverrideActive: boolean = false): Promise<void> {
+    // PRE-FLIGHT LOCK CHECK: Check ALL events before any mutation or forceOverrideActive branch
+    const allEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+    const lockedEvent = allEvents.find(
+      (e) => e.is_locked && (e.assigned_participants || []).includes(participantId)
+    );
+    if (lockedEvent) {
+      const err = new Error(`ROSTER_LOCKED: Cannot delete participant. Enrolled in locked event "${lockedEvent.name}". Unlock event first.`);
+      (err as any).code = 'ROSTER_LOCKED';
+      throw err;
+    }
+
     const safety = await this.checkParticipantDeletion(participantId);
 
     if (safety.tier === 'blocked') {

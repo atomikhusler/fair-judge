@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   ArrowLeft, 
   ChevronLeft, 
@@ -243,36 +243,128 @@ export function ScoringPanel({
     return true; // Permanently locked if no grace period or grace period expired
   }, [existingScore, isGracePeriod, isWithinGracePeriod]);
 
-  // On participant change in scoring mode, load their score or reset to null
+  // Score Draft Engine: Key includes eventId, judgeId and participantId; v1; 24h TTL
+  const lastLoadedParticipantIdRef = useRef<string | null>(null);
+  const isDirtyRef = useRef<boolean>(false);
+
+  const getScoreDraftKey = useCallback(
+    (participantId: string) => `fj_draft_score_${event.id}_${judge.id}_${participantId}`,
+    [event.id, judge.id]
+  );
+
+  const loadScoreDraft = useCallback(
+    (participantId: string): Record<string, number | null> | null => {
+      try {
+        const raw = localStorage.getItem(getScoreDraftKey(participantId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed.version === 1 && Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
+          return parsed.scoresMap;
+        }
+      } catch {}
+      return null;
+    },
+    [getScoreDraftKey]
+  );
+
+  const clearScoreDraft = useCallback(
+    (participantId: string) => {
+      try {
+        localStorage.removeItem(getScoreDraftKey(participantId));
+      } catch {}
+    },
+    [getScoreDraftKey]
+  );
+
+  // Debounced auto-save score draft
+  useEffect(() => {
+    if (!currentParticipant || !isDirtyRef.current) return;
+    const key = getScoreDraftKey(currentParticipant.id);
+    const timer = setTimeout(() => {
+      try {
+        const hasAnyScore = Object.values(scoresMap).some((v) => v !== null && v !== undefined);
+        if (hasAnyScore) {
+          const draft = {
+            version: 1,
+            eventId: event.id,
+            judgeId: judge.id,
+            participantId: currentParticipant.id,
+            scoresMap,
+            timestamp: Date.now(),
+          };
+          localStorage.setItem(key, JSON.stringify(draft));
+        }
+      } catch {}
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [scoresMap, currentParticipant?.id, event.id, judge.id, getScoreDraftKey]);
+
+  // On participant change in scoring mode, load their score or reset to null with cancelled flag
   useEffect(() => {
     if (!currentParticipant) return;
+    let isCancelled = false;
+    const participantId = currentParticipant.id;
+    const isParticipantChanged = lastLoadedParticipantIdRef.current !== participantId;
 
     dbService
-      .getScoreForJudgeParticipant(event.id, judge.id, currentParticipant.id)
+      .getScoreForJudgeParticipant(event.id, judge.id, participantId)
       .then((score) => {
+        if (isCancelled) return;
         setExistingScore(score);
+
         if (score) {
           const filled: Record<string, number | null> = {};
           rubricList.forEach((c) => {
-            filled[c.id] = (score.score_data && score.score_data[c.id] !== undefined)
-              ? score.score_data[c.id]
-              : score.score_payload?.criteria?.[c.id] ?? 0;
+            filled[c.id] =
+              score.score_data && score.score_data[c.id] !== undefined
+                ? score.score_data[c.id]
+                : score.score_payload?.criteria?.[c.id] ?? 0;
           });
           setScoresMap(filled);
+          isDirtyRef.current = false;
+          lastLoadedParticipantIdRef.current = participantId;
         } else {
-          const fresh: Record<string, number | null> = {};
-          rubricList.forEach((c) => {
-            fresh[c.id] = null;
-          });
-          setScoresMap(fresh);
+          // If sliders are dirty and participant has not changed, skip reset entirely!
+          if (!isParticipantChanged && isDirtyRef.current) {
+            return;
+          }
+
+          // Reset sliders only when participant id actually changes
+          if (isParticipantChanged) {
+            const draft = loadScoreDraft(participantId);
+            if (draft && event.status !== 'ended') {
+              setScoresMap(draft);
+              isDirtyRef.current = true;
+            } else {
+              const fresh: Record<string, number | null> = {};
+              rubricList.forEach((c) => {
+                fresh[c.id] = null;
+              });
+              setScoresMap(fresh);
+              isDirtyRef.current = false;
+            }
+            lastLoadedParticipantIdRef.current = participantId;
+          } else {
+            // Same participant, not dirty: check if draft exists or maintain fresh
+            const draft = loadScoreDraft(participantId);
+            if (draft && event.status !== 'ended') {
+              setScoresMap(draft);
+            }
+          }
         }
       });
-  }, [currentIndex, currentParticipant?.id, event.id, judge.id]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentParticipant?.id, event.id, judge.id, event.status, loadScoreDraft, rubricList]);
 
   // Handle score changes with granular haptics
   const handleScoreChange = (criterionId: string, val: number) => {
     if (areSlidersDisabled) return;
     triggerHaptic('tick');
+    isDirtyRef.current = true;
     setScoresMap((prev) => ({
       ...prev,
       [criterionId]: val,
@@ -422,6 +514,9 @@ export function ScoringPanel({
         return [...without, committed];
       });
 
+      clearScoreDraft(participantSnapshot.id);
+      isDirtyRef.current = false;
+
       // Network resolved -> transition to Recorded checkmark & hold screen perfectly still for 600ms (The Beat)
       setIsSubmitting(false);
       setIsSubmittedBeat(true);
@@ -461,6 +556,9 @@ export function ScoringPanel({
         const without = prev.filter((s) => s.participant_id !== participantSnapshot.id);
         return [...without, offlineCommit];
       });
+
+      clearScoreDraft(participantSnapshot.id);
+      isDirtyRef.current = false;
 
       setIsSubmitting(false);
       setIsSubmittedBeat(true);

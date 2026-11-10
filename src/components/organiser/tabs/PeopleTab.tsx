@@ -35,7 +35,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { dbService, subscribeToDatabase, generateUUID } from '../../../lib/supabase';
-import { eventBus } from '../../../lib/eventBus';
+import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { useToast } from '../../common/ToastProvider';
 import { 
   Organization, 
@@ -320,18 +320,33 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     setCustomFields(organization.custom_participant_fields || []);
   }, [organization.custom_participant_fields]);
 
+  // Temporary Mount Log to observe component lifecycle
+  useEffect(() => {
+    console.log('[DEBUG-MOUNT] PeopleTab mounted at', Date.now());
+    return () => console.log('[DEBUG-UNMOUNT] PeopleTab unmounted at', Date.now());
+  }, []);
+
   // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
   useEffect(() => {
     const unsubBus = eventBus.on('cache_updated', (payload) => {
       const table = payload?.table;
       if (!table || table === 'participants' || table === 'all') {
-        setParticipants(dbService.getCachedParticipants(organization.org_id));
+        setParticipants((prev) => {
+          const next = dbService.getCachedParticipants(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'judges' || table === 'all') {
-        setJudges(dbService.getCachedJudges(organization.org_id));
+        setJudges((prev) => {
+          const next = dbService.getCachedJudges(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'events' || table === 'all') {
-        setEvents(dbService.getCachedEvents(organization.org_id));
+        setEvents((prev) => {
+          const next = dbService.getCachedEvents(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
     });
 
@@ -760,17 +775,69 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   };
 
   // ========================================================
-  // MANUAL PARTICIPANT ACTIONS (Add / Edit / Delete)
+  // MANUAL PARTICIPANT ACTIONS (Add / Edit / Delete) & DRAFTS
   // ========================================================
+  const participantDraftKey = `fj_draft_participant_${organization.org_id}`;
+
+  const loadParticipantDraft = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(participantDraftKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed.version === 1 && Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
+        return parsed.form;
+      }
+    } catch {}
+    return null;
+  }, [participantDraftKey]);
+
+  const clearParticipantDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(participantDraftKey);
+    } catch {}
+  }, [participantDraftKey]);
+
+  // Debounced auto-save participant draft when adding
+  useEffect(() => {
+    if (!showParticipantModal || editingParticipant) return;
+    const isDirty = Boolean(
+      participantForm.name.trim() ||
+      participantForm.school.trim() ||
+      participantForm.class_or_age.trim() ||
+      participantForm.mobile_number.trim()
+    );
+    if (!isDirty) return;
+
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          participantDraftKey,
+          JSON.stringify({
+            version: 1,
+            form: participantForm,
+            timestamp: Date.now(),
+          })
+        );
+      } catch {}
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [showParticipantModal, editingParticipant, participantForm, participantDraftKey]);
+
   const handleOpenAddParticipant = () => {
     setEditingParticipant(null);
-    setParticipantForm({
-      name: '',
-      school: '',
-      class_or_age: '',
-      mobile_number: '',
-      custom_values: {},
-    });
+    const draft = loadParticipantDraft();
+    if (draft) {
+      setParticipantForm(draft);
+    } else {
+      setParticipantForm({
+        name: '',
+        school: '',
+        class_or_age: '',
+        mobile_number: '',
+        custom_values: {},
+      });
+    }
     setShowParticipantModal(true);
   };
 
@@ -813,6 +880,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           mobile_number: participantForm.mobile_number.trim(),
           custom_values: participantForm.custom_values,
         });
+        clearParticipantDraft();
       }
       setShowParticipantModal(false);
       await loadData();

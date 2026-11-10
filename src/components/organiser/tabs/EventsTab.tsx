@@ -39,7 +39,7 @@ import {
   RubricCriterion 
 } from '../../../lib/supabaseTypes';
 import { dbService, generateUUID, subscribeToDatabase } from '../../../lib/supabase';
-import { eventBus } from '../../../lib/eventBus';
+import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { useToast } from '../../common/ToastProvider';
 
 interface EventsTabProps {
@@ -256,6 +256,12 @@ export function EventsTab({
   );
 
 
+  // Temporary Mount Log to observe component lifecycle
+  useEffect(() => {
+    console.log('[DEBUG-MOUNT] EventsTab mounted at', Date.now());
+    return () => console.log('[DEBUG-UNMOUNT] EventsTab unmounted at', Date.now());
+  }, []);
+
   // ========================================================
   // 4. EVENT-DRIVEN SYNC (Pure EventBus with Zero-Flash Hydration)
   // ========================================================
@@ -263,13 +269,22 @@ export function EventsTab({
     const unsubBus = eventBus.on('cache_updated', (payload) => {
       const table = payload?.table;
       if (!table || table === 'events' || table === 'all') {
-        setEvents(dbService.getCachedEvents(organization.org_id));
+        setEvents((prev) => {
+          const next = dbService.getCachedEvents(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'participants' || table === 'all') {
-        setParticipants(dbService.getCachedParticipants(organization.org_id));
+        setParticipants((prev) => {
+          const next = dbService.getCachedParticipants(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'judges' || table === 'all') {
-        setJudges(dbService.getCachedJudges(organization.org_id));
+        setJudges((prev) => {
+          const next = dbService.getCachedJudges(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'scores' || table === 'all') {
         const cachedScores = dbService.getCachedScores();
@@ -277,7 +292,17 @@ export function EventsTab({
         cachedScores.forEach((sc) => {
           scoreCounts[sc.event_id] = (scoreCounts[sc.event_id] || 0) + 1;
         });
-        setScoresMap(scoreCounts);
+        setScoresMap((prev) => {
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(scoreCounts);
+          if (
+            prevKeys.length === nextKeys.length &&
+            prevKeys.every((k) => prev[k] === scoreCounts[k])
+          ) {
+            return prev;
+          }
+          return scoreCounts;
+        });
       }
     });
 
@@ -303,19 +328,25 @@ export function EventsTab({
   }, [organization.org_id]);
   const loadData = refreshFromCache;
 
-  // Draft recovery check
+  // Draft recovery check (strictly skip hydration while editingEventId is set, with 24h TTL)
   const checkForDraft = useCallback((): DraftState | null => {
+    if (editingEventId) return null; // Skip hydration while editing an existing event
     try {
       const saved = localStorage.getItem(draftStorageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as DraftState;
+        // Enforce 24h TTL
+        if (parsed.savedAt && Date.now() - new Date(parsed.savedAt).getTime() > 24 * 3600 * 1000) {
+          localStorage.removeItem(draftStorageKey);
+          return null;
+        }
         if (parsed.name?.trim()) {
           return parsed;
         }
       }
     } catch {}
     return null;
-  }, [draftStorageKey]);
+  }, [draftStorageKey, editingEventId]);
 
   // Auto-save form state to localStorage
   useEffect(() => {

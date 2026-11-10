@@ -260,14 +260,22 @@ export function PublicLeaderboard({
     };
     window.addEventListener('fairjudge_confetti', handleCustomConfetti);
 
-    // Quota-safe background polling every 20 seconds
+    // Quota-safe background polling every 20 seconds; refetch immediately on visible
     const pollInterval = setInterval(() => {
       loadData(true);
     }, 20000);
 
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        loadData(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       unsub();
       window.removeEventListener('fairjudge_confetti', handleCustomConfetti);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(pollInterval);
     };
   }, [loadData, fireConfetti]);
@@ -294,6 +302,11 @@ export function PublicLeaderboard({
     const duration = publicSettings.paginationTimer || 60;
 
     const timer = setInterval(() => {
+      // Pause only the countdown when hidden
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+
       setCarouselCountdown((prev) => {
         if (prev <= 1) {
           // Trigger smooth fade/wipe to next event

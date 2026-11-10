@@ -26,7 +26,656 @@ import {
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
 import { getPendingCount, subscribeToQueueChanges } from '../../../lib/offlineQueue';
-import { eventBus } from '../../../lib/eventBus';
+import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
+
+interface LiveTimerProps {
+  status: EventStatus;
+  startedAt?: string | null;
+  baseElapsedSeconds?: number;
+}
+
+export const LiveTimer = React.memo(function LiveTimer({
+  status,
+  startedAt,
+  baseElapsedSeconds = 0,
+}: LiveTimerProps) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (status !== 'active' || !startedAt) return;
+
+    let intervalId: any = null;
+
+    const startTimer = () => {
+      if (!intervalId) {
+        intervalId = setInterval(() => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            return;
+          }
+          setNow(Date.now());
+        }, 1000);
+      }
+    };
+
+    const stopTimer = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        setNow(Date.now());
+        startTimer();
+      } else {
+        stopTimer();
+      }
+    };
+
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      startTimer();
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopTimer();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [status, startedAt]);
+
+  const totalSeconds = useMemo(() => {
+    const base = Number(baseElapsedSeconds) || 0;
+    if (status === 'upcoming' || status === 'draft' || status === 'ready') {
+      return 0;
+    }
+    if (status === 'active' && startedAt) {
+      const startMs = new Date(startedAt).getTime();
+      if (!isNaN(startMs)) {
+        const liveSec = Math.max(0, Math.floor((now - startMs) / 1000));
+        return base + liveSec;
+      }
+    }
+    return base;
+  }, [status, startedAt, baseElapsedSeconds, now]);
+
+  const formattedTime = useMemo(() => {
+    if (status === 'upcoming' || status === 'draft' || status === 'ready') return '00:00';
+    if (totalSeconds < 0) return '00:00';
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    if (hrs > 0) {
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }, [status, totalSeconds]);
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Clock className="w-3.5 h-3.5 text-stone-400 dark:text-zinc-500 stroke-[2.2]" />
+      <span className="text-sm font-black font-mono tracking-tight text-stone-800 dark:text-zinc-200 tabular-nums whitespace-nowrap">
+        {formattedTime}
+      </span>
+      {status === 'active' && (
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping ml-0.5" />
+      )}
+    </div>
+  );
+});
+
+interface EventCardProps {
+  event: SupabaseEvent;
+  isExpanded: boolean;
+  eventParticipants: SupabaseParticipant[];
+  eventJudgesCount: number;
+  allJudgesCount: number;
+  eventScores: SupabaseScore[];
+  blindJudgingEnabled: boolean;
+  onToggle: (eventId: string) => void;
+  onStart: (event: SupabaseEvent, e: React.MouseEvent) => void;
+  onPause: (event: SupabaseEvent, e: React.MouseEvent) => void;
+  onResume: (event: SupabaseEvent, e: React.MouseEvent) => void;
+  onOpenEndConfirm: (event: SupabaseEvent, e: React.MouseEvent) => void;
+  onOpenPublicView?: (eventId: string) => void;
+}
+
+export const EventCard = React.memo(function EventCard({
+  event,
+  isExpanded,
+  eventParticipants,
+  eventJudgesCount,
+  allJudgesCount,
+  eventScores,
+  blindJudgingEnabled,
+  onToggle,
+  onStart,
+  onPause,
+  onResume,
+  onOpenEndConfirm,
+  onOpenPublicView,
+}: EventCardProps) {
+  // Required judges count
+  const requiredJudgesCount = eventJudgesCount > 0 ? eventJudgesCount : (allJudgesCount > 0 ? allJudgesCount : 1);
+
+  // Sequence calculations
+  const participantStatusList = useMemo(() => {
+    return eventParticipants.map((p) => {
+      const pScores = eventScores.filter((s) => s.participant_id === p.id);
+      const hasPerformed = pScores.length >= requiredJudgesCount;
+      return {
+        participant: p,
+        scoreCount: pScores.length,
+        hasPerformed,
+      };
+    });
+  }, [eventParticipants, eventScores, requiredJudgesCount]);
+
+  const performedCount = useMemo(() => {
+    return participantStatusList.filter((ps) => ps.hasPerformed).length;
+  }, [participantStatusList]);
+
+  const performingIndex = useMemo(() => {
+    return participantStatusList.findIndex((ps) => !ps.hasPerformed);
+  }, [participantStatusList]);
+
+  let performingParticipant: SupabaseParticipant | null = null;
+  let justPerformedParticipant: SupabaseParticipant | null = null;
+  let upNextParticipant: SupabaseParticipant | null = null;
+
+  if (eventParticipants.length > 0) {
+    if (performingIndex === -1) {
+      // All finished
+      justPerformedParticipant = eventParticipants[eventParticipants.length - 1];
+    } else {
+      performingParticipant = eventParticipants[performingIndex];
+      if (performingIndex > 0) {
+        justPerformedParticipant = eventParticipants[performingIndex - 1];
+      }
+      if (performingIndex + 1 < eventParticipants.length) {
+        upNextParticipant = eventParticipants[performingIndex + 1];
+      }
+    }
+  }
+
+  const performingJudgesScored = performingParticipant
+    ? eventScores.filter((s) => s.participant_id === performingParticipant.id).length
+    : 0;
+
+  const justPerformedJudgesScored = justPerformedParticipant
+    ? eventScores.filter((s) => s.participant_id === justPerformedParticipant.id).length
+    : 0;
+
+  // Podium calculations for Ended status
+  const top3Podium = useMemo(() => {
+    const rankedList = eventParticipants.map((p) => {
+      const pScores = eventScores.filter((s) => s.participant_id === p.id);
+      const totalScore = pScores.reduce((sum, s) => sum + (Number(s.total_score) || 0), 0);
+      const avgScore = pScores.length > 0 ? Number((totalScore / pScores.length).toFixed(1)) : 0;
+      return {
+        participant: p,
+        totalScore,
+        avgScore,
+        scoresReceived: pScores.length,
+      };
+    });
+    rankedList.sort((a, b) => b.totalScore - a.totalScore);
+    return rankedList.filter((r) => r.scoresReceived > 0).slice(0, 3);
+  }, [eventParticipants, eventScores]);
+
+  const getParticipantDisplayName = (
+    participant: SupabaseParticipant,
+    evt?: SupabaseEvent
+  ): string => {
+    const isBlind = Boolean(
+      blindJudgingEnabled ||
+      (evt as unknown as { blind_judging_enabled?: boolean })?.blind_judging_enabled
+    );
+    if (isBlind) {
+      return participant.identity_id ? `Participant ${participant.identity_id}` : `Participant #${participant.sl_no}`;
+    }
+    return participant.name;
+  };
+
+  return (
+    <div
+      style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
+      className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:border-stone-300 dark:hover:border-zinc-700"
+    >
+      {/* ---------------- TOP ROW: [CATEGORY] Pill (Left) | [STATUS] Badge (Right) ---------------- */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-700/50 truncate max-w-[160px]">
+          {event.category || 'General'}
+        </span>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {event.status === 'active' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              LIVE
+            </span>
+          )}
+          {event.status === 'paused' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              PAUSED
+            </span>
+          )}
+          {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-stone-400 dark:bg-zinc-500" />
+              UPCOMING
+            </span>
+          )}
+          {(event.status === 'ended' || event.status === 'archived') && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              ENDED
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ---------------- MIDDLE ROW: Bold Event Name (Left) | ChevronDown (Right) ---------------- */}
+      <div
+        onClick={() => onToggle(event.id)}
+        className="mt-2.5 flex items-center justify-between gap-3 cursor-pointer group select-none"
+      >
+        <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-white truncate tracking-tight group-hover:text-stone-700 dark:group-hover:text-zinc-200 transition-colors">
+          {event.name}
+        </h2>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle(event.id);
+          }}
+          className="p-1 rounded-lg text-stone-400 dark:text-zinc-500 group-hover:text-stone-800 dark:group-hover:text-white transition-colors cursor-pointer"
+          aria-label={isExpanded ? 'Collapse event' : 'Expand event'}
+        >
+          <ChevronDown
+            className={`w-4 h-4 stroke-[2.5] transition-transform duration-200 ${
+              isExpanded ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* ---------------- BOTTOM ROW (Action Bar): Timer Clock right next to Actions ---------------- */}
+      <div className="mt-3 pt-3 border-t border-stone-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
+        {/* Compact Timer Clock */}
+        <LiveTimer
+          status={event.status}
+          startedAt={event.started_at}
+          baseElapsedSeconds={event.elapsed_seconds}
+        />
+
+        {/* Action Buttons Right Next to Timer */}
+        <div className="flex items-center gap-1.5">
+          {/* Start Button */}
+          {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
+            <button
+              type="button"
+              onClick={(e) => onStart(event, e)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>Start</span>
+            </button>
+          )}
+
+          {/* Active Controls: Pause & End */}
+          {event.status === 'active' && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => onPause(event, e)}
+                className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Pause className="w-3.5 h-3.5 fill-current" />
+                <span>Pause</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => onOpenEndConfirm(event, e)}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>End</span>
+              </button>
+            </>
+          )}
+
+          {/* Paused Controls: Resume & End */}
+          {event.status === 'paused' && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => onResume(event, e)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Resume</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => onOpenEndConfirm(event, e)}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>End</span>
+              </button>
+            </>
+          )}
+
+          {/* Ended / Sealed Indicator */}
+          {(event.status === 'ended' || event.status === 'archived') && (
+            <span className="text-[11px] font-bold text-stone-400 dark:text-zinc-500 flex items-center gap-1 bg-stone-100 dark:bg-zinc-800/60 px-2.5 py-1 rounded-lg border border-stone-200/50 dark:border-zinc-800">
+              <CheckCircle2 className="w-3 h-3 text-stone-400 dark:text-zinc-500" />
+              <span>Sealed</span>
+            </span>
+          )}
+
+          {/* Optional Public View Button */}
+          {onOpenPublicView && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenPublicView(event.id);
+              }}
+              className="p-1.5 rounded-lg text-stone-400 dark:text-zinc-500 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              title="Open Public Leaderboard"
+              aria-label="Public View"
+            >
+              <Radio className="w-3.5 h-3.5 stroke-[2]" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ======================================================== */}
+      {/* EXPANDED ACCORDION TELEMETRY (Revealed when Tapped)       */}
+      {/* ======================================================== */}
+      {isExpanded && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="mt-3 pt-3 border-t border-stone-200 dark:border-zinc-800 animate-fade-in"
+        >
+          {/* ---------------- 1. UPCOMING STATUS ---------------- */}
+          {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
+            <div className="space-y-2.5">
+              {/* Telemetry Counts */}
+              <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
+                <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
+                  <Users className="w-3.5 h-3.5 text-stone-400" />
+                  Judges: {eventJudgesCount}
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
+                  <Activity className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                  Participants: {eventParticipants.length}
+                </span>
+              </div>
+
+              {/* Muted Guidance Message */}
+              <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center">
+                <p className="text-xs font-semibold text-stone-500 dark:text-zinc-400">
+                  The Event has not been started yet.
+                </p>
+                <p className="text-[11px] text-stone-400 dark:text-zinc-500 mt-0.5">
+                  Click &ldquo;Start&rdquo; above when judges and participants are ready on stage.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ---------------- 2. ACTIVE / PAUSED STATUS (Sequence Tracker) ---------------- */}
+          {(event.status === 'active' || event.status === 'paused') && (
+            <div className="space-y-3">
+              {/* Telemetry Counts */}
+              <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
+                <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
+                  <Users className="w-3.5 h-3.5 text-stone-400" />
+                  Judges: {eventJudgesCount}
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
+                  <Activity className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                  Participants: {performedCount} / {eventParticipants.length}
+                </span>
+              </div>
+
+              {/* Sequence Tracker */}
+              {eventParticipants.length === 0 ? (
+                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs text-stone-500 dark:text-zinc-400">
+                  No participants assigned to this event lineup.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {/* Currently Performing (Highlighted) */}
+                  {performingParticipant ? (
+                    <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 ring-1 ring-amber-500/20">
+                      {/* Top Row */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                          Performing
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-black bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 tabular-nums whitespace-nowrap">
+                          Judges: {performingJudgesScored}/{requiredJudgesCount}
+                        </span>
+                      </div>
+                      {/* Middle Row */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-stone-900 dark:text-white truncate">
+                          {getParticipantDisplayName(performingParticipant, event)}
+                        </span>
+                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 shrink-0">
+                          [ID: {performingParticipant.identity_id || `P-${performingParticipant.sl_no}`}]
+                        </span>
+                      </div>
+                      {/* Bottom Row */}
+                      <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                        <span className="truncate">{performingParticipant.school || 'General / Independent'}</span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
+                          ORDER #{String((event.assigned_participants || []).indexOf(performingParticipant.id) + 1).padStart(2, '0')}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between text-xs font-semibold text-stone-500 dark:text-zinc-400">
+                      <span>All participants have concluded performance.</span>
+                      <span className="text-emerald-500 font-bold">Ledger Complete</span>
+                    </div>
+                  )}
+
+                  {/* Just Performed */}
+                  {justPerformedParticipant && (
+                    <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
+                      {/* Top Row */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Just Performed
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 tabular-nums whitespace-nowrap">
+                          Judges: {justPerformedJudgesScored}/{requiredJudgesCount}
+                        </span>
+                      </div>
+                      {/* Middle Row */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-stone-900 dark:text-white truncate">
+                          {getParticipantDisplayName(justPerformedParticipant, event)}
+                        </span>
+                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
+                          [ID: {justPerformedParticipant.identity_id || `P-${justPerformedParticipant.sl_no}`}]
+                        </span>
+                      </div>
+                      {/* Bottom Row */}
+                      <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                        <span className="truncate">{justPerformedParticipant.school || 'General / Independent'}</span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
+                          ORDER #{String((event.assigned_participants || []).indexOf(justPerformedParticipant.id) + 1).padStart(2, '0')}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Up Next */}
+                  {upNextParticipant && (
+                    <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
+                      {/* Top Row */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-stone-500 dark:text-zinc-400 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
+                          Up Next
+                        </span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500">
+                          Next in Queue
+                        </span>
+                      </div>
+                      {/* Middle Row */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-stone-900 dark:text-white truncate">
+                          {getParticipantDisplayName(upNextParticipant, event)}
+                        </span>
+                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
+                          [ID: {upNextParticipant.identity_id || `P-${upNextParticipant.sl_no}`}]
+                        </span>
+                      </div>
+                      {/* Bottom Row */}
+                      <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                        <span className="truncate">{upNextParticipant.school || 'General / Independent'}</span>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
+                          ORDER #{String((event.assigned_participants || []).indexOf(upNextParticipant.id) + 1).padStart(2, '0')}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ---------------- 3. ENDED STATUS (Top 3 Podium) ---------------- */}
+          {(event.status === 'ended' || event.status === 'archived') && (
+            <div className="space-y-3">
+              {/* Telemetry Counts */}
+              <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
+                <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
+                  <Users className="w-3.5 h-3.5 text-stone-400" />
+                  Judges: {eventJudgesCount}
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
+                  <Activity className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                  Participants: {eventParticipants.length}
+                </span>
+              </div>
+
+              {/* Podium Standings */}
+              {top3Podium.length === 0 ? (
+                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs text-stone-500 dark:text-zinc-400">
+                  No scores were recorded for this session.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                    <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                    Official Podium Results
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {/* 1st Place */}
+                    {top3Podium[0] && (
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-lg">🥇</span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-black text-stone-900 dark:text-white truncate">
+                              <span className="font-mono text-amber-700 dark:text-amber-400 font-bold mr-1">
+                                [ID: {top3Podium[0].participant.identity_id || `P-${top3Podium[0].participant.sl_no}`}]
+                              </span>
+                              <span>{getParticipantDisplayName(top3Podium[0].participant, event)}</span>
+                            </div>
+                            <div className="text-[10px] text-amber-700 dark:text-amber-300 font-bold">
+                              1st Place
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
+                            {top3Podium[0].totalScore}
+                          </div>
+                          <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
+                            pts
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 2nd Place */}
+                    {top3Podium[1] && (
+                      <div className="p-2.5 rounded-xl bg-stone-100/80 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-700/80 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-lg">🥈</span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-black text-stone-900 dark:text-white truncate">
+                              <span className="font-mono text-stone-500 dark:text-zinc-400 font-bold mr-1">
+                                [ID: {top3Podium[1].participant.identity_id || `P-${top3Podium[1].participant.sl_no}`}]
+                              </span>
+                              <span>{getParticipantDisplayName(top3Podium[1].participant, event)}</span>
+                            </div>
+                            <div className="text-[10px] text-stone-500 dark:text-zinc-400 font-bold">
+                              2nd Place
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
+                            {top3Podium[1].totalScore}
+                          </div>
+                          <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
+                            pts
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3rd Place */}
+                    {top3Podium[2] && (
+                      <div className="p-2.5 rounded-xl bg-amber-900/10 dark:bg-amber-950/30 border border-amber-900/20 dark:border-amber-900/40 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-lg">🥉</span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-black text-stone-900 dark:text-white truncate">
+                              <span className="font-mono text-amber-800 dark:text-amber-400 font-bold mr-1">
+                                [ID: {top3Podium[2].participant.identity_id || `P-${top3Podium[2].participant.sl_no}`}]
+                              </span>
+                              <span>{getParticipantDisplayName(top3Podium[2].participant, event)}</span>
+                            </div>
+                            <div className="text-[10px] text-amber-800 dark:text-amber-400 font-bold">
+                              3rd Place
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
+                            {top3Podium[2].totalScore}
+                          </div>
+                          <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
+                            pts
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
 
 interface LiveTabProps {
   organization: Organization;
@@ -58,10 +707,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   // 3. Accordion Expanded Card State (Single expandedCardId or null)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
 
-  // 4. Live Tick for Dynamic Timers
-  const [, setTick] = useState<number>(Date.now());
-
-  // 5. Double-Confirmation Modal State for Ending Session
+  // 4. Double-Confirmation Modal State for Ending Session
   const [confirmingEvent, setConfirmingEvent] = useState<SupabaseEvent | null>(null);
 
   // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
@@ -69,16 +715,28 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     const unsubBus = eventBus.on('cache_updated', (payload) => {
       const table = payload?.table;
       if (!table || table === 'events' || table === 'all') {
-        setEvents(dbService.getCachedEvents(organization.org_id));
+        setEvents((prev) => {
+          const next = dbService.getCachedEvents(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'participants' || table === 'all') {
-        setAllParticipants(dbService.getCachedParticipants(organization.org_id));
+        setAllParticipants((prev) => {
+          const next = dbService.getCachedParticipants(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'judges' || table === 'all') {
-        setJudges(dbService.getCachedJudges(organization.org_id));
+        setJudges((prev) => {
+          const next = dbService.getCachedJudges(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
       if (!table || table === 'scores' || table === 'all') {
-        setAllScores(dbService.getCachedScores());
+        setAllScores((prev) => {
+          const next = dbService.getCachedScores();
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
       }
     });
 
@@ -101,18 +759,6 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     };
   }, [organization.org_id]);
 
-  // Dynamic ticking interval for any live event timer
-  const hasLiveEvent = useMemo(() => {
-    return events.some((e) => e.status === 'active');
-  }, [events]);
-
-  useEffect(() => {
-    if (!hasLiveEvent) return;
-    const interval = setInterval(() => {
-      setTick(Date.now());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [hasLiveEvent]);
 
   // Modal Scroll Lock: Ensure body does not scroll while confirm modal or alert popover is open
   useEffect(() => {
@@ -210,14 +856,14 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   };
 
   // Toggle Accordion Expansion
-  const handleToggleCard = (eventId: string) => {
+  const handleToggleCard = useCallback((eventId: string) => {
     setExpandedCardId((prev) => (prev === eventId ? null : eventId));
-  };
+  }, []);
 
   // -------------------------------------------------------------
   // EVENT LIFECYCLE ACTION HANDLERS
   // -------------------------------------------------------------
-  const handleStartSession = async (event: SupabaseEvent, e: React.MouseEvent) => {
+  const handleStartSession = useCallback(async (event: SupabaseEvent, e: React.MouseEvent) => {
     e.stopPropagation();
     const nowIso = new Date().toISOString();
     try {
@@ -236,9 +882,9 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     } catch (err) {
       console.error('Failed to start session:', err);
     }
-  };
+  }, []);
 
-  const handlePauseSession = async (event: SupabaseEvent, e: React.MouseEvent) => {
+  const handlePauseSession = useCallback(async (event: SupabaseEvent, e: React.MouseEvent) => {
     e.stopPropagation();
     const totalSec = computeEventElapsedSeconds(event);
     try {
@@ -257,9 +903,9 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     } catch (err) {
       console.error('Failed to pause session:', err);
     }
-  };
+  }, [computeEventElapsedSeconds]);
 
-  const handleResumeSession = async (event: SupabaseEvent, e: React.MouseEvent) => {
+  const handleResumeSession = useCallback(async (event: SupabaseEvent, e: React.MouseEvent) => {
     e.stopPropagation();
     const nowIso = new Date().toISOString();
     const currentBase = Number(event.elapsed_seconds) || 0;
@@ -279,7 +925,12 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     } catch (err) {
       console.error('Failed to resume session:', err);
     }
-  };
+  }, []);
+
+  const handleOpenEndConfirm = useCallback((event: SupabaseEvent, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmingEvent(event);
+  }, []);
 
   const handleConfirmEndSession = async () => {
     if (!confirmingEvent) return;
@@ -445,520 +1096,27 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         ) : (
           filteredEvents.map((event) => {
             const isExpanded = expandedCardId === event.id;
-            const currentElapsed = computeEventElapsedSeconds(event);
             const eventParticipants = getEventParticipants(event);
             const eventJudgesCount = event.assigned_judges?.length || 0;
             const eventScores = allScores.filter((s) => s.event_id === event.id);
 
-            // Required judges count
-            const requiredJudgesCount = eventJudgesCount > 0 ? eventJudgesCount : (judges.length > 0 ? judges.length : 1);
-
-            // Sequence calculations
-            const participantStatusList = eventParticipants.map((p) => {
-              const pScores = eventScores.filter((s) => s.participant_id === p.id);
-              const hasPerformed = pScores.length >= requiredJudgesCount;
-              return {
-                participant: p,
-                scoreCount: pScores.length,
-                hasPerformed,
-              };
-            });
-
-            const performedCount = participantStatusList.filter((ps) => ps.hasPerformed).length;
-            const performingIndex = participantStatusList.findIndex((ps) => !ps.hasPerformed);
-
-            let performingParticipant: SupabaseParticipant | null = null;
-            let justPerformedParticipant: SupabaseParticipant | null = null;
-            let upNextParticipant: SupabaseParticipant | null = null;
-
-            if (eventParticipants.length > 0) {
-              if (performingIndex === -1) {
-                // All finished
-                justPerformedParticipant = eventParticipants[eventParticipants.length - 1];
-              } else {
-                performingParticipant = eventParticipants[performingIndex];
-                if (performingIndex > 0) {
-                  justPerformedParticipant = eventParticipants[performingIndex - 1];
-                }
-                if (performingIndex + 1 < eventParticipants.length) {
-                  upNextParticipant = eventParticipants[performingIndex + 1];
-                }
-              }
-            }
-
-            const performingJudgesScored = performingParticipant
-              ? eventScores.filter((s) => s.participant_id === performingParticipant.id).length
-              : 0;
-
-            const justPerformedJudgesScored = justPerformedParticipant
-              ? eventScores.filter((s) => s.participant_id === justPerformedParticipant.id).length
-              : 0;
-
-            // Podium calculations for Ended status
-            const rankedList = eventParticipants.map((p) => {
-              const pScores = eventScores.filter((s) => s.participant_id === p.id);
-              const totalScore = pScores.reduce((sum, s) => sum + (Number(s.total_score) || 0), 0);
-              const avgScore = pScores.length > 0 ? Number((totalScore / pScores.length).toFixed(1)) : 0;
-              return {
-                participant: p,
-                totalScore,
-                avgScore,
-                scoresReceived: pScores.length,
-              };
-            });
-            rankedList.sort((a, b) => b.totalScore - a.totalScore);
-            const top3Podium = rankedList.filter((r) => r.scoresReceived > 0).slice(0, 3);
-
             return (
-              <div
+              <EventCard
                 key={event.id}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
-                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:border-stone-300 dark:hover:border-zinc-700"
-              >
-                {/* ---------------- TOP ROW: [CATEGORY] Pill (Left) | [STATUS] Badge (Right) ---------------- */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-700/50 truncate max-w-[160px]">
-                    {event.category || 'General'}
-                  </span>
-
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {event.status === 'active' && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        LIVE
-                      </span>
-                    )}
-                    {event.status === 'paused' && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                        PAUSED
-                      </span>
-                    )}
-                    {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700">
-                        <span className="w-1.5 h-1.5 rounded-full bg-stone-400 dark:bg-zinc-500" />
-                        UPCOMING
-                      </span>
-                    )}
-                    {(event.status === 'ended' || event.status === 'archived') && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                        ENDED
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* ---------------- MIDDLE ROW: Bold Event Name (Left) | ChevronDown (Right) ---------------- */}
-                <div
-                  onClick={() => handleToggleCard(event.id)}
-                  className="mt-2.5 flex items-center justify-between gap-3 cursor-pointer group select-none"
-                >
-                  <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-white truncate tracking-tight group-hover:text-stone-700 dark:group-hover:text-zinc-200 transition-colors">
-                    {event.name}
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleCard(event.id);
-                    }}
-                    className="p-1 rounded-lg text-stone-400 dark:text-zinc-500 group-hover:text-stone-800 dark:group-hover:text-white transition-colors cursor-pointer"
-                    aria-label={isExpanded ? 'Collapse event' : 'Expand event'}
-                  >
-                    <ChevronDown
-                      className={`w-4 h-4 stroke-[2.5] transition-transform duration-200 ${
-                        isExpanded ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* ---------------- BOTTOM ROW (Action Bar): Timer Clock right next to Actions ---------------- */}
-                <div className="mt-3 pt-3 border-t border-stone-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
-                  {/* Compact Timer Clock */}
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-stone-400 dark:text-zinc-500 stroke-[2.2]" />
-                    <span className="text-sm font-black font-mono tracking-tight text-stone-800 dark:text-zinc-200 tabular-nums whitespace-nowrap">
-                      {event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready'
-                        ? '00:00'
-                        : formatTime(currentElapsed)}
-                    </span>
-                    {event.status === 'active' && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping ml-0.5" />
-                    )}
-                  </div>
-
-                  {/* Action Buttons Right Next to Timer */}
-                  <div className="flex items-center gap-1.5">
-                    {/* Start Button */}
-                    {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
-                      <button
-                        type="button"
-                        onClick={(e) => handleStartSession(event, e)}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Start</span>
-                      </button>
-                    )}
-
-                    {/* Active Controls: Pause & End */}
-                    {event.status === 'active' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={(e) => handlePauseSession(event, e)}
-                          className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
-                        >
-                          <Pause className="w-3.5 h-3.5 fill-current" />
-                          <span>Pause</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmingEvent(event);
-                          }}
-                          className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
-                        >
-                          <Square className="w-3.5 h-3.5 fill-current" />
-                          <span>End</span>
-                        </button>
-                      </>
-                    )}
-
-                    {/* Paused Controls: Resume & End */}
-                    {event.status === 'paused' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={(e) => handleResumeSession(event, e)}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
-                        >
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>Resume</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmingEvent(event);
-                          }}
-                          className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
-                        >
-                          <Square className="w-3.5 h-3.5 fill-current" />
-                          <span>End</span>
-                        </button>
-                      </>
-                    )}
-
-                    {/* Ended / Sealed Indicator */}
-                    {(event.status === 'ended' || event.status === 'archived') && (
-                      <span className="text-[11px] font-bold text-stone-400 dark:text-zinc-500 flex items-center gap-1 bg-stone-100 dark:bg-zinc-800/60 px-2.5 py-1 rounded-lg border border-stone-200/50 dark:border-zinc-800">
-                        <CheckCircle2 className="w-3 h-3 text-stone-400 dark:text-zinc-500" />
-                        <span>Sealed</span>
-                      </span>
-                    )}
-
-                    {/* Optional Public View Button */}
-                    {onOpenPublicView && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenPublicView(event.id);
-                        }}
-                        className="p-1.5 rounded-lg text-stone-400 dark:text-zinc-500 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                        title="Open Public Leaderboard"
-                        aria-label="Public View"
-                      >
-                        <Radio className="w-3.5 h-3.5 stroke-[2]" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* ======================================================== */}
-                {/* EXPANDED ACCORDION TELEMETRY (Revealed when Tapped)       */}
-                {/* ======================================================== */}
-                {isExpanded && (
-                  <div
-                    onClick={(e) => e.stopPropagation()}
-                    className="mt-3 pt-3 border-t border-stone-200 dark:border-zinc-800 animate-fade-in"
-                  >
-                    {/* ---------------- 1. UPCOMING STATUS ---------------- */}
-                    {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
-                      <div className="space-y-2.5">
-                        {/* Telemetry Counts */}
-                        <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
-                          <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
-                            <Users className="w-3.5 h-3.5 text-stone-400" />
-                            Judges: {eventJudgesCount}
-                          </span>
-                          <span className="inline-flex items-center gap-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
-                            <Activity className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                            Participants: {eventParticipants.length}
-                          </span>
-                        </div>
-
-                        {/* Muted Guidance Message */}
-                        <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center">
-                          <p className="text-xs font-semibold text-stone-500 dark:text-zinc-400">
-                            The Event has not been started yet.
-                          </p>
-                          <p className="text-[11px] text-stone-400 dark:text-zinc-500 mt-0.5">
-                            Click &ldquo;Start&rdquo; above when judges and participants are ready on stage.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ---------------- 2. ACTIVE / PAUSED STATUS (Sequence Tracker) ---------------- */}
-                    {(event.status === 'active' || event.status === 'paused') && (
-                      <div className="space-y-3">
-                        {/* Telemetry Counts */}
-                        <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
-                          <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
-                            <Users className="w-3.5 h-3.5 text-stone-400" />
-                            Judges: {eventJudgesCount}
-                          </span>
-                          <span className="inline-flex items-center gap-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
-                            <Activity className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                            Participants: {performedCount} / {eventParticipants.length}
-                          </span>
-                        </div>
-
-                        {/* Sequence Tracker */}
-                        {eventParticipants.length === 0 ? (
-                          <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs text-stone-500 dark:text-zinc-400">
-                            No participants assigned to this event lineup.
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {/* Currently Performing (Highlighted) */}
-                            {performingParticipant ? (
-                              <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 ring-1 ring-amber-500/20">
-                                {/* Top Row */}
-                                <div className="flex justify-between items-center">
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                                    Performing
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-black bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30 tabular-nums whitespace-nowrap">
-                                    Judges: {performingJudgesScored}/{requiredJudgesCount}
-                                  </span>
-                                </div>
-                                {/* Middle Row */}
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-black text-stone-900 dark:text-white truncate">
-                                    {getParticipantDisplayName(performingParticipant, event)}
-                                  </span>
-                                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 shrink-0">
-                                    [ID: {performingParticipant.identity_id || `P-${performingParticipant.sl_no}`}]
-                                  </span>
-                                </div>
-                                {/* Bottom Row */}
-                                <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
-                                  <span className="truncate">{performingParticipant.school || 'General / Independent'}</span>
-                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
-                                    ORDER #{String((event.assigned_participants || []).indexOf(performingParticipant.id) + 1).padStart(2, '0')}
-                                  </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between text-xs font-semibold text-stone-500 dark:text-zinc-400">
-                                <span>All participants have concluded performance.</span>
-                                <span className="text-emerald-500 font-bold">Ledger Complete</span>
-                              </div>
-                            )}
-
-                            {/* Just Performed */}
-                            {justPerformedParticipant && (
-                              <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
-                                {/* Top Row */}
-                                <div className="flex justify-between items-center">
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                    Just Performed
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 tabular-nums whitespace-nowrap">
-                                    Judges: {justPerformedJudgesScored}/{requiredJudgesCount}
-                                  </span>
-                                </div>
-                                {/* Middle Row */}
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-black text-stone-900 dark:text-white truncate">
-                                    {getParticipantDisplayName(justPerformedParticipant, event)}
-                                  </span>
-                                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
-                                    [ID: {justPerformedParticipant.identity_id || `P-${justPerformedParticipant.sl_no}`}]
-                                  </span>
-                                </div>
-                                {/* Bottom Row */}
-                                <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
-                                  <span className="truncate">{justPerformedParticipant.school || 'General / Independent'}</span>
-                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
-                                    ORDER #{String((event.assigned_participants || []).indexOf(justPerformedParticipant.id) + 1).padStart(2, '0')}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Up Next */}
-                            {upNextParticipant && (
-                              <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
-                                {/* Top Row */}
-                                <div className="flex justify-between items-center">
-                                  <span className="text-[10px] font-black uppercase tracking-wider text-stone-500 dark:text-zinc-400 flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
-                                    Up Next
-                                  </span>
-                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500">
-                                    Next in Queue
-                                  </span>
-                                </div>
-                                {/* Middle Row */}
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-black text-stone-900 dark:text-white truncate">
-                                    {getParticipantDisplayName(upNextParticipant, event)}
-                                  </span>
-                                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
-                                    [ID: {upNextParticipant.identity_id || `P-${upNextParticipant.sl_no}`}]
-                                  </span>
-                                </div>
-                                {/* Bottom Row */}
-                                <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
-                                  <span className="truncate">{upNextParticipant.school || 'General / Independent'}</span>
-                                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
-                                    ORDER #{String((event.assigned_participants || []).indexOf(upNextParticipant.id) + 1).padStart(2, '0')}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ---------------- 3. ENDED STATUS (Top 3 Podium) ---------------- */}
-                    {(event.status === 'ended' || event.status === 'archived') && (
-                      <div className="space-y-3">
-                        {/* Telemetry Counts */}
-                        <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
-                          <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
-                            <Users className="w-3.5 h-3.5 text-stone-400" />
-                            Judges: {eventJudgesCount}
-                          </span>
-                          <span className="inline-flex items-center gap-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
-                            <Activity className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                            Participants: {eventParticipants.length}
-                          </span>
-                        </div>
-
-                        {/* Podium Standings */}
-                        {top3Podium.length === 0 ? (
-                          <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs text-stone-500 dark:text-zinc-400">
-                            No scores were recorded for this session.
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-                              <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                              Official Podium Results
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                              {/* 1st Place */}
-                              {top3Podium[0] && (
-                                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <span className="text-lg">🥇</span>
-                                    <div className="min-w-0">
-                                      <div className="text-xs font-black text-stone-900 dark:text-white truncate">
-                                        <span className="font-mono text-amber-700 dark:text-amber-400 font-bold mr-1">
-                                          [ID: {top3Podium[0].participant.identity_id || `P-${top3Podium[0].participant.sl_no}`}]
-                                        </span>
-                                        <span>{getParticipantDisplayName(top3Podium[0].participant, event)}</span>
-                                      </div>
-                                      <div className="text-[10px] text-amber-700 dark:text-amber-300 font-bold">
-                                        1st Place
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="text-right flex-shrink-0">
-                                    <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
-                                      {top3Podium[0].totalScore}
-                                    </div>
-                                    <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
-                                      pts
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* 2nd Place */}
-                              {top3Podium[1] && (
-                                <div className="p-2.5 rounded-xl bg-stone-100/80 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-700/80 flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <span className="text-lg">🥈</span>
-                                    <div className="min-w-0">
-                                      <div className="text-xs font-black text-stone-900 dark:text-white truncate">
-                                        <span className="font-mono text-stone-500 dark:text-zinc-400 font-bold mr-1">
-                                          [ID: {top3Podium[1].participant.identity_id || `P-${top3Podium[1].participant.sl_no}`}]
-                                        </span>
-                                        <span>{getParticipantDisplayName(top3Podium[1].participant, event)}</span>
-                                      </div>
-                                      <div className="text-[10px] text-stone-500 dark:text-zinc-400 font-bold">
-                                        2nd Place
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="text-right flex-shrink-0">
-                                    <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
-                                      {top3Podium[1].totalScore}
-                                    </div>
-                                    <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
-                                      pts
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* 3rd Place */}
-                              {top3Podium[2] && (
-                                <div className="p-2.5 rounded-xl bg-amber-900/10 dark:bg-amber-950/30 border border-amber-900/20 dark:border-amber-900/40 flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <span className="text-lg">🥉</span>
-                                    <div className="min-w-0">
-                                      <div className="text-xs font-black text-stone-900 dark:text-white truncate">
-                                        <span className="font-mono text-amber-800 dark:text-amber-400 font-bold mr-1">
-                                          [ID: {top3Podium[2].participant.identity_id || `P-${top3Podium[2].participant.sl_no}`}]
-                                        </span>
-                                        <span>{getParticipantDisplayName(top3Podium[2].participant, event)}</span>
-                                      </div>
-                                      <div className="text-[10px] text-amber-800 dark:text-amber-400 font-bold">
-                                        3rd Place
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="text-right flex-shrink-0">
-                                    <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
-                                      {top3Podium[2].totalScore}
-                                    </div>
-                                    <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
-                                      pts
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                event={event}
+                isExpanded={isExpanded}
+                eventParticipants={eventParticipants}
+                eventJudgesCount={eventJudgesCount}
+                allJudgesCount={judges.length}
+                eventScores={eventScores}
+                blindJudgingEnabled={Boolean(organization.blind_judging_enabled)}
+                onToggle={handleToggleCard}
+                onStart={handleStartSession}
+                onPause={handlePauseSession}
+                onResume={handleResumeSession}
+                onOpenEndConfirm={handleOpenEndConfirm}
+                onOpenPublicView={onOpenPublicView}
+              />
             );
           })
         )}
