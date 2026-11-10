@@ -310,11 +310,12 @@ export default function App() {
                 : 'scale-100 translate-y-0 opacity-100'
             }`}
           >
-            {/* Glowing Fair Judge Scale Logo */}
-            <div className="relative flex items-center justify-center mb-4">
+            {/* Glowing Fair Judge Scale Logo with Premium Boot Kinematics */}
+            <div className="relative flex items-center justify-center mb-4 animate-in fade-in zoom-in-95 duration-700 ease-out">
               <div className="absolute -inset-2.5 rounded-3xl border border-emerald-500/30 animate-ping opacity-25 pointer-events-none" />
-              <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center relative z-10 shadow-xl shadow-emerald-500/25">
-                <Scale className="w-8 h-8 stroke-[2.2]" />
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center relative z-10 shadow-xl shadow-emerald-500/25 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-emerald-400/10 to-transparent animate-progress-shimmer pointer-events-none" />
+                <Scale className="w-8 h-8 stroke-[2.2] relative z-10" />
               </div>
             </div>
 

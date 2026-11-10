@@ -632,9 +632,6 @@ export function AccountModal({
                     </span>
                   </div>
                 </div>
-                <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full text-emerald-500 bg-emerald-500/10 border border-emerald-500/20">
-                  v1.0.0 (Phase 14)
-                </span>
               </div>
 
               {/* Actionable Glassmorphic Links */}
@@ -732,7 +729,7 @@ export function AccountModal({
 
           {/* Animated Developer Signature Footer */}
           <div className="text-[10px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 text-center pb-4 pt-6 select-none">
-            Engineered with intent. <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold">&lt;/&gt;</span> Sahil Kumar Rout
+            Engineered with Intent <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold mx-1">&lt;/&gt;</span> <span className="bg-gradient-to-r from-zinc-500 via-zinc-200 to-zinc-500 dark:from-zinc-400 dark:via-white dark:to-zinc-400 bg-clip-text text-transparent animate-shimmer">Sahil Kumar Rout</span>
           </div>
 
         </div>

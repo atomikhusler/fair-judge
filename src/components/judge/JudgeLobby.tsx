@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Scale,
   CircleUser, 
   Lock, 
   PauseCircle, 
   CheckCircle, 
+  CheckCircle2,
   LogOut, 
   ChevronRight, 
   X,
@@ -12,15 +13,18 @@ import {
   Calendar,
   KeyRound,
   Building2,
-  Sparkles
+  Sparkles,
+  Download,
+  AlertTriangle
 } from 'lucide-react';
 import { SupabaseJudge, SupabaseEvent, Organization } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
 import { PullToRefresh } from '../common/PullToRefresh';
-import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
+import { flushOfflineQueueToSupabase, downloadDiagnosticLog, getPendingScores, getPendingMutations } from '../../lib/offlineQueue';
 import { showToast } from '../common/ToastProvider';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
+import { APP_VERSION } from '../../config/version';
 
 interface JudgeLobbyProps {
   orgId: string;
@@ -45,6 +49,51 @@ export function JudgeLobby({
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [hapticSetting, setHapticSetting] = useState<HapticStrength>(getHapticStrength);
+
+  // 5-Tap Intelligent Diagnostic State (EPIC 15.1)
+  const [diagTapCount, setDiagTapCount] = useState(0);
+  const [diagUnlocked, setDiagUnlocked] = useState(false);
+  const [diagAnimating, setDiagAnimating] = useState(false);
+  const [diagQueuePending, setDiagQueuePending] = useState<number | null>(null);
+  const [isDownloadingLog, setIsDownloadingLog] = useState(false);
+  const diagTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleVersionTap = async () => {
+    if (diagTimerRef.current) clearTimeout(diagTimerRef.current);
+    const next = diagTapCount + 1;
+    if (next >= 5) {
+      setDiagTapCount(0);
+      triggerHaptic('tick');
+      const [scores, muts] = await Promise.all([
+        getPendingScores().catch(() => []),
+        getPendingMutations().catch(() => []),
+      ]);
+      const totalPending = scores.length + muts.length;
+      setDiagQueuePending(totalPending);
+      setDiagUnlocked(true);
+      if (totalPending === 0) {
+        setDiagAnimating(true);
+        setTimeout(() => setDiagAnimating(false), 650);
+      }
+    } else {
+      setDiagTapCount(next);
+      diagTimerRef.current = setTimeout(() => {
+        setDiagTapCount(0);
+      }, 2500);
+    }
+  };
+
+  const handleDownloadDiagnostic = async () => {
+    try {
+      setIsDownloadingLog(true);
+      await downloadDiagnosticLog();
+      showToast('Diagnostic log exported successfully', 'success');
+    } catch {
+      showToast('Failed to export diagnostic log', 'error');
+    } finally {
+      setIsDownloadingLog(false);
+    }
+  };
 
   // Load organization details
   useEffect(() => {
@@ -265,13 +314,23 @@ export function JudgeLobby({
               {/* Modal Header */}
               <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center">
+                  <div className={`w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center ${diagAnimating ? 'animate-flip-y' : ''}`}>
                     <CircleUser className="w-5 h-5 stroke-[2.2]" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
-                      Judge Terminal
-                    </h3>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
+                        Judge Terminal
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={handleVersionTap}
+                        className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 active:scale-95 transition-transform cursor-pointer select-none"
+                        title="Tap 5 times to run system diagnostics"
+                      >
+                        v{APP_VERSION}
+                      </button>
+                    </div>
                     <p className="text-[11px] text-zinc-500 font-mono font-medium">
                       Active VIP Session
                     </p>
@@ -354,6 +413,33 @@ export function JudgeLobby({
                   </div>
                 </div>
 
+                {/* Intelligent 5-Tap Diagnostic Panel (Easter Egg) */}
+                {diagUnlocked && (
+                  <div className="space-y-2 p-3 bg-white dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800/80 shadow-sm animate-in fade-in duration-200">
+                    {diagQueuePending === 0 ? (
+                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-mono font-bold flex items-center justify-between">
+                        <span>All Systems Nominal • 0 In Queue</span>
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      </div>
+                    ) : (
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 text-xs font-mono font-bold flex items-center justify-between">
+                        <span>Queue Jammed • {diagQueuePending} Items Waiting</span>
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadDiagnostic}
+                      disabled={isDownloadingLog}
+                      className="w-full py-2 px-3 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-black font-mono font-bold text-xs flex items-center justify-center space-x-2 active:scale-95 transition-transform cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{isDownloadingLog ? 'Exporting Log...' : 'Download Diagnostic Log'}</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Bold Red Logout Button */}
                 <button
                   type="button"
@@ -369,6 +455,11 @@ export function JudgeLobby({
                   </div>
                   <ChevronRight className="w-4 h-4 opacity-50" />
                 </button>
+
+                {/* Standardized Developer Signature with Metallic Shimmer */}
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500 text-center pt-2 pb-1 select-none">
+                  Engineered with Intent <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold mx-1">&lt;/&gt;</span> <span className="bg-gradient-to-r from-zinc-500 via-zinc-200 to-zinc-500 dark:from-zinc-400 dark:via-white dark:to-zinc-400 bg-clip-text text-transparent animate-shimmer">Sahil Kumar Rout</span>
+                </div>
               </div>
             </div>
           </div>

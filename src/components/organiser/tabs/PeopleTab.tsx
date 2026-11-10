@@ -2370,7 +2370,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 </span>
               </div>
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
-                Engineered by Sahil Kumar Rout
+                Engineered with Intent <span className="text-emerald-500">&lt;/&gt;</span> <span className="bg-gradient-to-r from-zinc-500 via-zinc-200 to-zinc-500 dark:from-zinc-400 dark:via-white dark:to-zinc-400 bg-clip-text text-transparent animate-shimmer font-semibold">Sahil Kumar Rout</span>
               </p>
             </div>
 

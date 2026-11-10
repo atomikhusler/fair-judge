@@ -320,7 +320,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   ) => {
     const masterRows = [
       ['FAIR JUDGE - OFFICIAL REPORT'],
-      ['Engineered by Sahil Kumar Rout'],
+      ['Engineered with Intent </> Sahil Kumar Rout'],
       [`Organization: ${organization.name}`],
       [`Org ID: ${organization.org_id}`],
       [''], // Blank row 5 for spacing
@@ -457,7 +457,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
               Fair Judge
             </div>
-            <div class="dev-brand">Engineered by Sahil Kumar Rout</div>
+            <div class="dev-brand">Engineered with Intent &lt;/&gt; Sahil Kumar Rout</div>
           </div>
 
           <!-- CENTER: Organization & Report Context -->
@@ -673,7 +673,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   const handleExportStatsExcel = () => {
     const masterAoa: (string | number)[][] = [
       ['FAIR JUDGE - OFFICIAL REPORT'],
-      ['Engineered by Sahil Kumar Rout'],
+      ['Engineered with Intent </> Sahil Kumar Rout'],
       [`Organization: ${organization.name}`],
       [`Org ID: ${organization.org_id}`],
       [''], // Blank row 5 for spacing

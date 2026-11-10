@@ -1340,13 +1340,13 @@ export function PublicLeaderboard({
             <span className={`text-[11px] md:text-xs font-mono font-semibold tracking-wide ${
               isStadiumWhite ? 'text-zinc-600' : 'text-zinc-400'
             }`}>
-              Engineered with intent.{' '}
+              Engineered with Intent{' '}
               <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold">
                 &lt;/&gt;
               </span>{' '}
-              <strong className={isStadiumWhite ? 'text-zinc-950 font-black' : 'text-zinc-200'}>
+              <span className="bg-gradient-to-r from-zinc-500 via-zinc-200 to-zinc-500 dark:from-zinc-400 dark:via-white dark:to-zinc-400 bg-clip-text text-transparent animate-shimmer font-black">
                 Sahil Kumar Rout
-              </strong>
+              </span>
             </span>
           </div>
         </div>

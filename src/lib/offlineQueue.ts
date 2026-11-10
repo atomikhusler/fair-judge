@@ -1,5 +1,6 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { APP_VERSION } from '../config/version';
 
 export interface PendingScoreRecord {
   id: string;
@@ -552,3 +553,48 @@ export function subscribeToQueueChanges(callback: () => void): () => void {
     window.removeEventListener(QUEUE_EVENT_NAME, callback);
   };
 }
+
+export async function exportDiagnosticLog(): Promise<Record<string, any>> {
+  const [scores, mutations] = await Promise.all([
+    getPendingScores().catch(() => []),
+    getPendingMutations().catch(() => []),
+  ]);
+
+  let storagePersisted: boolean | null = null;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persisted) {
+      storagePersisted = await navigator.storage.persisted();
+    }
+  } catch {}
+
+  return {
+    app: 'Fair Judge',
+    version: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    storagePersisted,
+    queueSummary: {
+      totalPendingScores: scores.length,
+      totalPendingMutations: mutations.length,
+      isQueueHealthy: scores.length === 0 && mutations.length === 0,
+    },
+    pendingScores: scores,
+    pendingMutations: mutations,
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+  };
+}
+
+export async function downloadDiagnosticLog(): Promise<void> {
+  const data = await exportDiagnosticLog();
+  const jsonStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `fairjudge-diagnostic-v${APP_VERSION}-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
