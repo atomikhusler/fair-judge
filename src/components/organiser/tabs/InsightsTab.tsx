@@ -1022,13 +1022,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       {/* ======================================================== */}
       <div className="sticky top-0 z-40 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md pt-3 pb-3 px-4 border-b border-stone-200/80 dark:border-zinc-800/80 shadow-xs">
         <div className="flex w-full p-0.5 bg-stone-200/70 dark:bg-zinc-900 rounded-xl border border-stone-200/60 dark:border-zinc-800 shadow-inner">
-          {/* Pillar 1: Results */}
+          {/* Pillar 1: Results (Cyan Taxonomy) */}
           <button
             type="button"
             onClick={() => setActivePillar('results')}
             className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'results'
-                ? 'bg-white dark:bg-zinc-950 text-emerald-600 dark:text-emerald-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
+                ? 'bg-white dark:bg-zinc-950 text-cyan-600 dark:text-cyan-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
             }`}
           >
@@ -1036,13 +1036,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             <span>Results</span>
           </button>
 
-          {/* Pillar 2: Stats */}
+          {/* Pillar 2: Stats (Dark Rose Pink Taxonomy) */}
           <button
             type="button"
             onClick={() => setActivePillar('stats')}
             className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'stats'
-                ? 'bg-white dark:bg-zinc-950 text-emerald-600 dark:text-emerald-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
+                ? 'bg-white dark:bg-zinc-950 text-rose-600 dark:text-rose-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
             }`}
           >
@@ -1050,7 +1050,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             <span>Stats</span>
           </button>
 
-          {/* Pillar 3: Analytics */}
+          {/* Pillar 3: Analytics (Amber/Yellow Taxonomy) */}
           <button
             type="button"
             onClick={() => setActivePillar('analytics')}
@@ -1064,13 +1064,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             <span>Analytics</span>
           </button>
 
-          {/* Pillar 4: Logs */}
+          {/* Pillar 4: Logs (Zinc/Slate Taxonomy) */}
           <button
             type="button"
             onClick={() => setActivePillar('logs')}
             className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'logs'
-                ? 'bg-white dark:bg-zinc-950 text-stone-900 dark:text-zinc-100 shadow-sm border border-stone-200/60 dark:border-zinc-800'
+                ? 'bg-white dark:bg-zinc-950 text-slate-700 dark:text-slate-300 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
             }`}
           >
@@ -1093,14 +1093,14 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                 onClick={handleExportResultsPDF}
                 className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Printer className="w-4 h-4 stroke-[2.2] text-emerald-500 dark:text-emerald-600" />
+                <Printer className="w-4 h-4 stroke-[2.2] text-cyan-500 dark:text-cyan-600" />
                 <span>Export PDF (Results)</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleExportResultsExcel}
-                className="min-h-[44px] px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-cyan-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Results)</span>
@@ -1126,14 +1126,14 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       {/* Event Title + Category Header */}
                       <div className="flex items-start justify-between gap-2 border-b border-stone-100 dark:border-zinc-800/80 pb-2.5">
                         <div>
-                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
                             {(event as any).category || 'General Division'}
                           </span>
                           <h3 className="text-base font-black text-stone-900 dark:text-white">
                             {event.name}
                           </h3>
                         </div>
-                        <span className="text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <span className="text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
                           Concluded
                         </span>
                       </div>
@@ -1201,7 +1201,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                                   <span className="text-[10px] font-mono text-stone-400 dark:text-zinc-500">
                                     {winner.ballotCount} Ballots
                                   </span>
-                                  <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 tabular-nums whitespace-nowrap">
+                                  <span className="font-mono font-black text-cyan-600 dark:text-cyan-400 tabular-nums whitespace-nowrap">
                                     {winner.averageScore.toFixed(2)} pts
                                   </span>
                                 </div>
@@ -1218,7 +1218,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         )}
 
         {/* ======================================================== */}
-        {/* SECTION B: STATS (The Master Scorecard)                  */}
+        {/* SECTION B: STATS (The Master Scorecard - Dark Rose Pink Taxonomy) */}
         {/* ======================================================== */}
         {activePillar === 'stats' && (
           <div className="space-y-4 animate-in fade-in duration-200">
@@ -1229,14 +1229,14 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                 onClick={handleExportStatsPDF}
                 className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Printer className="w-4 h-4 stroke-[2.2] text-emerald-500 dark:text-emerald-400" />
+                <Printer className="w-4 h-4 stroke-[2.2] text-rose-500 dark:text-rose-400" />
                 <span>Export PDF (Stats)</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleExportStatsExcel}
-                className="min-h-[44px] px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-rose-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Stats)</span>
@@ -1267,7 +1267,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-stone-50 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer"
                     >
                       <div>
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
                           {(event as any).category || 'General Division'}
                         </span>
                         <h4 className="text-sm font-bold text-stone-900 dark:text-white">
@@ -1381,7 +1381,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                                     <td className="p-2.5 text-right font-mono font-bold text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
                                       {s.rawTotal}
                                     </td>
-                                    <td className="p-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400 tabular-nums whitespace-nowrap">
+                                    <td className="p-2.5 text-right font-mono font-black text-rose-600 dark:text-rose-400 tabular-nums whitespace-nowrap">
                                       {s.averageScore.toFixed(2)}
                                     </td>
                                   </tr>
@@ -1670,7 +1670,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                     }}
                     className="min-h-[36px] px-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-stone-800 dark:text-zinc-200 flex items-center gap-2 cursor-pointer"
                   >
-                    <Trophy className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <Trophy className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                     <span className="truncate max-w-[130px]">
                       {selectedEventFilter === 'all'
                         ? 'All Events'
@@ -1692,7 +1692,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                           className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                         >
                           <span>All Events</span>
-                          {selectedEventFilter === 'all' && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                          {selectedEventFilter === 'all' && <Check className="w-3.5 h-3.5 text-slate-500" />}
                         </button>
                         {events.map((e) => (
                           <button
@@ -1705,7 +1705,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                           >
                             <span className="truncate pr-2">{e.name}</span>
-                            {selectedEventFilter === e.id && <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                            {selectedEventFilter === e.id && <Check className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
                           </button>
                         ))}
                       </div>
@@ -1723,7 +1723,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                     }}
                     className="min-h-[36px] px-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-stone-800 dark:text-zinc-200 flex items-center gap-2 cursor-pointer"
                   >
-                    <Gavel className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <Gavel className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                     <span className="truncate max-w-[130px]">
                       {selectedJudgeFilter === 'all'
                         ? 'All Judges'
@@ -1745,7 +1745,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                           className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                         >
                           <span>All Judges</span>
-                          {selectedJudgeFilter === 'all' && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                          {selectedJudgeFilter === 'all' && <Check className="w-3.5 h-3.5 text-slate-500" />}
                         </button>
                         {judges.map((j) => (
                           <button
@@ -1758,7 +1758,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                           >
                             <span className="truncate pr-2">{j.name}</span>
-                            {selectedJudgeFilter === j.id && <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                            {selectedJudgeFilter === j.id && <Check className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
                           </button>
                         ))}
                       </div>
@@ -1775,7 +1775,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                   value={searchAudit}
                   onChange={(e) => setSearchAudit(e.target.value)}
                   placeholder="Filter timeline by competitor, judge, or event..."
-                  className="w-full min-h-[38px] pl-8 pr-8 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-medium text-stone-900 dark:text-white placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                  className="w-full min-h-[38px] pl-8 pr-8 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-medium text-stone-900 dark:text-white placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-slate-500/50"
                 />
                 {searchAudit && (
                   <button
@@ -1811,7 +1811,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                     return (
                       <div key={score.id} className="relative group">
                         {/* Dot on rod */}
-                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-stone-300 dark:bg-zinc-700 group-hover:bg-emerald-500 border-2 border-white dark:border-zinc-950 transition-colors" />
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-stone-300 dark:bg-zinc-700 group-hover:bg-slate-400 border-2 border-white dark:border-zinc-950 transition-colors" />
 
                         <div className="text-[11px] text-stone-400 dark:text-zinc-500 font-mono flex flex-wrap items-center gap-2 mb-1">
                           <span className="flex items-center gap-1 text-stone-500 dark:text-zinc-400">
@@ -1819,7 +1819,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             {time}
                           </span>
                           <span>•</span>
-                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                          <span className="text-[10px] text-slate-600 dark:text-slate-400 font-semibold font-mono">
                             #{score.id.slice(0, 6).toUpperCase()}
                           </span>
                           {e && (
@@ -1837,7 +1837,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             {j?.name || 'Judge'}
                           </strong>{' '}
                           securely committed{' '}
-                          <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold tabular-nums whitespace-nowrap">
+                          <strong className="text-slate-900 dark:text-slate-100 font-mono font-bold tabular-nums whitespace-nowrap">
                             {score.total_score} pts
                           </strong>{' '}
                           for{' '}

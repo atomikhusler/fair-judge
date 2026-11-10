@@ -124,7 +124,6 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
         // Strict read-only login validation via authService (no auto-registration fallback)
         const org = await authService.loginOrganiser(identifier, password);
 
-        toast.success(`Welcome back, ${org.name}!`);
         onOrganiserLogin(org);
       } catch (err: any) {
         console.warn('Login attempt notice:', err?.message || err);

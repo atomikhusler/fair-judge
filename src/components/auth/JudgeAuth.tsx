@@ -127,7 +127,6 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
           eventId: creds.eventId,
         });
 
-        toast.success(`Welcome back, Judge ${verified.judge.name}!`);
         onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
         return;
       }
@@ -198,7 +197,6 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         pin: targetPin,
       });
 
-      toast.success(`Welcome back, Judge ${verified.judge.name}!`);
       onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
     } catch (err: any) {
       console.warn('Judge authentication notice:', err);

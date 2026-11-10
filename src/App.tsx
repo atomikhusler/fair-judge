@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { NetworkStatusIndicator } from './components/NetworkStatusIndicator';
 import { ToastProvider } from './components/common/ToastProvider';
@@ -49,6 +49,13 @@ export default function App() {
   const [isPublicView, setIsPublicView] = useState(false);
   const [publicOrgId, setPublicOrgId] = useState('');
   const [publicEventId, setPublicEventId] = useState<string | null>(null);
+
+  // Transient Auth Splash State (EPIC 15.3 Target 1)
+  const [authSplash, setAuthSplash] = useState<{
+    name: string;
+    isFading: boolean;
+  } | null>(null);
+  const authSplashTimerRef = useRef<{ hold?: number; fade?: number }>({});
 
   // Data-Driven Cold Boot Sequence & App Hydration (Directive 2)
   useEffect(() => {
@@ -164,6 +171,24 @@ export default function App() {
     }
   }, [session?.role, session?.org?.org_id, session?.judge?.id, refreshJudgeData]);
 
+  // Helper to trigger hardware-accelerated 1.2s splash with 500ms opacity fade
+  const triggerAuthSplash = useCallback((displayName: string) => {
+    if (authSplashTimerRef.current.hold) clearTimeout(authSplashTimerRef.current.hold);
+    if (authSplashTimerRef.current.fade) clearTimeout(authSplashTimerRef.current.fade);
+
+    setAuthSplash({ name: displayName, isFading: false });
+
+    // Hold for exactly 1.2 seconds, then transition out using opacity-0 duration-500
+    authSplashTimerRef.current.hold = window.setTimeout(() => {
+      setAuthSplash((prev) => (prev ? { ...prev, isFading: true } : null));
+
+      // After 500ms fade completes, unmount splash
+      authSplashTimerRef.current.fade = window.setTimeout(() => {
+        setAuthSplash(null);
+      }, 500);
+    }, 1200);
+  }, []);
+
   // Organiser Login Handler
   const handleOrganiserLogin = (org: Organization) => {
     const newSession: UserSession = {
@@ -172,6 +197,7 @@ export default function App() {
     };
     setStoredSession(newSession);
     setSession(newSession);
+    triggerAuthSplash(org.name || 'Organiser');
   };
 
   // Judge Login Handler - Fetches real Organization record & routes to JudgeLobby
@@ -200,6 +226,7 @@ export default function App() {
     setSession(newSession);
     setJudgeEvents(assignedEvents);
     setActiveJudgeEvent(null);
+    triggerAuthSplash(judge.name ? `Judge ${judge.name}` : 'Judge');
   };
 
   // Logout Handler
@@ -325,6 +352,28 @@ export default function App() {
             </h1>
             <p className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-widest mt-1.5">
               Competition Systems
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Target 1: Transient Auth Splash (Solid dark overlay, zero stutter, 60fps GPU fade) */}
+      {authSplash && (
+        <div
+          className={`fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center text-white px-6 transition-opacity duration-500 will-change-opacity ${
+            authSplash.isFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          }`}
+        >
+          <div className="flex flex-col items-center text-center max-w-sm w-full">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mb-5 shadow-xl shadow-emerald-500/20">
+              <Scale className="w-8 h-8 stroke-[2.2]" />
+            </div>
+            <p className="text-base sm:text-lg font-semibold text-zinc-100 tracking-tight">
+              Welcome back, <span className="font-extrabold text-white">{authSplash.name}</span>
+            </p>
+            <p className="text-xs font-mono text-zinc-400 mt-2 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Syncing offline ledger...</span>
             </p>
           </div>
         </div>

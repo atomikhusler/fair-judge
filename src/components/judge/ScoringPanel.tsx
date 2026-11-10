@@ -61,6 +61,7 @@ export function ScoringPanel({
   const [organization, setOrganization] = useState<Organization | null>(null);
 
   const [participants, setParticipants] = useState<SupabaseParticipant[]>([]);
+  const [isLoadingRoster, setIsLoadingRoster] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [listSearch, setListSearch] = useState('');
   const [scoresMap, setScoresMap] = useState<Record<string, number | null>>({});
@@ -153,6 +154,8 @@ export function ScoringPanel({
       setPendingQueueCount(count);
     } catch (err) {
       console.error('Error loading evaluation stage:', err);
+    } finally {
+      setIsLoadingRoster(false);
     }
   };
 
@@ -676,7 +679,54 @@ export function ScoringPanel({
                 </span>
               </div>
 
-              {filteredUpcoming.length === 0 ? (
+              {/* TARGET 3: STAGGERED SKELETON LOADER (Zero-jump stage synchronization) */}
+              {isLoadingRoster ? (
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2 px-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                    <span className="text-xs font-mono font-bold tracking-widest text-amber-500 uppercase animate-pulse">
+                      Syncing Stage...
+                    </span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {/* Row 1: 100% Opacity */}
+                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-100 animate-pulse">
+                      <div className="flex items-center space-x-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                        <div className="space-y-2 min-w-0">
+                          <div className="h-4 w-32 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                          <div className="h-3 w-20 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                        </div>
+                      </div>
+                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                    </div>
+
+                    {/* Row 2: 70% Opacity */}
+                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-70 animate-pulse">
+                      <div className="flex items-center space-x-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                        <div className="space-y-2 min-w-0">
+                          <div className="h-4 w-28 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                          <div className="h-3 w-16 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                        </div>
+                      </div>
+                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                    </div>
+
+                    {/* Row 3: 40% Opacity */}
+                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-40 animate-pulse">
+                      <div className="flex items-center space-x-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                        <div className="space-y-2 min-w-0">
+                          <div className="h-4 w-24 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                          <div className="h-3 w-14 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                        </div>
+                      </div>
+                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                    </div>
+                  </div>
+                </div>
+              ) : filteredUpcoming.length === 0 ? (
                 <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-xs text-zinc-400 shadow-sm">
                   {listSearch ? 'No upcoming competitors match your search.' : 'All assigned competitors have been evaluated! 🎉'}
                 </div>
@@ -1116,17 +1166,20 @@ export function ScoringPanel({
       {/* ============================================================ */}
       {/* APPLE-PAY STYLE LAST REVIEW BOTTOM SHEET */}
       {/* ============================================================ */}
+      {/* ============================================================ */}
+      {/* TARGET 2: FLUID REVIEW POP-UP REDESIGN (DUAL-THEME & SPRING KINEMATICS) */}
+      {/* ============================================================ */}
       {isReviewSheetOpen && currentParticipant && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 transition-opacity animate-in fade-in duration-200">
           <div
-            className="w-full max-w-lg bg-stone-50 dark:bg-zinc-900 border-t border-stone-200 dark:border-zinc-800 rounded-t-3xl shadow-2xl p-5 flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-250 ease-out"
+            className="w-full max-w-lg bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-t-3xl shadow-2xl p-5 flex flex-col max-h-[85vh] transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] translate-y-0 will-change-transform animate-in slide-in-from-bottom"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Grab Handle */}
-            <div className="w-12 h-1.5 rounded-full bg-stone-300 dark:bg-zinc-700 mx-auto mb-4 shrink-0" />
+            <div className="w-12 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700 mx-auto mb-4 shrink-0" />
 
             {/* Header: Competitor Serial & Identity */}
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800 shrink-0">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
               <div className="flex items-center space-x-3 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center font-mono font-black text-sm text-amber-500 dark:text-amber-400 shrink-0">
                   {(() => {
@@ -1153,7 +1206,7 @@ export function ScoringPanel({
                 type="button"
                 disabled={isSubmitting || isSubmittedBeat}
                 onClick={() => setIsReviewSheetOpen(false)}
-                className="p-2 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800 disabled:opacity-30 cursor-pointer transition-colors"
+                className="p-2 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 cursor-pointer transition-colors"
                 title="Cancel"
                 aria-label="Cancel"
               >
@@ -1162,20 +1215,20 @@ export function ScoringPanel({
             </div>
 
             {/* Total Score Hero */}
-            <div className="py-4 my-2 text-center bg-stone-100 dark:bg-zinc-850 rounded-2xl border border-stone-200 dark:border-zinc-800 shrink-0">
+            <div className="py-4 my-2 text-center bg-zinc-50 dark:bg-zinc-850 rounded-2xl border border-zinc-200 dark:border-zinc-800 shrink-0">
               <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 font-bold block mb-1">
                 Final Score Review
               </span>
               <div className="text-3xl font-black text-zinc-900 dark:text-white tabular-nums whitespace-nowrap">
-                <span className="text-amber-500 dark:text-amber-400">{currentTotal}</span>
+                <span className="text-amber-500 dark:text-amber-400 font-mono text-3xl font-black">{currentTotal}</span>
                 <span className="text-zinc-400 text-base font-normal"> / {maxPossible}</span>
                 <span className="text-xs font-normal text-zinc-400 ml-1">pts</span>
               </div>
             </div>
 
-            {/* Criteria Breakdown List */}
-            <div className="flex-1 overflow-y-auto space-y-2 py-1 pr-1 my-2">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 font-bold px-1">
+            {/* Criteria Marks: Seamless Flat List Rows with subtle bottom border */}
+            <div className="flex-1 overflow-y-auto divide-y divide-zinc-200 dark:divide-zinc-800 py-1 pr-1 my-2">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 font-bold px-1 block pb-2">
                 Criteria Marks
               </span>
               {rubricList.map((criterion) => {
@@ -1183,7 +1236,7 @@ export function ScoringPanel({
                 return (
                   <div
                     key={criterion.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-800"
+                    className="flex items-center justify-between py-2.5 px-1 border-b border-zinc-200 dark:border-zinc-800 last:border-b-0"
                   >
                     <div className="min-w-0 pr-3">
                       <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
@@ -1196,7 +1249,7 @@ export function ScoringPanel({
                       )}
                     </div>
                     <div className="font-mono text-xs font-bold shrink-0 tabular-nums whitespace-nowrap">
-                      <span className="text-amber-500 dark:text-amber-400">{mark}</span>
+                      <span className="text-amber-500 dark:text-amber-400 font-black">{mark}</span>
                       <span className="text-zinc-400 font-normal"> / {criterion.max_marks}</span>
                     </div>
                   </div>
@@ -1205,12 +1258,12 @@ export function ScoringPanel({
             </div>
 
             {/* Actions: Review (Cancel) vs Lock Score (Confirm) */}
-            <div className="pt-3 border-t border-stone-200 dark:border-zinc-800 flex items-center gap-3 shrink-0">
+            <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex items-center gap-3 shrink-0">
               <button
                 type="button"
                 disabled={isSubmitting || isSubmittedBeat}
                 onClick={() => setIsReviewSheetOpen(false)}
-                className="flex-1 py-3.5 px-4 rounded-xl border border-stone-300 dark:border-zinc-700 bg-stone-200/60 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 font-extrabold text-sm hover:bg-stone-200 dark:hover:bg-zinc-750 disabled:opacity-40 cursor-pointer active:scale-95 transition-transform duration-75 ease-out will-change-transform"
+                className="flex-1 py-3.5 px-4 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 font-extrabold text-sm hover:bg-zinc-200 dark:hover:bg-zinc-750 disabled:opacity-40 cursor-pointer active:scale-95 transition-transform duration-75 ease-out will-change-transform"
               >
                 Review
               </button>
