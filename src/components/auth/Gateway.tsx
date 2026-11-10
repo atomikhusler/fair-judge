@@ -1,5 +1,5 @@
 import React from 'react';
-import { Scale, Gavel } from 'lucide-react';
+import { Scale, Gavel, Command } from 'lucide-react';
 
 interface GatewayProps {
   onSelectRole: (role: 'organiser' | 'judge') => void;
@@ -24,10 +24,10 @@ export function Gateway({ onSelectRole }: GatewayProps) {
         <button
           type="button"
           onClick={() => onSelectRole('organiser')}
-          className="group relative flex flex-col items-center justify-center aspect-square p-6 md:p-8 backdrop-blur-md bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.05] hover:border-white/[0.1] transition-all duration-300 rounded-3xl cursor-pointer active:scale-[0.98] shadow-2xl"
+          className="group relative flex flex-col items-center justify-center aspect-square p-6 md:p-8 bg-zinc-900 border border-white/[0.05] border-t-white/5 hover:bg-zinc-800/80 hover:border-white/[0.1] transition-all duration-300 rounded-3xl cursor-pointer active:scale-[0.98] shadow-2xl"
         >
           <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-4 group-hover:scale-110 group-hover:bg-emerald-500/20 transition-all duration-300 shadow-lg shadow-emerald-500/10">
-            <Scale className="w-7 h-7 md:w-8 md:h-8" />
+            <Command className="w-7 h-7 md:w-8 md:h-8 stroke-[2.2]" />
           </div>
           <span className="text-base md:text-lg font-bold text-white group-hover:text-emerald-400 transition-colors">
             Organiser
@@ -41,7 +41,7 @@ export function Gateway({ onSelectRole }: GatewayProps) {
         <button
           type="button"
           onClick={() => onSelectRole('judge')}
-          className="group relative flex flex-col items-center justify-center aspect-square p-6 md:p-8 backdrop-blur-md bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.05] hover:border-white/[0.1] transition-all duration-300 rounded-3xl cursor-pointer active:scale-[0.98] shadow-2xl"
+          className="group relative flex flex-col items-center justify-center aspect-square p-6 md:p-8 bg-zinc-900 border border-white/[0.05] border-t-white/5 hover:bg-zinc-800/80 hover:border-white/[0.1] transition-all duration-300 rounded-3xl cursor-pointer active:scale-[0.98] shadow-2xl"
         >
           <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4 group-hover:scale-110 group-hover:bg-amber-500/20 transition-all duration-300 shadow-lg shadow-amber-500/10">
             <Gavel className="w-7 h-7 md:w-8 md:h-8" />

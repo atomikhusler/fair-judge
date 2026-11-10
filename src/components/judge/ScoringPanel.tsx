@@ -14,8 +14,10 @@ import {
   Clock,
   Send,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
+import { triggerHaptic } from '../../lib/haptics';
 import { dbService, subscribeToDatabase } from '../../lib/supabase';
 import { queueScoreLocally, flushOfflineQueueToSupabase, getPendingCount, subscribeToQueueChanges } from '../../lib/offlineQueue';
 import { 
@@ -65,31 +67,42 @@ export function ScoringPanel({
   const [existingScore, setExistingScore] = useState<SupabaseScore | null>(null);
   const [allMyScores, setAllMyScores] = useState<SupabaseScore[]>([]);
   
-  // Async Payment-Style Submit State Machine (rapid click guarded)
+  // Submit State Machine & "The Beat" (600ms hold & fluid slide)
+  const [isReviewSheetOpen, setIsReviewSheetOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isSubmittedBeat, setIsSubmittedBeat] = useState(false);
+  const [isCardSlidingOut, setIsCardSlidingOut] = useState(false);
 
   const [, setPendingQueueCount] = useState(0);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | 'none'>('none');
 
-  // Screen WakeLock for continuous evaluation without dimming
+  // Screen WakeLock API: prevent screen dimming during active evaluation
   const wakeLockRef = useRef<any>(null);
 
   useEffect(() => {
+    let isMounted = true;
     async function requestWakeLock() {
       try {
-        if ('wakeLock' in navigator && (navigator as any).wakeLock) {
+        if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
           wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
         }
       } catch (err) {
-        console.warn('Screen wakeLock note:', err);
+        console.warn('Screen wakeLock request note:', err);
       }
     }
     requestWakeLock();
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isMounted) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      isMounted = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (wakeLockRef.current) {
         wakeLockRef.current.release().catch(() => {});
         wakeLockRef.current = null;
@@ -126,8 +139,11 @@ export function ScoringPanel({
 
       const assignedList = freshEvt ? freshEvt.assigned_participants : event.assigned_participants;
       const allP = await dbService.getParticipants(targetOrgId);
-      const filteredP = allP.filter((p) => (assignedList || []).includes(p.id));
-      setParticipants(filteredP);
+      const participantMap = new Map(allP.map((p) => [p.id, p]));
+      const sequencedParticipants = (assignedList || [])
+        .map((id) => participantMap.get(id))
+        .filter((p): p is SupabaseParticipant => Boolean(p));
+      setParticipants(sequencedParticipants);
 
       const allScores = await dbService.getScores(event.id);
       const myScores = allScores.filter((s) => s.judge_id === judge.id);
@@ -201,16 +217,7 @@ export function ScoringPanel({
     };
   }, [orgId, event.id, judge.id]);
 
-  // Modal Scroll Lock: lock background scroll when confirmation popup is open
-  useEffect(() => {
-    if (showConfirmModal) {
-      const original = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = original;
-      };
-    }
-  }, [showConfirmModal]);
+
 
   const currentParticipant = participants[currentIndex] || null;
 
@@ -262,9 +269,10 @@ export function ScoringPanel({
       });
   }, [currentIndex, currentParticipant?.id, event.id, judge.id]);
 
-  // Handle score changes
+  // Handle score changes with granular haptics
   const handleScoreChange = (criterionId: string, val: number) => {
     if (areSlidersDisabled) return;
+    triggerHaptic('tick');
     setScoresMap((prev) => ({
       ...prev,
       [criterionId]: val,
@@ -350,18 +358,20 @@ export function ScoringPanel({
   const maxPossible = rubricList.reduce((acc, c) => acc + (Number(c.max_marks) || 0), 0);
 
   // =============================================================
-  // PART 3: ASYNC PAYMENT-STYLE SUBMIT STATE MACHINE
+  // PART 3: ASYNC SUBMIT & "THE BEAT" (600ms hold & fluid slide)
   // =============================================================
-  const handleInitiateSubmit = () => {
-    if (!currentParticipant || !isAllScored || isSubmitting || showSuccess || areSlidersDisabled) return;
-    setShowConfirmModal(true);
+  const handleOpenReview = () => {
+    if (!currentParticipant || !isAllScored || isSubmitting || isSubmittedBeat || areSlidersDisabled) return;
+    triggerHaptic('tap');
+    setIsReviewSheetOpen(true);
   };
 
-  const handleConfirmSubmit = async () => {
-    if (!currentParticipant || !isAllScored || isSubmitting || showSuccess) return;
-    
-    // Close modal & enter submitting state immediately (prevents rapid multi-clicks)
-    setShowConfirmModal(false);
+  const handleConfirmLockScore = async () => {
+    if (!currentParticipant || !isAllScored || isSubmitting || isSubmittedBeat || areSlidersDisabled) return;
+
+    // Granular Haptics: Final ballot submission pulse
+    triggerHaptic('submit');
+
     setIsSubmitting(true);
 
     const sanitizedData: Record<string, number> = {};
@@ -369,7 +379,10 @@ export function ScoringPanel({
       sanitizedData[c.id] = scoresMap[c.id] || 0;
     });
 
+    const ballotUuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `score_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
     const payload = {
+      id: ballotUuid,
       event_id: event.id,
       judge_id: judge.id,
       participant_id: currentParticipant.id,
@@ -382,66 +395,96 @@ export function ScoringPanel({
       },
     };
 
+    const participantSnapshot = currentParticipant;
+    const indexSnapshot = currentIndex;
+
     try {
       const freshEvent = await dbService.getEventById(event.id);
       if (freshEvent && (freshEvent.status === 'paused' || freshEvent.status === 'ended')) {
         throw new Error(`Event is ${freshEvent.status}. Ballot submission rejected.`);
       }
 
+      let committed: SupabaseScore;
       if (!navigator.onLine) {
-        throw new Error('Network offline');
+        await queueScoreLocally(payload);
+        committed = {
+          ...payload,
+          id: ballotUuid,
+          created_at: new Date().toISOString(),
+        };
+      } else {
+        committed = await dbService.submitScore(payload);
       }
 
-      const committed = await dbService.submitScore(payload);
       setExistingScore(committed);
       setAllMyScores((prev) => {
-        const without = prev.filter((s) => s.participant_id !== currentParticipant.id);
+        const without = prev.filter((s) => s.participant_id !== participantSnapshot.id);
         return [...without, committed];
       });
 
-      // Network request succeeded -> transition to showSuccess
+      // Network resolved -> transition to Recorded checkmark & hold screen perfectly still for 600ms (The Beat)
       setIsSubmitting(false);
-      setShowSuccess(true);
+      setIsSubmittedBeat(true);
 
-      // Micro-interaction UI: hold for exactly 1500ms
       setTimeout(() => {
-        setShowSuccess(false);
+        setIsSubmittedBeat(false);
+        setIsReviewSheetOpen(false);
+
         if (isAutoAdvance) {
-          if (currentIndex < participants.length - 1) {
-            handleNext();
-          } else {
-            setViewMode('list');
-          }
+          // Slide out current card to the left
+          setIsCardSlidingOut(true);
+
+          setTimeout(() => {
+            if (indexSnapshot < participants.length - 1) {
+              setCurrentIndex(indexSnapshot + 1);
+              setIsCardSlidingOut(false);
+              setSlideDirection('left');
+              setTimeout(() => setSlideDirection('none'), 250);
+            } else {
+              setIsCardSlidingOut(false);
+              setViewMode('list');
+            }
+          }, 250);
         }
-      }, 1500);
+      }, 600);
 
     } catch (err: any) {
       console.warn('Saving to local offline queue:', err);
       await queueScoreLocally(payload);
       const offlineCommit: SupabaseScore = {
         ...payload,
-        id: `queued_${Date.now()}`,
+        id: ballotUuid,
         created_at: new Date().toISOString(),
       };
       setExistingScore(offlineCommit);
       setAllMyScores((prev) => {
-        const without = prev.filter((s) => s.participant_id !== currentParticipant.id);
+        const without = prev.filter((s) => s.participant_id !== participantSnapshot.id);
         return [...without, offlineCommit];
       });
 
       setIsSubmitting(false);
-      setShowSuccess(true);
+      setIsSubmittedBeat(true);
 
       setTimeout(() => {
-        setShowSuccess(false);
+        setIsSubmittedBeat(false);
+        setIsReviewSheetOpen(false);
+
         if (isAutoAdvance) {
-          if (currentIndex < participants.length - 1) {
-            handleNext();
-          } else {
-            setViewMode('list');
-          }
+          setIsCardSlidingOut(true);
+
+          setTimeout(() => {
+            if (indexSnapshot < participants.length - 1) {
+              setCurrentIndex(indexSnapshot + 1);
+              setIsCardSlidingOut(false);
+              setSlideDirection('left');
+              setTimeout(() => setSlideDirection('none'), 250);
+            } else {
+              setIsCardSlidingOut(false);
+              setViewMode('list');
+            }
+          }, 250);
         }
-      }, 1500);
+      }, 600);
     }
   };
 
@@ -466,11 +509,11 @@ export function ScoringPanel({
 
             <div className="flex items-center space-x-2 shrink-0">
               {isBlindJudging && (
-                <span className="text-[11px] font-mono font-bold uppercase tracking-widest bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full">
                   Blind Judging
                 </span>
               )}
-              <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-mono font-bold uppercase tracking-widest bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
+              <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
                 <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-amber-500' : 'bg-amber-400'}`} />
                 <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
               </div>
@@ -479,21 +522,21 @@ export function ScoringPanel({
 
           <div className="border-t border-stone-200/80 dark:border-zinc-800/80 pt-2.5 mt-2.5 flex items-start justify-between">
             <div className="min-w-0 flex-1 mr-3">
-              <span className="text-[11px] font-mono uppercase tracking-widest text-amber-500 dark:text-amber-400 font-extrabold flex items-center space-x-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 dark:text-amber-400 font-extrabold flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                 <span>{event.category || 'Official Competition'}</span>
               </span>
-              <h1 className="text-base sm:text-lg font-black text-zinc-900 dark:text-zinc-50 mt-0.5 truncate">
+              <h1 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white mt-0.5 truncate">
                 {event.name}
               </h1>
             </div>
 
             {!isIsolatedJury && (
               <div className="text-right shrink-0 bg-stone-100 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-zinc-700">
-                <span className="text-sm font-mono font-black tabular-nums text-zinc-900 dark:text-zinc-50">
+                <span className="text-sm font-mono font-black text-zinc-900 dark:text-white">
                   {scoredCount} / {participants.length}
                 </span>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono block">Evaluated</span>
+                <span className="text-[10px] text-zinc-400 font-mono block">Evaluated</span>
               </div>
             )}
           </div>
@@ -504,18 +547,18 @@ export function ScoringPanel({
           <main className="flex-1 overflow-y-auto px-4 pt-4 pb-40 space-y-5">
           {/* Smart Search Bar */}
           <div className="relative">
-            <Search className="w-4 h-4 text-zinc-500 dark:text-zinc-400 absolute left-3.5 top-3.5" />
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3.5" />
             <input
               type="text"
               placeholder={isBlindJudging ? "Search by Sl. No. or ID..." : "Search by Sl. No., Name, or School..."}
               value={listSearch}
               onChange={(e) => setListSearch(e.target.value)}
-              className="w-full pl-10 pr-9 py-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-xs text-zinc-900 dark:text-zinc-50 placeholder-zinc-500 dark:placeholder-zinc-400 shadow-sm focus:outline-none focus:border-amber-500"
+              className="w-full pl-10 pr-9 py-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-xs text-zinc-900 dark:text-white placeholder-zinc-400 shadow-sm focus:outline-none focus:border-amber-500"
             />
             {listSearch && (
               <button
                 onClick={() => setListSearch('')}
-                className="absolute right-3 top-3 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
+                className="absolute right-3 top-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-white p-0.5 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -530,40 +573,45 @@ export function ScoringPanel({
                   <Clock className="w-3.5 h-3.5 text-amber-500" />
                   <span>Upcoming ({filteredUpcoming.length})</span>
                 </h2>
-                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-widest">
+                <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase">
                   VIP SCORING QUEUE
                 </span>
               </div>
 
               {filteredUpcoming.length === 0 ? (
-                <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-xs text-zinc-500 dark:text-zinc-400 shadow-sm">
+                <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-xs text-zinc-400 shadow-sm">
                   {listSearch ? 'No upcoming competitors match your search.' : 'All assigned competitors have been evaluated! 🎉'}
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {filteredUpcoming.map((p) => {
-                    const participantSerial = event.participant_sl_numbers?.[p.id] || p.sl_no;
+                  {filteredUpcoming.map((p, idx) => {
+                    const assignedIds = activeEvent.assigned_participants || event.assigned_participants || [];
+                    const orderIdx = assignedIds.indexOf(p.id);
+                    const participantSerial =
+                      (activeEvent.participant_sl_numbers?.[p.id] || event.participant_sl_numbers?.[p.id]) ||
+                      (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : p.sl_no);
                     return (
                       <div
                         key={p.id}
+                        style={{ animationDelay: `${Math.min(idx, 8) * 50}ms` }}
                         onClick={() => handleOpenParticipant(p)}
-                        className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-850 rounded-2xl shadow-sm transition-all cursor-pointer group flex items-center justify-between active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
+                        className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-850 rounded-2xl shadow-sm transition-all cursor-pointer group flex items-center justify-between active:scale-95 transition-transform duration-75 ease-out will-change-transform animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both"
                       >
                         <div className="flex items-center space-x-3.5 min-w-0 mr-3">
-                          <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 font-mono font-black tabular-nums text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                          <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 font-mono font-black text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
                             {participantSerial}
                           </div>
                           <div className="min-w-0">
                             {isBlindJudging ? (
-                              <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-zinc-50 truncate">
+                              <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white truncate">
                                 Participant {p.identity_id || `P-${p.id.slice(0, 4)}`}
                               </h3>
                             ) : (
                               <>
-                                <h3 className="text-sm font-extrabold text-zinc-900 dark:text-zinc-50 truncate group-hover:text-amber-500 transition-colors">
+                                <h3 className="text-sm font-extrabold text-zinc-900 dark:text-white truncate group-hover:text-amber-500 transition-colors">
                                   {p.name}
                                 </h3>
-                                <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate mt-0.5">
+                                <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
                                   {p.school}
                                 </p>
                               </>
@@ -578,7 +626,7 @@ export function ScoringPanel({
                               e.stopPropagation();
                               handleOpenParticipant(p);
                             }}
-                            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs tracking-wide shadow-md shadow-amber-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center space-x-1.5 cursor-pointer"
+                            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs tracking-wide shadow-md shadow-amber-500/20 active:scale-95 transition-transform duration-75 ease-out will-change-transform flex items-center space-x-1.5 cursor-pointer"
                           >
                             <span>Score</span>
                             <ChevronRight className="w-4 h-4 stroke-[2.5]" />
@@ -594,45 +642,50 @@ export function ScoringPanel({
             {/* SECTION 2: COMPLETED EVALUATIONS */}
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between px-1">
-                <h2 className="text-xs font-black text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center space-x-1.5">
+                <h2 className="text-xs font-black text-zinc-500 uppercase tracking-wider flex items-center space-x-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
                   <span>Completed ({filteredCompleted.length})</span>
                 </h2>
-                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-widest">
+                <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase">
                   SEALED IN AUDIT LEDGER
                 </span>
               </div>
 
               {filteredCompleted.length === 0 ? (
-                <div className="p-6 bg-stone-100/50 dark:bg-zinc-900/20 border border-stone-200/50 dark:border-zinc-800/40 rounded-2xl text-center text-xs text-zinc-500 dark:text-zinc-400">
+                <div className="p-6 bg-stone-100/50 dark:bg-zinc-900/20 border border-stone-200/50 dark:border-zinc-800/40 rounded-2xl text-center text-xs text-zinc-500">
                   No ballots completed yet. Select an upcoming competitor above to begin scoring.
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {filteredCompleted.map((p) => {
+                  {filteredCompleted.map((p, idx) => {
                     const scoreRecord = allMyScores.find((s) => s.participant_id === p.id);
-                    const participantSerial = event.participant_sl_numbers?.[p.id] || p.sl_no;
+                    const assignedIds = activeEvent.assigned_participants || event.assigned_participants || [];
+                    const orderIdx = assignedIds.indexOf(p.id);
+                    const participantSerial =
+                      (activeEvent.participant_sl_numbers?.[p.id] || event.participant_sl_numbers?.[p.id]) ||
+                      (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : p.sl_no);
                     return (
                       <div
                         key={p.id}
+                        style={{ animationDelay: `${Math.min(idx, 8) * 50}ms` }}
                         onClick={() => handleOpenParticipant(p)}
-                        className="p-3.5 sm:p-4 bg-stone-100/80 dark:bg-zinc-900/50 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between gap-3 opacity-90 hover:opacity-100 transition-all cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform shadow-xs"
+                        className="p-3.5 sm:p-4 bg-stone-100/80 dark:bg-zinc-900/50 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between gap-3 opacity-90 hover:opacity-100 transition-all cursor-pointer active:scale-95 transition-transform duration-75 ease-out will-change-transform shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both"
                       >
                         <div className="flex items-center space-x-3.5 min-w-0 flex-1">
-                          <div className="w-10 h-10 rounded-2xl bg-stone-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono font-bold tabular-nums text-xs sm:text-sm flex items-center justify-center shrink-0">
+                          <div className="w-10 h-10 rounded-2xl bg-stone-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-mono font-bold text-xs sm:text-sm flex items-center justify-center shrink-0">
                             {participantSerial}
                           </div>
                           <div className="min-w-0 flex-1">
                             {isBlindJudging ? (
-                              <h3 className="text-base font-black text-zinc-900 dark:text-zinc-100 truncate">
+                              <h3 className="text-base font-black text-zinc-800 dark:text-zinc-200 truncate">
                                 Participant {p.identity_id || `P-${p.id.slice(0, 4)}`}
                               </h3>
                             ) : (
                               <>
-                                <h3 className="text-xs sm:text-sm font-extrabold text-zinc-900 dark:text-zinc-100 truncate">
+                                <h3 className="text-xs sm:text-sm font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
                                   {p.name}
                                 </h3>
-                                <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate mt-0.5">
+                                <p className="text-[11px] text-zinc-400 truncate mt-0.5">
                                   {p.school}
                                 </p>
                               </>
@@ -641,11 +694,11 @@ export function ScoringPanel({
                         </div>
 
                         <div className="shrink-0 flex items-center space-x-3 text-right">
-                          <div className="font-mono text-right">
-                            <span className="text-base sm:text-lg font-black tabular-nums tracking-tight text-amber-500 dark:text-amber-400">
+                          <div className="font-mono text-right tabular-nums whitespace-nowrap">
+                            <span className="text-base sm:text-lg font-black text-amber-500 dark:text-amber-400 tabular-nums whitespace-nowrap">
                               {scoreRecord?.total_score ?? '—'}
                             </span>
-                            <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400 ml-1">pts</span>
+                            <span className="text-[11px] font-mono text-zinc-400 ml-1">pts</span>
                           </div>
                           <div className="w-8 h-8 rounded-xl bg-stone-200/80 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 hover:text-zinc-800 dark:hover:text-white transition-colors">
                             <Eye className="w-3.5 h-3.5" />
@@ -677,7 +730,7 @@ export function ScoringPanel({
         {/* Left: [ ← Back ] Heavy Contrast Secondary Button */}
         <button
           onClick={() => setViewMode('list')}
-          className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-5 min-h-[48px] rounded-xl shadow-md active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer shrink-0"
+          className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-5 min-h-[48px] rounded-xl shadow-md active:scale-95 transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer shrink-0"
           title="Return to Competitor Roster"
         >
           <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
@@ -696,10 +749,10 @@ export function ScoringPanel({
             </div>
           ) : (
             <button
-              onClick={handleInitiateSubmit}
-              disabled={!isAllScored || isSubmitting || showSuccess || areSlidersDisabled}
-              className={`px-6 min-h-[48px] rounded-xl font-black text-base shadow-lg shadow-amber-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 tracking-wide ${
-                isAllScored && !isSubmitting && !showSuccess && !areSlidersDisabled
+              onClick={handleOpenReview}
+              disabled={!isAllScored || isSubmitting || isSubmittedBeat || areSlidersDisabled}
+              className={`px-6 min-h-[48px] rounded-xl font-black text-base shadow-lg shadow-amber-500/20 active:scale-95 transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 tracking-wide ${
+                isAllScored && !isSubmitting && !isSubmittedBeat && !areSlidersDisabled
                   ? 'bg-amber-500 hover:bg-amber-400 text-black cursor-pointer'
                   : 'bg-stone-200 dark:bg-zinc-800 text-zinc-400 opacity-50 cursor-not-allowed'
               }`}
@@ -721,24 +774,31 @@ export function ScoringPanel({
       </header>
 
       {/* Pinned Competitor Banner Strip */}
-      {currentParticipant && (
+      {currentParticipant && (() => {
+        const assignedIds = activeEvent.assigned_participants || event.assigned_participants || [];
+        const orderIdx = assignedIds.indexOf(currentParticipant.id);
+        const currentSerial =
+          (activeEvent.participant_sl_numbers?.[currentParticipant.id] || event.participant_sl_numbers?.[currentParticipant.id]) ||
+          (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : String(currentIndex + 1).padStart(2, '0'));
+
+        return (
         <div className="shrink-0 z-40 px-4 pt-3 pb-2 bg-stone-100/90 dark:bg-zinc-900/90 backdrop-blur-md border-b border-stone-200/60 dark:border-zinc-800/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 min-w-0 flex-1">
-              <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black tabular-nums text-sm text-amber-500 dark:text-amber-400 shrink-0 shadow-sm">
-                {event.participant_sl_numbers?.[currentParticipant.id] || currentParticipant.sl_no}
+              <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-amber-500 dark:text-amber-400 shrink-0 shadow-sm">
+                {currentSerial}
               </div>
               <div className="min-w-0 flex-1">
                 {isBlindJudging ? (
-                  <h2 className="text-lg font-black text-zinc-900 dark:text-zinc-50 truncate">
+                  <h2 className="text-lg font-black text-zinc-900 dark:text-white truncate">
                     Participant {currentParticipant.identity_id || `P-${currentParticipant.id.slice(0, 4)}`}
                   </h2>
                 ) : (
                   <>
-                    <h2 className="text-sm font-extrabold text-zinc-900 dark:text-zinc-50 truncate">
+                    <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white truncate">
                       {currentParticipant.name}
                     </h2>
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
                       {currentParticipant.school}
                     </p>
                   </>
@@ -748,7 +808,7 @@ export function ScoringPanel({
 
             {/* If Not Isolated Jury, show Queue Counter */}
             {!isIsolatedJury && (
-              <div className="text-right shrink-0 font-mono tabular-nums text-xs text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-800 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-zinc-700">
+              <div className="text-right shrink-0 font-mono text-[11px] text-zinc-400 bg-white dark:bg-zinc-800 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-zinc-700">
                 {currentIndex + 1} of {participants.length}
               </div>
             )}
@@ -756,21 +816,28 @@ export function ScoringPanel({
 
           {/* Grace Period Notification Pill */}
           {isWithinGracePeriod && (
-            <div className="mt-2 py-1 px-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-xs text-amber-600 dark:text-amber-400 font-mono font-semibold">
+            <div className="mt-2 py-1 px-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-[11px] text-amber-600 dark:text-amber-400 font-mono font-semibold">
               <span>5m Grace Period Active: Ballots can be re-adjusted</span>
-              <Clock className="w-3.5 h-3.5 animate-pulse" />
+              <Clock className="w-3 h-3 animate-pulse" />
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ============================================================ */}
       {/* SCROLLABLE CRITERIA SLIDERS CONTAINER (flex-1 overflow-y-auto) */}
       {/* ============================================================ */}
       <PullToRefresh onRefresh={handlePullRefresh} accentColor="amber" className="w-full flex-1 overflow-hidden flex flex-col">
         <main
-          className={`w-full flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-[140px] relative z-10 transition-transform duration-200 ${
-            slideDirection === 'left' ? 'translate-x-2' : slideDirection === 'right' ? '-translate-x-2' : ''
+          className={`w-full flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-[140px] relative z-10 transition-all duration-250 ease-out will-change-transform ${
+            isCardSlidingOut
+              ? '-translate-x-full opacity-0'
+              : slideDirection === 'left'
+              ? 'translate-x-0 opacity-100 animate-in slide-in-from-right duration-250'
+              : slideDirection === 'right'
+              ? 'translate-x-0 opacity-100 animate-in slide-in-from-left duration-250'
+              : 'translate-x-0 opacity-100'
           }`}
         >
         {existingScore && !isWithinGracePeriod && (
@@ -781,7 +848,7 @@ export function ScoringPanel({
             </div>
             <button
               onClick={() => setViewMode('list')}
-              className="px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow-sm shrink-0 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
+              className="px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-[11px] shadow-sm shrink-0 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
             >
               Roster
             </button>
@@ -804,25 +871,27 @@ export function ScoringPanel({
                 {/* Criterion Header */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-0 min-w-0 flex-1">
-                    <h3 className="text-xs font-black text-zinc-900 dark:text-zinc-50 uppercase tracking-wider">
+                    <h3 className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-wider">
                       {crit.name}
                     </h3>
                     {crit.description && (
-                      <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-2 mt-0.5">
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2 mt-0.5">
                         {crit.description}
                       </p>
                     )}
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums block mt-0.5">Max: {max} pts</span>
+                    <span className="text-[10px] text-zinc-400 font-mono block mt-0.5">Max: {max} pts</span>
                   </div>
 
                   <div className="font-mono text-right shrink-0 pl-2">
                     {isScored ? (
-                      <span className="text-2xl sm:text-3xl font-bold tabular-nums tracking-tight text-amber-500 dark:text-amber-400">
-                        {currentVal}
-                        <span className="text-xs text-zinc-500 dark:text-zinc-400 font-normal"> / {max}</span>
+                      <span className="text-2xl sm:text-3xl font-black text-amber-500 dark:text-amber-400 tracking-tight tabular-nums whitespace-nowrap">
+                        <span key={currentVal} className="inline-block animate-in fade-in slide-in-from-bottom-1 duration-150">
+                          {currentVal}
+                        </span>
+                        <span className="text-xs text-zinc-400 font-normal"> / {max}</span>
                       </span>
                     ) : (
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400 bg-stone-100 dark:bg-zinc-800 px-3 py-1 rounded-full border border-stone-200 dark:border-zinc-700 font-sans font-medium">
+                      <span className="text-[11px] text-zinc-500 bg-stone-100 dark:bg-zinc-800 px-3 py-1 rounded-full border border-stone-200 dark:border-zinc-700 font-sans font-medium">
                         Slide to Score
                       </span>
                     )}
@@ -837,7 +906,7 @@ export function ScoringPanel({
                       type="button"
                       onClick={() => handleScoreChange(crit.id, Math.max(0, activeVal - 1))}
                       disabled={areSlidersDisabled || activeVal <= 0}
-                      className="w-11 h-11 shrink-0 bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 rounded-xl active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform disabled:opacity-30 border border-stone-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold flex items-center justify-center cursor-pointer shadow-sm"
+                      className="w-11 h-11 shrink-0 bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 rounded-xl active:scale-95 transition-transform duration-75 ease-out will-change-transform disabled:opacity-30 border border-stone-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold flex items-center justify-center cursor-pointer shadow-sm"
                       title="Decrease mark by 1"
                       aria-label="Decrease score"
                     >
@@ -883,7 +952,7 @@ export function ScoringPanel({
                       type="button"
                       onClick={() => handleScoreChange(crit.id, Math.min(max, activeVal + 1))}
                       disabled={areSlidersDisabled || activeVal >= max}
-                      className="w-11 h-11 shrink-0 bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 rounded-xl active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform disabled:opacity-30 border border-stone-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold flex items-center justify-center cursor-pointer shadow-sm"
+                      className="w-11 h-11 shrink-0 bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 rounded-xl active:scale-95 transition-transform duration-75 ease-out will-change-transform disabled:opacity-30 border border-stone-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold flex items-center justify-center cursor-pointer shadow-sm"
                       title="Increase mark by 1"
                       aria-label="Increase score"
                     >
@@ -892,7 +961,7 @@ export function ScoringPanel({
                   </div>
 
                   {/* Range Snap Markers */}
-                  <div className="flex justify-between px-14 text-xs font-mono font-bold tabular-nums text-zinc-500 dark:text-zinc-400">
+                  <div className="flex justify-between px-14 text-[10px] font-mono font-bold text-zinc-400">
                     <span>0</span>
                     <span>{Math.floor(max / 2)}</span>
                     <span>{max}</span>
@@ -913,7 +982,7 @@ export function ScoringPanel({
         <button
           onClick={handlePrev}
           disabled={currentIndex === 0}
-          className="w-12 h-12 rounded-full bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 disabled:opacity-25 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-800 dark:text-zinc-200 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer shadow-sm shrink-0"
+          className="w-12 h-12 rounded-full bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 disabled:opacity-25 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-800 dark:text-zinc-200 active:scale-95 transition-transform duration-75 ease-out will-change-transform cursor-pointer shadow-sm shrink-0"
           title="Previous Competitor"
           aria-label="Previous Competitor"
         >
@@ -922,12 +991,14 @@ export function ScoringPanel({
 
         {/* Center: Total: XX / YY pts (Massive, bold, monospace font, perfectly centered) */}
         <div className="text-center font-mono flex flex-col items-center justify-center min-w-0 px-2">
-          <div className="text-2xl sm:text-3xl font-bold tracking-tight tabular-nums text-zinc-900 dark:text-zinc-50 leading-none">
-            <span className="text-amber-500 dark:text-amber-400">{currentTotal}</span>
-            <span className="text-zinc-500 dark:text-zinc-400 text-sm font-normal"> / {maxPossible}</span>
-            <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400 ml-1">pts</span>
+          <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white tracking-tight leading-none tabular-nums whitespace-nowrap">
+            <span key={currentTotal} className="text-amber-500 dark:text-amber-400 tabular-nums whitespace-nowrap inline-block animate-in fade-in slide-in-from-bottom-1 duration-150">
+              {currentTotal}
+            </span>
+            <span className="text-zinc-400 text-sm font-normal"> / {maxPossible}</span>
+            <span className="text-xs font-normal text-zinc-400 ml-1">pts</span>
           </div>
-          <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-widest mt-1 font-bold">
+          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest mt-1 font-bold">
             Total Composite
           </span>
         </div>
@@ -936,7 +1007,7 @@ export function ScoringPanel({
         <button
           onClick={handleNext}
           disabled={currentIndex === participants.length - 1}
-          className="w-12 h-12 rounded-full bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 disabled:opacity-25 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-800 dark:text-zinc-200 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer shadow-sm shrink-0"
+          className="w-12 h-12 rounded-full bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 disabled:opacity-25 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-800 dark:text-zinc-200 active:scale-95 transition-transform duration-75 ease-out will-change-transform cursor-pointer shadow-sm shrink-0"
           title="Next Competitor"
           aria-label="Next Competitor"
         >
@@ -945,85 +1016,135 @@ export function ScoringPanel({
       </footer>
 
       {/* ============================================================ */}
-      {/* PART 3: FRAMER-STYLE CONFIRMATION MODAL ("Lock in this score?") */}
+      {/* APPLE-PAY STYLE LAST REVIEW BOTTOM SHEET */}
       {/* ============================================================ */}
-      {showConfirmModal ? (
-        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 pointer-events-auto">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-4 animate-fade-in select-none">
-            <div className="flex items-center space-x-3 text-amber-500 dark:text-amber-400">
-              <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
-                <ShieldCheck className="w-6 h-6 stroke-[2.2]" />
-              </div>
-              <div>
-                <h3 className="text-base font-extrabold text-zinc-900 dark:text-zinc-50">Lock in this score?</h3>
-                <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-widest font-bold">IMMUTABLE CRYPTOGRAPHIC LEDGER</span>
-              </div>
-            </div>
+      {isReviewSheetOpen && currentParticipant && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200">
+          <div
+            className="w-full max-w-lg bg-stone-50 dark:bg-zinc-900 border-t border-stone-200 dark:border-zinc-800 rounded-t-3xl shadow-2xl p-5 flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-250 ease-out"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Grab Handle */}
+            <div className="w-12 h-1.5 rounded-full bg-stone-300 dark:bg-zinc-700 mx-auto mb-4 shrink-0" />
 
-            <div className="p-3.5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 rounded-2xl space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-zinc-600 dark:text-zinc-400">Competitor:</span>
-                <span className="font-bold text-zinc-900 dark:text-zinc-50">
-                  {isBlindJudging
-                    ? `Participant ${currentParticipant?.identity_id || 'P-8492'}`
-                    : currentParticipant?.name}
-                </span>
+            {/* Header: Competitor Serial & Identity */}
+            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800 shrink-0">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center font-mono font-black text-sm text-amber-500 dark:text-amber-400 shrink-0">
+                  {(() => {
+                    const assignedIds = activeEvent.assigned_participants || event.assigned_participants || [];
+                    const orderIdx = assignedIds.indexOf(currentParticipant.id);
+                    return (
+                      (activeEvent.participant_sl_numbers?.[currentParticipant.id] || event.participant_sl_numbers?.[currentParticipant.id]) ||
+                      (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : String(currentIndex + 1).padStart(2, '0'))
+                    );
+                  })()}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black text-zinc-900 dark:text-white truncate">
+                    {isBlindJudging ? `Participant ${currentParticipant.identity_id || `P-${currentParticipant.id.slice(0, 4)}`}` : currentParticipant.name}
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                    {isBlindJudging ? 'Blind Evaluation' : currentParticipant.school}
+                  </p>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-600 dark:text-zinc-400">Serial No.:</span>
-                <span className="font-mono tabular-nums text-amber-500 dark:text-amber-400 font-bold">
-                  #{event.participant_sl_numbers?.[currentParticipant?.id || ''] || currentParticipant?.sl_no}
-                </span>
-              </div>
-              <div className="flex justify-between border-t border-stone-200 dark:border-zinc-800 pt-1.5">
-                <span className="text-zinc-600 dark:text-zinc-400 font-medium">Final Composite:</span>
-                <span className="font-mono font-bold tracking-tight tabular-nums text-amber-500 dark:text-amber-400 text-sm">{currentTotal} / {maxPossible} pts</span>
-              </div>
-            </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-              {isGracePeriod
-                ? 'Your ballot will be recorded immediately. You will have a 5-minute grace window to make any final adjustments.'
-                : 'Once confirmed, this ballot is permanently sealed in the competition audit repository and cannot be altered.'}
-            </p>
-
-            <div className="grid grid-cols-2 gap-3 pt-1">
+              {/* Close Button (Review / Cancel) */}
               <button
                 type="button"
-                onClick={() => setShowConfirmModal(false)}
-                className="min-h-[42px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer border border-stone-200 dark:border-zinc-800"
+                disabled={isSubmitting || isSubmittedBeat}
+                onClick={() => setIsReviewSheetOpen(false)}
+                className="p-2 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-stone-200/50 dark:hover:bg-zinc-800 disabled:opacity-30 cursor-pointer transition-colors"
+                title="Cancel"
+                aria-label="Cancel"
               >
-                Cancel
+                <X className="w-5 h-5 stroke-[2.5]" />
               </button>
+            </div>
+
+            {/* Total Score Hero */}
+            <div className="py-4 my-2 text-center bg-stone-100 dark:bg-zinc-850 rounded-2xl border border-stone-200 dark:border-zinc-800 shrink-0">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 font-bold block mb-1">
+                Final Score Review
+              </span>
+              <div className="text-3xl font-black text-zinc-900 dark:text-white tabular-nums whitespace-nowrap">
+                <span className="text-amber-500 dark:text-amber-400">{currentTotal}</span>
+                <span className="text-zinc-400 text-base font-normal"> / {maxPossible}</span>
+                <span className="text-xs font-normal text-zinc-400 ml-1">pts</span>
+              </div>
+            </div>
+
+            {/* Criteria Breakdown List */}
+            <div className="flex-1 overflow-y-auto space-y-2 py-1 pr-1 my-2">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 font-bold px-1">
+                Criteria Marks
+              </span>
+              {rubricList.map((criterion) => {
+                const mark = scoresMap[criterion.id] ?? 0;
+                return (
+                  <div
+                    key={criterion.id}
+                    className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-800"
+                  >
+                    <div className="min-w-0 pr-3">
+                      <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
+                        {criterion.name}
+                      </p>
+                      {criterion.description && (
+                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
+                          {criterion.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="font-mono text-xs font-bold shrink-0 tabular-nums whitespace-nowrap">
+                      <span className="text-amber-500 dark:text-amber-400">{mark}</span>
+                      <span className="text-zinc-400 font-normal"> / {criterion.max_marks}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Actions: Review (Cancel) vs Lock Score (Confirm) */}
+            <div className="pt-3 border-t border-stone-200 dark:border-zinc-800 flex items-center gap-3 shrink-0">
               <button
                 type="button"
-                disabled={isSubmitting}
-                onClick={handleConfirmSubmit}
-                className="min-h-[42px] bg-amber-500 hover:bg-amber-400 text-black text-xs font-black rounded-xl transition-all shadow-md shadow-amber-500/25 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center justify-center space-x-1.5"
+                disabled={isSubmitting || isSubmittedBeat}
+                onClick={() => setIsReviewSheetOpen(false)}
+                className="flex-1 py-3.5 px-4 rounded-xl border border-stone-300 dark:border-zinc-700 bg-stone-200/60 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 font-extrabold text-sm hover:bg-stone-200 dark:hover:bg-zinc-750 disabled:opacity-40 cursor-pointer active:scale-95 transition-transform duration-75 ease-out will-change-transform"
               >
-                {isSubmitting ? <span>Locking...</span> : <span>Confirm Lock</span>}
+                Review
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmitting || isSubmittedBeat}
+                onClick={handleConfirmLockScore}
+                className={`flex-1 py-3.5 px-4 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all duration-75 ease-out will-change-transform cursor-pointer ${
+                  isSubmittedBeat
+                    ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                    : 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/25'
+                }`}
+              >
+                {isSubmitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin shrink-0 stroke-[2.5]" />
+                ) : isSubmittedBeat ? (
+                  <>
+                    <Lock className="w-4 h-4 stroke-[2.5] shrink-0" />
+                    <span>Locked</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4 stroke-[2.5] shrink-0" />
+                    <span>Lock Score</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
-      ) : null}
-
-      {/* ============================================================ */}
-      {/* PART 3: ASYNC PAYMENT-STYLE SUCCESS OVERLAY (1500ms)         */}
-      {/* ============================================================ */}
-      {showSuccess ? (
-        <div className="fixed inset-0 z-[100] bg-white/95 dark:bg-black/95 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-200 select-none pointer-events-auto">
-          <div className="flex flex-col items-center text-center p-6 space-y-3">
-            <CheckCircle className="w-20 h-20 text-amber-400 animate-in zoom-in duration-300 stroke-[2.2]" />
-            <h2 className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white tracking-tight">
-              Score Locked.
-            </h2>
-            <p className="text-xs font-mono font-bold text-amber-500 dark:text-amber-400">
-              Recorded in Immutable Ledger
-            </p>
-          </div>
-        </div>
-      ) : null}
+      )}
 
     </div>
   );

@@ -20,11 +20,15 @@ import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
 import { eventBus } from '../../lib/eventBus';
 import { SettingsDrawer } from './SettingsDrawer';
 import { AccountModal } from './AccountModal';
-import { LiveTab } from './tabs/LiveTab';
-import { EventsTab } from './tabs/EventsTab';
-import { PeopleTab } from './tabs/PeopleTab';
-import { InsightsTab } from './tabs/InsightsTab';
 import { PullToRefresh } from '../common/PullToRefresh';
+import { TabSkeleton } from '../common/Skeletons';
+import { triggerHaptic } from '../../lib/haptics';
+
+// Code Splitting: Asynchronously load organiser tabs to minimize initial JS bundle
+const LiveTab = React.lazy(() => import('./tabs/LiveTab').then((m) => ({ default: m.LiveTab })));
+const EventsTab = React.lazy(() => import('./tabs/EventsTab').then((m) => ({ default: m.EventsTab })));
+const PeopleTab = React.lazy(() => import('./tabs/PeopleTab').then((m) => ({ default: m.PeopleTab })));
+const InsightsTab = React.lazy(() => import('./tabs/InsightsTab').then((m) => ({ default: m.InsightsTab })));
 
 export type OrganiserNavTab = 'live' | 'events' | 'people' | 'insights';
 
@@ -347,32 +351,34 @@ export function OrganiserDashboard({
           key={activeTab}
           className="w-full h-full flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out will-change-transform"
         >
-          {/* Tab 1: Live Control Room */}
-          {activeTab === 'live' && (
-            <LiveTab
-              organization={organization}
-              onOpenPublicView={onOpenPublicView}
-            />
-          )}
+          <React.Suspense fallback={<TabSkeleton />}>
+            {/* Tab 1: Live Control Room */}
+            {activeTab === 'live' && (
+              <LiveTab
+                organization={organization}
+                onOpenPublicView={onOpenPublicView}
+              />
+            )}
 
-          {/* Tab 2: Events Engine & Management View */}
-          {activeTab === 'events' && (
-            <EventsTab
-              organization={organization}
-              onOpenPublicView={onOpenPublicView}
-              onNavigateToLiveControl={() => setActiveTab('live')}
-            />
-          )}
+            {/* Tab 2: Events Engine & Management View */}
+            {activeTab === 'events' && (
+              <EventsTab
+                organization={organization}
+                onOpenPublicView={onOpenPublicView}
+                onNavigateToLiveControl={() => setActiveTab('live')}
+              />
+            )}
 
-          {/* Tab 3: People View */}
-          {activeTab === 'people' && (
-            <PeopleTab organization={organization} />
-          )}
+            {/* Tab 3: People View */}
+            {activeTab === 'people' && (
+              <PeopleTab organization={organization} />
+            )}
 
-          {/* Tab 4: Insights View */}
-          {activeTab === 'insights' && (
-            <InsightsTab organization={organization} />
-          )}
+            {/* Tab 4: Insights View */}
+            {activeTab === 'insights' && (
+              <InsightsTab organization={organization} />
+            )}
+          </React.Suspense>
         </div>
       </PullToRefresh>
 
@@ -387,7 +393,10 @@ export function OrganiserDashboard({
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                triggerHaptic('tap');
+                setActiveTab(tab.id);
+              }}
               className={`flex-1 min-h-[44px] flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-300 ease-out hover:-translate-y-0.5 active:scale-[0.97] active:translate-y-0 cursor-pointer ${
                 isActive
                   ? 'text-emerald-600 dark:text-emerald-400 font-bold'

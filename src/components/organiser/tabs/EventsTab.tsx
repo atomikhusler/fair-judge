@@ -765,8 +765,10 @@ export function EventsTab({
       const updatedList = (activeParticipantsModalEvent.assigned_participants || []).filter(
         (id) => id !== participantId
       );
-      const updatedSerialMap = { ...(activeParticipantsModalEvent.participant_sl_numbers || {}) };
-      delete updatedSerialMap[participantId];
+      const updatedSerialMap: Record<string, string> = {};
+      updatedList.forEach((id, idx) => {
+        updatedSerialMap[id] = String(idx + 1).padStart(2, '0');
+      });
 
       const hasActiveP = updatedList.some((id) => activeParticipantIdSet.has(id));
       const hasActiveJ = (activeParticipantsModalEvent.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
@@ -811,14 +813,11 @@ export function EventsTab({
       const currentAssigned = activeParticipantsModalEvent.assigned_participants || [];
       if (currentAssigned.includes(participantId)) return;
 
-      const nextSerialNum = currentAssigned.length + 1;
-      const formattedSerial = String(nextSerialNum).padStart(2, '0');
-
       const updatedList = [...currentAssigned, participantId];
-      const updatedSerialMap = {
-        ...(activeParticipantsModalEvent.participant_sl_numbers || {}),
-        [participantId]: formattedSerial,
-      };
+      const updatedSerialMap: Record<string, string> = {};
+      updatedList.forEach((id, idx) => {
+        updatedSerialMap[id] = String(idx + 1).padStart(2, '0');
+      });
 
       const hasActiveP = updatedList.some((id) => id === participantId || activeParticipantIdSet.has(id));
       const hasActiveJ = (activeParticipantsModalEvent.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
@@ -1052,7 +1051,7 @@ export function EventsTab({
           </div>
 
           {/* Segmented filter tabs */}
-          <div className="flex items-center gap-1 bg-stone-200/50 dark:bg-zinc-900/50 p-1 rounded-xl w-full overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1 bg-stone-200/50 dark:bg-zinc-900 p-1 rounded-xl w-full overflow-x-auto no-scrollbar">
             {(
               [
                 { id: 'all', label: 'All', count: statusCounts.all },
@@ -1133,17 +1132,17 @@ export function EventsTab({
               const isReady = hasParticipants && hasJudges;
 
               let badgeText = 'DRAFT';
-              let badgeClasses = 'bg-orange-500/10 text-orange-500 border border-orange-500/20';
+              let badgeClasses = 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20';
               let badgeDotClasses = 'bg-orange-500';
 
               if (isLive) {
                 badgeText = 'ACTIVE';
-                badgeClasses = 'bg-green-500/10 text-green-500 border border-green-500/20';
-                badgeDotClasses = 'bg-green-500 animate-pulse';
+                badgeClasses = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+                badgeDotClasses = 'bg-emerald-500 animate-pulse';
               } else if (isPaused) {
                 badgeText = 'PAUSED';
-                badgeClasses = 'bg-orange-500/10 text-orange-500 border border-orange-500/20';
-                badgeDotClasses = 'bg-orange-500';
+                badgeClasses = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
+                badgeDotClasses = 'bg-amber-500';
               } else if (isEnded) {
                 badgeText = 'ENDED';
                 badgeClasses = 'bg-zinc-500/10 text-zinc-500 dark:text-zinc-400 border border-zinc-500/20';
@@ -1154,14 +1153,14 @@ export function EventsTab({
                 badgeDotClasses = 'bg-sky-500';
               } else {
                 badgeText = 'DRAFT';
-                badgeClasses = 'bg-orange-500/10 text-orange-500 border border-orange-500/20';
+                badgeClasses = 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20';
                 badgeDotClasses = 'bg-orange-500';
               }
 
               return (
                 <div
                   key={evt.id}
-                  className="bg-white dark:bg-zinc-950 border border-stone-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-all flex flex-col justify-between group"
+                  className="bg-white dark:bg-zinc-950 border border-stone-200/80 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-4 sm:p-5 shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-all flex flex-col justify-between group"
                 >
                   <div>
                     {/* ROW 1: [CATEGORY] pill & Status + Cyan Archived Badge (Left). On Right: [Eye] [Cyan Archive] [Edit] [Delete] */}
@@ -1244,7 +1243,7 @@ export function EventsTab({
                           }
                           className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
                             status === 'active'
-                              ? 'opacity-50 cursor-not-allowed text-stone-400 dark:text-zinc-600 hover:bg-transparent'
+                              ? 'opacity-50 cursor-not-allowed text-stone-400 dark:text-zinc-400 hover:bg-transparent'
                               : 'text-stone-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 cursor-pointer'
                           }`}
                         >
@@ -1270,7 +1269,7 @@ export function EventsTab({
                           setParticipantSearch('');
                           setIsEnrollDrawerOpen(true);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold border border-indigo-500 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold border border-indigo-600 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
                         <span>Add Participants</span>
@@ -1299,7 +1298,7 @@ export function EventsTab({
                           setJudgeSearch('');
                           setIsAssignJudgeDrawerOpen(true);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold border border-amber-500 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold border border-emerald-600 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Add Judges</span>
@@ -1314,7 +1313,7 @@ export function EventsTab({
                         }}
                         className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
-                        <Gavel className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        <Gavel className="w-3.5 h-3.5 text-amber-500" />
                         <span>Judges {String(judgeCount).padStart(2, '0')}</span>
                       </button>
                     )}
@@ -1415,7 +1414,7 @@ export function EventsTab({
                     setIsDirty(true);
                     setEventCategory(e.target.value);
                   }}
-                  className="w-full bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-stone-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 placeholder:text-stone-400 dark:placeholder:text-zinc-600 font-medium transition-all"
+                  className="w-full bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-stone-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 placeholder:text-stone-400 dark:placeholder:text-zinc-400 font-medium transition-all"
                 />
               </div>
             </div>
@@ -1450,7 +1449,7 @@ export function EventsTab({
                         value={item.name}
                         disabled={hasExistingScores}
                         onChange={(e) => handleUpdateCriterion(item.id, 'name', e.target.value)}
-                        className="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm font-semibold text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-600 p-0 disabled:opacity-60"
+                        className="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm font-semibold text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-400 p-0 disabled:opacity-60"
                       />
 
                       {!hasExistingScores && rubricCriteria.length > 1 && (
@@ -1494,7 +1493,7 @@ export function EventsTab({
                 <button
                   type="button"
                   onClick={handleAddCriterion}
-                  className="w-full min-h-[44px] border border-dashed border-stone-300 dark:border-zinc-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-2xl text-xs sm:text-sm font-bold text-zinc-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] mt-3 bg-stone-50/50 dark:bg-zinc-900/30"
+                  className="w-full min-h-[44px] border border-dashed border-stone-300 dark:border-zinc-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-2xl text-xs sm:text-sm font-bold text-zinc-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] mt-3 bg-stone-50/50 dark:bg-zinc-900"
                 >
                   <Plus className="w-4 h-4 stroke-[2.2]" />
                   <span>Add Criterion</span>
@@ -1507,7 +1506,7 @@ export function EventsTab({
           <div className="sticky bottom-0 z-30 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-t border-stone-200 dark:border-zinc-800 px-4 py-3 pb-safe flex items-center justify-center shadow-xs shrink-0">
             <div className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-zinc-300 flex items-center gap-1.5">
               <span>Total Marks:</span>
-              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base">
+              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base tabular-nums whitespace-nowrap">
                 {totalRubricMarks} pts
               </span>
             </div>
@@ -1569,7 +1568,7 @@ export function EventsTab({
                   <h2 className="text-base font-bold text-zinc-900 dark:text-white leading-tight truncate">
                     {activeParticipantsModalEvent.name}
                   </h2>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shrink-0">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
                     {(activeParticipantsModalEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).length} Enrolled
                   </span>
                 </div>
@@ -1584,7 +1583,7 @@ export function EventsTab({
               <button
                 type="button"
                 onClick={() => setIsEnrollDrawerOpen(!isEnrollDrawerOpen)}
-                className="min-h-[38px] px-3.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                className="min-h-[38px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 <span>Enroll</span>
@@ -1596,8 +1595,8 @@ export function EventsTab({
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
             {/* Event Live / Sealed Banner */}
             {activeParticipantsModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20 text-green-500 text-xs font-medium flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-ping shrink-0" />
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
                 <span>
                   Event is Live: You can add new participants while the competition continues. Participant removals are locked.
                 </span>
@@ -1619,15 +1618,15 @@ export function EventsTab({
                 placeholder="Filter enrolled participants by name or school..."
                 value={participantSearch}
                 onChange={(e) => setParticipantSearch(e.target.value)}
-                className="w-full min-h-[42px] pl-9 pr-3 text-xs bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full min-h-[42px] pl-9 pr-3 text-xs bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
             </div>
 
             {/* Available Participants to Enroll Drawer */}
             {isEnrollDrawerOpen && (
-              <div className="p-4 rounded-2xl bg-white dark:bg-zinc-950 border border-indigo-500/40 shadow-md space-y-3 animate-in fade-in">
+              <div className="p-4 rounded-2xl bg-white dark:bg-zinc-950 border border-emerald-500/40 shadow-md space-y-3 animate-in fade-in">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                     Enroll from Organization Roster
                   </span>
                   <button
@@ -1668,7 +1667,7 @@ export function EventsTab({
                           <button
                             type="button"
                             onClick={() => handleEnrollParticipantToEvent(p.id)}
-                            className="min-h-[30px] px-2.5 bg-indigo-500 hover:bg-indigo-600 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                            className="min-h-[30px] px-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 cursor-pointer shrink-0"
                           >
                             + Add
                           </button>
@@ -1728,7 +1727,7 @@ export function EventsTab({
                   <>
                     {/* Active Lockout Notice */}
                     {isLiveLocked ? (
-                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-500 text-xs font-semibold">
+                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold">
                         <Lock className="w-4 h-4 shrink-0" />
                         <span>Performance Lineup Locked — Order cannot be changed while event is live.</span>
                       </div>
@@ -1816,7 +1815,7 @@ export function EventsTab({
                                   {p.name}
                                 </span>
                                 {/* Global Identity ID badge */}
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shrink-0">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
                                   {p.identity_id || `P-${p.sl_no || '0000'}`}
                                 </span>
                               </div>
@@ -1910,7 +1909,7 @@ export function EventsTab({
                 <button
                   type="button"
                   onClick={() => setIsAssignJudgeDrawerOpen(!isAssignJudgeDrawerOpen)}
-                  className="min-h-[38px] px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                  className="min-h-[38px] px-3.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Assign</span>
@@ -1922,8 +1921,8 @@ export function EventsTab({
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
             {/* Event Live / Sealed Warning */}
             {activeJudgesModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 text-orange-500 text-xs font-medium flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-orange-500 shrink-0" />
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
                 <span>
                   Event is Live: Jury assignments are locked to ensure score ballot integrity.
                 </span>
@@ -1994,7 +1993,7 @@ export function EventsTab({
                           <button
                             type="button"
                             onClick={() => handleToggleJudgeInEvent(j.id)}
-                            className="min-h-[30px] px-2.5 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-bold rounded-lg transition-all active:scale-95 cursor-pointer shrink-0"
+                            className="min-h-[30px] px-2.5 bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 cursor-pointer shrink-0"
                           >
                             Assign
                           </button>
@@ -2157,7 +2156,7 @@ export function EventsTab({
                       return (
                         <div
                           key={jId}
-                          className="p-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 bg-stone-50/50 dark:bg-zinc-900/50 flex items-center justify-between"
+                          className="p-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 border-t-white/5 bg-stone-50/50 dark:bg-zinc-900 flex items-center justify-between"
                         >
                           <span className="font-bold text-zinc-900 dark:text-white truncate">
                             ⚖️ {jObj?.name || jId.slice(0, 8)}
@@ -2215,7 +2214,7 @@ export function EventsTab({
             </div>
 
             {/* Footer */}
-            <div className="p-4 border-t border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900/40 flex justify-end shrink-0">
+            <div className="p-4 border-t border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900 flex justify-end shrink-0">
               <button
                 type="button"
                 onClick={() => setDossierEventId(null)}
@@ -2303,7 +2302,7 @@ export function EventsTab({
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       Delete Ended Event
                     </h3>
-                    <p className="text-xs text-orange-500 font-mono">
+                    <p className="text-xs text-amber-500 font-mono">
                       Master Password Required
                     </p>
                   </div>

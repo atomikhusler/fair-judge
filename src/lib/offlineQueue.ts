@@ -276,7 +276,13 @@ export async function queueScoreLocally(score: any): Promise<string> {
     score.id ||
     (typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
-      : `score_${Date.now()}`);
+      : `score_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
+
+  // Idempotency (Double-Submission Prevention): Reject duplicate write attempts
+  const existing = await db.get('pending_scores', id);
+  if (existing) {
+    return id;
+  }
 
   const eventId = score.event_id || score.eventId || '';
   const judgeId = score.judge_id || score.judgeId || '';

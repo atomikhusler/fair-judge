@@ -122,9 +122,16 @@ export const authService = {
             if (!currentCached.some((j) => j.id === authenticatedJudge!.id)) {
               await setIndexedDBCache(STORAGE_KEYS.JUDGES, [authenticatedJudge, ...currentCached], true);
             }
+          } else {
+            throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
           }
+        } else if (!error && (!data || data.length === 0)) {
+          throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
         }
-      } catch (cloudErr) {
+      } catch (cloudErr: any) {
+        if (cloudErr.message?.includes('Authentication Failed')) {
+          throw cloudErr;
+        }
         console.warn('Zero-trust cloud verification network issue, evaluating local cache:', cloudErr);
       }
     }
@@ -218,11 +225,13 @@ export const authService = {
     // 1. Online: Strict SELECT query matching identifier AND password
     if (isSupabaseConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
       try {
-        const { data, error } = await supabase
-          .from('organizations')
-          .select('*')
-          .or(`org_id.ilike.${cleanId},email.ilike.${cleanId}`)
-          .maybeSingle();
+        let query = supabase.from('organizations').select('*');
+        if (cleanId.includes('@')) {
+          query = query.ilike('email', cleanId);
+        } else {
+          query = query.or(`org_id.ilike."${cleanId}",email.ilike."${cleanId}"`);
+        }
+        const { data, error } = await query.maybeSingle();
 
         if (!error && data) {
           // Strict password verification
@@ -233,19 +242,22 @@ export const authService = {
             const currentOrgs = getHotCache<Organization[]>(STORAGE_KEYS.ORGS, []);
             await setIndexedDBCache(
               STORAGE_KEYS.ORGS,
-              [foundOrg, ...currentOrgs.filter((o) => o.org_id !== foundOrg!.org_id)],
+              [foundOrg, ...currentOrgs.filter((o) => o.org_id.toUpperCase() !== foundOrg!.org_id.toUpperCase())],
               true
             );
           } else {
             // Password mismatch: Halt immediately
             throw new Error('Invalid Organization ID or Master Password.');
           }
+        } else if (!error && !data) {
+          // Live Supabase database query executed with zero records: reject immediately
+          throw new Error('Invalid Organization ID or Master Password.');
         }
       } catch (err: any) {
         if (err.message === 'Invalid Organization ID or Master Password.') {
           throw err;
         }
-        console.warn('Online organiser query error, checking offline cache:', err);
+        console.warn('Online organiser query notice, checking offline cache:', err);
       }
     }
 

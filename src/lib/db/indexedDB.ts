@@ -1,23 +1,48 @@
-import { openDB, IDBPDatabase } from 'idb';
+/**
+ * Asynchronous IndexedDB Storage Engine for Fair Judge
+ * Replaces synchronous localStorage to eliminate main-thread blocking on large datasets.
+ * Features an in-memory hot mirror for zero-latency synchronous reads during React hydration.
+ */
 
-const DB_NAME = 'fairjudge_offline_db';
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { eventBus } from '../eventBus';
+
+export interface CacheEntry<T = any> {
+  key: string;
+  data: T;
+  timestamp: number;
+}
+
+interface FairJudgeCacheDB extends DBSchema {
+  cache_store: {
+    key: string;
+    value: CacheEntry;
+    indexes: { 'by-timestamp': number };
+  };
+}
+
+const DB_NAME = 'fairjudge_cache_db_v1';
 const DB_VERSION = 1;
-const CACHE_STORE = 'hot_cache';
-const QUEUE_STORE = 'offline_queue';
 
-let dbPromise: Promise<IDBPDatabase> | null = null;
-const hotMirror: Map<string, any> = new Map();
-const cacheTimestamps: Map<string, number> = new Map();
+// 5-Minute SWR Cache Time-To-Live
+export const CACHE_TTL_MS = 5 * 60 * 1000;
 
-export async function getDB(): Promise<IDBPDatabase> {
+let dbPromise: Promise<IDBPDatabase<FairJudgeCacheDB>> | null = null;
+
+// In-Memory Hot Mirror for instant synchronous read access without blocking or flicker
+const hotMemoryCache: Map<string, CacheEntry> = new Map();
+let isInitialized = false;
+
+/**
+ * Initializes or returns the cached IndexedDB instance
+ */
+export function getCacheDB(): Promise<IDBPDatabase<FairJudgeCacheDB>> {
   if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, DB_VERSION, {
+    dbPromise = openDB<FairJudgeCacheDB>(DB_NAME, DB_VERSION, {
       upgrade(db) {
-        if (!db.objectStoreNames.contains(CACHE_STORE)) {
-          db.createObjectStore(CACHE_STORE, { keyPath: 'key' });
-        }
-        if (!db.objectStoreNames.contains(QUEUE_STORE)) {
-          db.createObjectStore(QUEUE_STORE, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('cache_store')) {
+          const store = db.createObjectStore('cache_store', { keyPath: 'key' });
+          store.createIndex('by-timestamp', 'timestamp');
         }
       },
     });
@@ -25,76 +50,171 @@ export async function getDB(): Promise<IDBPDatabase> {
   return dbPromise;
 }
 
+/**
+ * Primes the in-memory hot mirror from IndexedDB and migrates any legacy localStorage caches
+ */
 export async function initCacheStorage(): Promise<void> {
+  if (isInitialized) return;
+
   try {
-    const db = await getDB();
-    const all = await db.getAll(CACHE_STORE);
-    all.forEach((entry: any) => {
-      if (entry && entry.key) {
-        hotMirror.set(entry.key, entry.value);
-        if (entry.timestamp) cacheTimestamps.set(entry.key, entry.timestamp);
-      }
+    const db = await getCacheDB();
+    const allEntries = await db.getAll('cache_store');
+    allEntries.forEach((entry) => {
+      hotMemoryCache.set(entry.key, entry);
     });
+
+    // Check for legacy localStorage data and migrate asynchronously
+    const legacyKeys = [
+      'fairjudge_supabase_events',
+      'fairjudge_supabase_participants',
+      'fairjudge_supabase_judges',
+      'fairjudge_supabase_scores',
+      'fairjudge_supabase_orgs',
+    ];
+
+    for (const key of legacyKeys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            // Only migrate if not already in IndexedDB
+            if (!hotMemoryCache.has(key)) {
+              await setIndexedDBCache(key, parsed, true);
+            }
+          }
+          // Remove from localStorage to free up synchronous quota
+          localStorage.removeItem(key);
+        }
+      } catch (e) {
+        // Safe skip
+      }
+    }
+
+    isInitialized = true;
   } catch (err) {
-    console.warn('Cache storage hydration note:', err);
+    console.warn('Failed to initialize IndexedDB cache engine:', err);
+    isInitialized = true;
   }
 }
 
-export function getHotCache<T = any>(key: string, defaultValue?: T): T {
-  if (hotMirror.has(key)) {
-    return hotMirror.get(key) as T;
+/**
+ * Synchronously retrieves item from the hot in-memory cache
+ */
+export function getHotCache<T>(key: string, defaultVal: T): T {
+  const entry = hotMemoryCache.get(key);
+  if (entry && entry.data !== undefined) {
+    return entry.data as T;
   }
-  if (typeof localStorage !== 'undefined') {
+  return defaultVal;
+}
+
+/**
+ * Check if the cached key is still fresh (younger than 5 minutes)
+ */
+export function isCacheFresh(key: string): boolean {
+  const entry = hotMemoryCache.get(key);
+  if (!entry || !entry.timestamp) return false;
+  return Date.now() - entry.timestamp < CACHE_TTL_MS;
+}
+
+/**
+ * Checks if key exists in cache with non-empty content
+ */
+export function hasCachedKey(key: string): boolean {
+  const entry = hotMemoryCache.get(key);
+  if (!entry || !entry.data) return false;
+  if (Array.isArray(entry.data)) return entry.data.length > 0;
+  return true;
+}
+
+/**
+ * Asynchronously writes data to IndexedDB while immediately updating hot in-memory mirror
+ */
+export async function setIndexedDBCache<T>(
+  key: string,
+  data: T,
+  silent: boolean = false
+): Promise<void> {
+  const entry: CacheEntry<T> = {
+    key,
+    data,
+    timestamp: Date.now(),
+  };
+
+  // 1. Immediate in-memory hot mirror write
+  hotMemoryCache.set(key, entry);
+
+  // 2. Asynchronous write to IndexedDB
+  try {
+    const db = await getCacheDB();
+    await db.put('cache_store', entry);
+  } catch (err) {
+    console.warn(`IndexedDB write warning for "${key}":`, err);
+  }
+
+  // 3. Emit EventBus update if not silent
+  if (!silent) {
+    let tableName = key.replace('fairjudge_supabase_', '');
+    if (tableName === 'orgs') tableName = 'organizations';
+    eventBus.emit('cache_updated', { table: tableName, data });
+  }
+}
+
+/**
+ * Asynchronously reads data from IndexedDB
+ */
+export async function getIndexedDBCache<T>(key: string, defaultVal: T): Promise<T> {
+  // If in hot cache, return immediately
+  const hot = hotMemoryCache.get(key);
+  if (hot && hot.data !== undefined) {
+    return hot.data as T;
+  }
+
+  try {
+    const db = await getCacheDB();
+    const entry = await db.get('cache_store', key);
+    if (entry && entry.data !== undefined) {
+      hotMemoryCache.set(key, entry);
+      return entry.data as T;
+    }
+  } catch (err) {
+    console.warn(`IndexedDB read warning for "${key}":`, err);
+  }
+
+  return defaultVal;
+}
+
+/**
+ * Invalidate cache entry or entire cache
+ */
+export async function invalidateCache(key?: string): Promise<void> {
+  if (key) {
+    const entry = hotMemoryCache.get(key);
+    if (entry) {
+      entry.timestamp = 0;
+      hotMemoryCache.set(key, entry);
+    }
     try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        hotMirror.set(key, parsed);
-        return parsed as T;
+      const db = await getCacheDB();
+      const existing = await db.get('cache_store', key);
+      if (existing) {
+        existing.timestamp = 0;
+        await db.put('cache_store', existing);
       }
     } catch {}
-  }
-  return (defaultValue !== undefined ? defaultValue : null) as unknown as T;
-}
-
-export function setIndexedDBCache(key: string, value: any, _silentOrTtl?: any): void {
-  hotMirror.set(key, value);
-  cacheTimestamps.set(key, Date.now());
-
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {}
-  }
-
-  getDB().then((db) => {
-    db.put(CACHE_STORE, {
-      key,
-      value,
-      timestamp: Date.now(),
-    }).catch((err) => console.warn('IDB put error:', err));
-  }).catch(() => {});
-}
-
-export function hasCachedKey(key: string): boolean {
-  return hotMirror.has(key) || (typeof localStorage !== 'undefined' && localStorage.getItem(key) !== null);
-}
-
-export function isCacheFresh(key: string, maxAgeMs: number = 5 * 60 * 1000): boolean {
-  const ts = cacheTimestamps.get(key);
-  if (!ts) return false;
-  return Date.now() - ts < maxAgeMs;
-}
-
-export function invalidateCache(key?: string): void {
-  if (key) {
-    hotMirror.delete(key);
-    cacheTimestamps.delete(key);
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
-    getDB().then((db) => db.delete(CACHE_STORE, key).catch(() => {})).catch(() => {});
   } else {
-    hotMirror.clear();
-    cacheTimestamps.clear();
-    getDB().then((db) => db.clear(CACHE_STORE).catch(() => {})).catch(() => {});
+    hotMemoryCache.forEach((entry, k) => {
+      entry.timestamp = 0;
+      hotMemoryCache.set(k, entry);
+    });
+    try {
+      const db = await getCacheDB();
+      const all = await db.getAll('cache_store');
+      for (const item of all) {
+        item.timestamp = 0;
+        await db.put('cache_store', item);
+      }
+    } catch {}
   }
 }

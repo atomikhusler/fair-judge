@@ -2,22 +2,22 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Scale, ShieldCheck, Database, Loader2 } from 'lucide-react';
 
 export interface ResourceLoaderProps {
-  isLoading: boolean;
-  progress: number; // 0 to 100
-  statusText: string;
+  isLoading?: boolean;
+  progress?: number; // 0 to 100
+  statusText?: string;
   title?: string;
   onComplete?: () => void;
   className?: string;
 }
 
 export function ResourceLoader({
-  isLoading,
-  progress,
-  statusText,
+  isLoading = true,
+  progress = 85,
+  statusText = 'Loading stage...',
   title = 'Fair Judge',
   onComplete,
   className = '',
-}: ResourceLoaderProps) {
+}: ResourceLoaderProps = {}) {
   const [internalProgress, setInternalProgress] = useState(progress);
   const [isRendered, setIsRendered] = useState(isLoading);
   const [isExiting, setIsExiting] = useState(false);

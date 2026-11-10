@@ -170,12 +170,12 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
   const isInfo = item.type === 'info';
 
   const badgeTheme = isError
-    ? 'bg-red-500/10 text-red-500 border-red-500/30 shadow-[0_0_12px_rgba(239,68,68,0.2)]'
+    ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.2)]'
     : isWarning
-    ? 'bg-orange-500/10 text-orange-500 border-orange-500/30 shadow-[0_0_12px_rgba(249,115,22,0.2)]'
+    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
     : isInfo
     ? 'bg-sky-500/10 text-sky-400 border-sky-500/30 shadow-[0_0_12px_rgba(14,165,233,0.2)]'
-    : 'bg-green-500/10 text-green-500 border-green-500/30 shadow-[0_0_12px_rgba(34,197,94,0.2)]';
+    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]';
 
   // Compute GPU translation & opacity
   let translateXStyle = `${dragX}px`;

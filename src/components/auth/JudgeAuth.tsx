@@ -16,7 +16,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { dbService, supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { authService } from '../../lib/authService';
 import { SupabaseJudge, SupabaseEvent } from '../../lib/supabaseTypes';
-import { showToast } from '../common/ToastProvider';
+import { showToast, toast } from '../common/ToastProvider';
 import { sanitizeAuthError } from './authSanitizer';
 import { parseQrCodeFromImageFile, extractJudgeCredentials } from '../../lib/qrCodeParser';
 
@@ -127,7 +127,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
           eventId: creds.eventId,
         });
 
-        showToast(`Authenticated as Judge: ${verified.judge.name}`, 'success');
+        toast.success(`Welcome back, Judge ${verified.judge.name}!`);
         onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
         return;
       }
@@ -198,7 +198,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         pin: targetPin,
       });
 
-      showToast(`Welcome, Judge ${verified.judge.name}!`, 'success');
+      toast.success(`Welcome back, Judge ${verified.judge.name}!`);
       onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
     } catch (err: any) {
       console.warn('Judge authentication notice:', err);
@@ -213,7 +213,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 rounded-3xl p-6 md:p-8 shadow-2xl shadow-black/80 relative animate-in fade-in zoom-in-95 duration-200">
+    <div className="w-full max-w-md mx-auto bg-zinc-900 border border-zinc-800 border-t-white/5 rounded-3xl p-6 md:p-8 shadow-2xl shadow-black/80 relative animate-in fade-in zoom-in-95 duration-200">
       {/* Hidden Gallery Input */}
       <input
         ref={fileInputRef}
@@ -228,14 +228,14 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         type="button"
         onClick={onBack}
         aria-label="Back to role selection"
-        className="w-10 h-10 rounded-full bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform shadow-lg z-20"
+        className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 border-t-white/5 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform shadow-lg z-20"
       >
         <ChevronLeft className="w-5 h-5" />
       </button>
 
       {/* Shrinked App Logo & Persistent Centered Header Anchor */}
       <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
-        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
+        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
           <Gavel className="w-5 h-5" />
         </div>
         <h1 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
@@ -247,7 +247,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       </div>
 
       {/* PRIMARY BLOCK: Unified Glassmorphic QR Card (Zero Tap-Fatigue) */}
-      <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 mb-5">
+      <div className="bg-zinc-900 border border-zinc-800 border-t-white/5 rounded-2xl p-4 mb-5">
         <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 text-center">
           Instant Badge Access
         </div>
@@ -269,7 +269,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isProcessingGallery || isVerifying}
-            className="h-11 border border-zinc-800 hover:border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800/80 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform text-zinc-300 hover:text-white font-semibold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            className="h-11 border border-zinc-800 hover:border-zinc-700 bg-zinc-900 hover:bg-zinc-800/80 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform text-zinc-300 hover:text-white font-semibold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isProcessingGallery ? (
               <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
@@ -303,8 +303,8 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
             />
 
             {scannerError && (
-              <div className="mt-2.5 p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-500 flex items-center gap-2">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-500" />
+              <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{scannerError}</span>
               </div>
             )}
@@ -317,7 +317,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         <div className="absolute inset-0 flex items-center">
           <div className="w-full border-t border-zinc-800" />
         </div>
-        <div className="relative bg-zinc-900/90 px-3 py-0.5 rounded-full border border-zinc-800/80">
+        <div className="relative bg-zinc-900 px-3 py-0.5 rounded-full border border-zinc-800/80">
           <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
             OR
           </span>
@@ -385,8 +385,8 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
         {/* Error Alert */}
         {errorMessage && (
-          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-500 flex items-start gap-2.5 animate-in fade-in duration-200">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-start gap-2.5 animate-in fade-in duration-200">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
             <span className="leading-relaxed">{errorMessage}</span>
           </div>
         )}

@@ -1380,8 +1380,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               }}
               className={`hidden md:flex items-center gap-2 h-11 px-4 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer whitespace-nowrap shrink-0 ${
                 activeSubTab === 'participants'
-                  ? 'bg-indigo-500 hover:bg-indigo-600 shadow-indigo-900/20'
-                  : 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-900/20'
+                  ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20'
+                  : 'bg-amber-600 hover:bg-amber-500 shadow-amber-900/20'
               }`}
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -1445,13 +1445,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               <button
                 type="button"
                 onClick={handleExportParticipantsExcel}
-                className="min-h-[42px] px-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer"
+                className="min-h-[42px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Export Excel</span>
               </button>
 
-              <label className="min-h-[42px] px-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer">
+              <label className="min-h-[42px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer">
                 <Upload className="w-4 h-4 stroke-[2.2]" />
                 <span>Import Excel</span>
                 <input
@@ -1468,7 +1468,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <button
               type="button"
               onClick={handleTriggerPrint}
-              className="w-full min-h-[42px] px-4 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl shadow-sm shadow-amber-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full min-h-[42px] px-4 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs rounded-xl shadow-sm shadow-orange-500/25 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer"
             >
               <Printer className="w-4 h-4 stroke-[2.2]" />
               <span>Export Judge Badges (PDF)</span>
@@ -1495,7 +1495,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 <button
                   type="button"
                   onClick={() => handleSelectCategoryPreference('Class/Grade')}
-                  className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
                 >
                   By Class / Grade
                 </button>
@@ -1515,14 +1515,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <div
               className={`p-3.5 rounded-2xl flex items-center space-x-2.5 text-xs font-semibold ${
                 uploadNotice.type === 'success'
-                  ? 'bg-green-500/10 text-green-500 border border-green-500/20'
-                  : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                  : 'bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/20'
               }`}
             >
               {uploadNotice.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-green-500" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
               ) : (
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                <AlertCircle className="w-4 h-4 shrink-0" />
               )}
               <span>{uploadNotice.msg}</span>
             </div>
@@ -1670,7 +1670,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     <div
                       key={p.id}
                       style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
-                      className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex items-start justify-between space-x-3 transition-all hover:border-stone-300 dark:hover:border-zinc-700"
+                      className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm flex items-start justify-between space-x-3 transition-all hover:border-stone-300 dark:hover:border-zinc-700"
                     >
                       <div className="flex items-start space-x-3 min-w-0 flex-1">
                         <div className="min-w-0 flex-1">
@@ -1678,7 +1678,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                             <h4 className="text-sm font-bold text-zinc-900 dark:text-white truncate">
                               {p.name}
                             </h4>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
                               {p.identity_id || `P-${p.sl_no || '0000'}`}
                             </span>
                           </div>
@@ -1745,7 +1745,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                       <div
                         key={j.id}
                         style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
-                        className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 rounded-2xl p-4 shadow-sm flex flex-col justify-between space-y-3"
+                        className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-4 shadow-sm flex flex-col justify-between space-y-3"
                       >
                         <div className="flex items-start justify-between">
                           <div>
@@ -1756,7 +1756,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                               <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-bold">
                                 ID: {j.judge_id || j.id.slice(0, 6)}
                               </span>
-                              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
                                 PIN: {j.pin}
                               </span>
                             </div>
@@ -1855,8 +1855,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           }}
           className={`md:hidden fixed bottom-24 right-6 z-50 w-14 h-14 text-white rounded-2xl shadow-xl flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer ${
             activeSubTab === 'participants'
-              ? 'bg-indigo-500 hover:bg-indigo-600 shadow-indigo-500/30'
-              : 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30'
+              ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30'
+              : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30'
           }`}
           title={activeSubTab === 'participants' ? 'Add Competitor' : 'Add Judge'}
           aria-label={activeSubTab === 'participants' ? 'Add Competitor' : 'Add Judge'}
@@ -1926,9 +1926,9 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         key={row.id}
                         className={
                           !row.isValid
-                            ? 'bg-red-500/10 text-red-500'
+                            ? 'bg-red-500/10 text-red-700 dark:text-red-400'
                             : row.isConflict
-                            ? 'bg-orange-500/5 hover:bg-orange-500/10'
+                            ? 'bg-amber-500/5 hover:bg-amber-500/10'
                             : 'hover:bg-stone-50 dark:hover:bg-zinc-900/50'
                         }
                       >
@@ -1941,22 +1941,22 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                                 className="relative flex items-center justify-center cursor-pointer group"
                                 title="Partial conflict: Click to view comparison"
                               >
-                                <span className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-[10px] font-black text-white shadow-xs shadow-orange-500/50 animate-pulse">
+                                <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-black shadow-xs shadow-amber-500/50 animate-pulse">
                                   ?
                                 </span>
                               </button>
-                              <span className="text-[10px] font-bold text-orange-500">
+                              <span className="text-[10px] font-bold text-amber-500">
                                 {row.conflictResolution === 'update_db' ? 'Update DB' : 'Keep DB'}
                               </span>
                             </div>
                           ) : row.isValid ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-green-500">
-                              <Check className="w-3.5 h-3.5 text-green-500" />
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                              <Check className="w-3.5 h-3.5" />
                               <span>Valid</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-500">
-                              <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 dark:text-red-400">
+                              <AlertCircle className="w-3.5 h-3.5" />
                               <span>{row.validationError}</span>
                             </span>
                           )}
@@ -2032,7 +2032,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-zinc-800">
               <div className="flex items-center gap-2.5">
-                <span className="w-6 h-6 rounded-full bg-orange-500 text-white font-black text-xs flex items-center justify-center shadow-xs shadow-orange-500/50">
+                <span className="w-6 h-6 rounded-full bg-amber-500 text-black font-black text-xs flex items-center justify-center shadow-xs shadow-amber-500/50">
                   ?
                 </span>
                 <div>
@@ -2138,7 +2138,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <button
               type="button"
               onClick={handleSaveParticipant}
-              className="min-h-[36px] px-4 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold shadow-md shadow-indigo-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
+              className="min-h-[36px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Save</span>
@@ -2163,7 +2163,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             </div>
 
             {/* Grouped Card for remaining fields */}
-            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
+            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
               {/* Field: School / Institution (Mandatory) */}
               <div>
                 <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
@@ -2265,7 +2265,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-amber-600 dark:text-amber-400 tracking-wider uppercase block">
+              <label className="text-[11px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase block">
                 Judge Full Name <span className="text-amber-500">*</span>
               </label>
               <input
@@ -2317,7 +2317,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     maxLength={4}
                     value={judgeForm.pin}
                     onChange={(e) => setJudgeForm({ ...judgeForm, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                    className="w-full min-h-[46px] px-3.5 text-center rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-black text-amber-600 dark:text-amber-400"
+                    className="w-full min-h-[46px] px-3.5 text-center rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-black text-amber-500 dark:text-amber-400"
                   />
                 </div>
               </div>
@@ -2544,15 +2544,15 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
             {deleteModalState.isOngoingWarning ? (
               <>
-                <div className="flex items-center space-x-3 text-orange-500">
-                  <div className="w-10 h-10 rounded-2xl bg-orange-500/15 flex items-center justify-center">
-                    <AlertTriangle className="w-5 h-5 text-orange-500" />
+                <div className="flex items-center space-x-3 text-amber-500">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-amber-500" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       Active Roster Warning
                     </h3>
-                    <p className="text-xs text-orange-500 font-mono">
+                    <p className="text-xs text-amber-500 font-mono">
                       Enrolled in Ongoing Events
                     </p>
                   </div>
@@ -2582,15 +2582,15 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               </>
             ) : (
               <>
-                <div className="flex items-center space-x-3 text-red-500">
+                <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
                   <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
-                    <Trash2 className="w-5 h-5 text-red-500" />
+                    <Trash2 className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       {deleteModalState.type === 'participant' ? 'Remove Participant?' : 'Remove Judge?'}
                     </h3>
-                    <p className="text-xs text-red-500 font-mono">
+                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
                       Permanent removal
                     </p>
                   </div>

@@ -731,7 +731,7 @@ export function AccountModal({
           </div>
 
           {/* Animated Developer Signature Footer */}
-          <div className="text-[10px] uppercase tracking-widest text-zinc-600 text-center pb-4 pt-6 select-none">
+          <div className="text-[10px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 text-center pb-4 pt-6 select-none">
             Engineered with intent. <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold">&lt;/&gt;</span> Sahil Kumar Rout
           </div>
 

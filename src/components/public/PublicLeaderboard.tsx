@@ -583,11 +583,11 @@ export function PublicLeaderboard({
 
   // Visual Theme Variables with high contrast protection
   const themeContainerClass = isStadiumWhite
-    ? 'bg-stone-100 text-zinc-950 font-sans selection:bg-black selection:text-white'
-    : 'bg-zinc-950 text-white font-sans selection:bg-emerald-500 selection:text-black';
+    ? 'bg-zinc-50 text-zinc-950 font-sans selection:bg-black selection:text-white'
+    : 'bg-zinc-950 text-white dark:text-white font-sans selection:bg-emerald-500 selection:text-black';
 
   return (
-    <div className={`relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden ${themeContainerClass} transition-colors duration-300`}>
+    <div className={`relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden ${themeContainerClass} p-safe transition-colors duration-300`}>
       {/* ============================================================ */}
       {/* 0. CELEBRATORY CONFETTI SYSTEM                               */}
       {/* ============================================================ */}
@@ -632,7 +632,7 @@ export function PublicLeaderboard({
       {/* 3. "NEW OVERALL LEADER!" CINEMATIC POP-UP MODAL (5 Seconds)  */}
       {/* ============================================================ */}
       {newLeaderModal && newLeaderModal.show && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center animate-leader-pop">
+        <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-6 text-center animate-leader-pop">
           <div className="absolute w-[min(90vw,650px)] h-[min(90vw,650px)] bg-amber-500/20 blur-[130px] rounded-full pointer-events-none" />
 
           <div className="relative z-10 max-w-3xl flex flex-col items-center space-y-4">
@@ -791,7 +791,7 @@ export function PublicLeaderboard({
                   {isCarouselPaused ? <Play className="w-3 h-3 text-amber-500" /> : <Pause className="w-3 h-3 text-emerald-500" />}
                 </button>
                 <Clock className="w-3 h-3 text-zinc-400" />
-                <span className="text-emerald-500 font-black">{carouselCountdown}s</span>
+                <span className="text-emerald-500 font-black tabular-nums whitespace-nowrap">{carouselCountdown}s</span>
                 <span className={`hidden md:inline ${isStadiumWhite ? 'text-zinc-600' : 'text-zinc-400'}`}>TV Loop</span>
               </div>
             )}
@@ -894,14 +894,14 @@ export function PublicLeaderboard({
           {/* ---------------- 2ND PLACE (LEFT) ---------------- */}
           <div className="order-2 md:order-1 flex flex-col justify-end transform md:scale-95 transition-transform">
             <div
-              className={`rounded-3xl p-5 md:p-6 border flex flex-col justify-between min-h-[220px] md:min-h-[260px] relative overflow-hidden backdrop-blur-md transition-all ${
+              className={`rounded-3xl p-5 md:p-6 border border-t-white/5 flex flex-col justify-between min-h-[220px] md:min-h-[260px] relative overflow-hidden transition-all ${
                 isSpotlightEnabled && currentlyOnStageParticipant?.id === rank2?.id
                   ? 'ring-2 ring-amber-400 scale-[1.02] shadow-amber-400/20'
                   : ''
               } ${
                 isStadiumWhite
                   ? 'bg-white border-stone-300 text-zinc-950 shadow-md'
-                  : 'bg-gradient-to-b from-slate-900/80 via-zinc-950/90 to-black border-slate-400/40 text-slate-100 shadow-[0_0_35px_rgba(148,163,184,0.12)]'
+                  : 'bg-gradient-to-b from-slate-900 via-zinc-950 to-black border-slate-400/40 text-slate-100 shadow-[0_0_35px_rgba(148,163,184,0.12)]'
               }`}
             >
               {/* Podium Rank Label */}
@@ -950,7 +950,7 @@ export function PublicLeaderboard({
                 }`}>
                   {isBlindMode ? 'Status' : 'Score'}
                 </span>
-                <div className={`text-[clamp(1.6rem,3.4vw,3rem)] font-mono font-black leading-none ${
+                <div className={`text-[clamp(1.6rem,3.4vw,3rem)] font-mono font-black leading-none tabular-nums whitespace-nowrap ${
                   isStadiumWhite ? 'text-zinc-900' : 'text-slate-200'
                 }`}>
                   {rank2 && rank2.judgeCount > 0 ? (
@@ -974,13 +974,13 @@ export function PublicLeaderboard({
           {/* ---------------- 1ST PLACE (CENTER HERO) ---------------- */}
           <div className="order-1 md:order-2 flex flex-col justify-end z-10">
             <div
-              className={`rounded-3xl p-6 md:p-8 border-2 flex flex-col justify-between min-h-[260px] md:min-h-[320px] relative overflow-hidden backdrop-blur-xl transition-all ${
+              className={`rounded-3xl p-6 md:p-8 border-2 border-t-white/5 flex flex-col justify-between min-h-[260px] md:min-h-[320px] relative overflow-hidden transition-all ${
                 isSpotlightEnabled && currentlyOnStageParticipant?.id === rank1?.id
                   ? 'ring-4 ring-amber-400 scale-[1.02]'
                   : ''
               } ${
                 isStadiumWhite
-                  ? 'bg-amber-50/90 border-amber-500 text-zinc-950 shadow-xl'
+                  ? 'bg-amber-50 border-amber-500 text-zinc-950 shadow-xl'
                   : 'bg-gradient-to-b from-amber-500/20 via-amber-950/40 to-black border-amber-400/70 text-amber-200 shadow-[0_0_55px_rgba(245,158,11,0.28)]'
               }`}
             >
@@ -1026,7 +1026,7 @@ export function PublicLeaderboard({
                 }`}>
                   {isBlindMode ? 'Status' : 'Winning Mark'}
                 </span>
-                <div className={`text-[clamp(2.4rem,5.5vw,4.8rem)] font-mono font-black leading-none ${
+                <div className={`text-[clamp(2.4rem,5.5vw,4.8rem)] font-mono font-black leading-none tabular-nums whitespace-nowrap ${
                   isStadiumWhite ? 'text-amber-800' : 'text-amber-300'
                 }`}>
                   {rank1 && rank1.judgeCount > 0 ? (
@@ -1050,14 +1050,14 @@ export function PublicLeaderboard({
           {/* ---------------- 3RD PLACE (RIGHT) ---------------- */}
           <div className="order-3 md:order-3 flex flex-col justify-end transform md:scale-90 transition-transform">
             <div
-              className={`rounded-3xl p-5 md:p-6 border flex flex-col justify-between min-h-[200px] md:min-h-[240px] relative overflow-hidden backdrop-blur-md transition-all ${
+              className={`rounded-3xl p-5 md:p-6 border border-t-white/5 flex flex-col justify-between min-h-[200px] md:min-h-[240px] relative overflow-hidden transition-all ${
                 isSpotlightEnabled && currentlyOnStageParticipant?.id === rank3?.id
                   ? 'ring-2 ring-amber-400 scale-[1.02] shadow-amber-400/20'
                   : ''
               } ${
                 isStadiumWhite
                   ? 'bg-white border-stone-300 text-zinc-950 shadow-md'
-                  : 'bg-gradient-to-b from-amber-950/40 via-zinc-950/90 to-black border-amber-700/50 text-amber-100 shadow-[0_0_25px_rgba(180,83,9,0.12)]'
+                  : 'bg-gradient-to-b from-amber-950/40 via-zinc-950 to-black border-amber-700/50 text-amber-100 shadow-[0_0_25px_rgba(180,83,9,0.12)]'
               }`}
             >
               {/* Bronze Badge */}
@@ -1106,7 +1106,7 @@ export function PublicLeaderboard({
                 }`}>
                   {isBlindMode ? 'Status' : 'Score'}
                 </span>
-                <div className={`text-[clamp(1.5rem,3.2vw,2.6rem)] font-mono font-black leading-none ${
+                <div className={`text-[clamp(1.5rem,3.2vw,2.6rem)] font-mono font-black leading-none tabular-nums whitespace-nowrap ${
                   isStadiumWhite ? 'text-amber-900' : 'text-amber-200'
                 }`}>
                   {rank3 && rank3.judgeCount > 0 ? (
@@ -1176,7 +1176,7 @@ export function PublicLeaderboard({
                     } ${
                       isStadiumWhite
                         ? 'bg-white border-stone-200 text-zinc-950 hover:bg-stone-50 shadow-sm'
-                        : 'bg-white/[0.03] hover:bg-white/[0.06] border-white/10 text-white backdrop-blur-md'
+                        : 'bg-zinc-900 hover:bg-zinc-800/80 border-white/10 border-t-white/5 text-white'
                     }`}
                   >
                     {/* Left: Rank Badge */}
@@ -1218,7 +1218,7 @@ export function PublicLeaderboard({
 
                     {/* Right: Score or Blind Lock */}
                     <div className="text-right shrink-0">
-                      <div className={`text-[clamp(1.1rem,1.8vw,1.7rem)] font-mono font-black leading-none ${
+                      <div className={`text-[clamp(1.1rem,1.8vw,1.7rem)] font-mono font-black leading-none tabular-nums whitespace-nowrap ${
                         isStadiumWhite ? 'text-emerald-700' : 'text-emerald-400'
                       }`}>
                         {row.judgeCount > 0 ? (
@@ -1238,7 +1238,7 @@ export function PublicLeaderboard({
                           <span className="text-zinc-400 text-sm font-normal">Pending</span>
                         )}
                       </div>
-                      <div className={`text-[10px] font-mono mt-0.5 ${isStadiumWhite ? 'text-zinc-500' : 'text-zinc-500'}`}>
+                      <div className={`text-[10px] font-mono mt-0.5 tabular-nums whitespace-nowrap ${isStadiumWhite ? 'text-zinc-500' : 'text-zinc-500'}`}>
                         {row.judgeCount} / {currentEvent?.assigned_judges.length || 0} Ballots
                       </div>
                     </div>
@@ -1276,10 +1276,10 @@ export function PublicLeaderboard({
       {/* ============================================================ */}
       {publicSettings.showAppQr && (
         <div className="fixed bottom-14 left-4 sm:left-8 z-40 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <div className={`p-3 rounded-2xl border shadow-2xl flex items-center gap-3 backdrop-blur-xl ${
+          <div className={`p-3 rounded-2xl border shadow-2xl flex items-center gap-3 ${
             isStadiumWhite
-              ? 'bg-white/95 border-stone-300 text-zinc-950 shadow-slate-200'
-              : 'bg-zinc-950/90 border-zinc-800 text-zinc-100 shadow-black'
+              ? 'bg-white border-stone-300 text-zinc-950 shadow-slate-200'
+              : 'bg-zinc-950 border-zinc-800 text-white dark:text-white shadow-black'
           }`}>
             <div className="p-1.5 bg-white rounded-xl shadow-inner shrink-0">
               <QRCodeSVG
@@ -1310,7 +1310,7 @@ export function PublicLeaderboard({
         className={`relative z-10 w-full px-4 sm:px-8 py-3 border-t transition-colors ${
           isStadiumWhite
             ? 'bg-white border-stone-300 text-zinc-950 shadow-inner'
-            : 'bg-black/90 border-zinc-900 text-zinc-400'
+            : 'bg-black border-zinc-900 text-zinc-400'
         }`}
       >
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 relative">

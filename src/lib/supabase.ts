@@ -632,7 +632,7 @@ export const dbService = {
         if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
           throw new Error('Registration Failed: Organization ID or Email is already in use.');
         }
-        console.error('Supabase organization registration error:', error);
+        console.warn('Supabase organization registration notice:', error?.message || error);
         throw sanitizeDbError(error);
       }
 
@@ -1414,7 +1414,7 @@ export const dbService = {
           .from('participants')
           .select('*')
           .ilike('org_id', cleanOrgId)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: true });
 
         if (!error && data) {
           saveCache(STORAGE_KEYS.PARTICIPANTS, data, true); // SILENT
@@ -2003,6 +2003,26 @@ export const dbService = {
     }
 
     return optimisticScore;
+  },
+
+  async deleteScore(scoreId: string): Promise<boolean> {
+    const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+    saveCache(
+      STORAGE_KEYS.SCORES,
+      scores.filter((s) => s.id !== scoreId),
+      true
+    );
+    if (isSupabaseConfigured() && navigator.onLine) {
+      try {
+        const { error } = await supabase.from('scores').delete().eq('id', scoreId);
+        if (error) throw error;
+        notifyCloudSync('Score ballot removed');
+        return true;
+      } catch (err: any) {
+        console.warn('deleteScore cloud sync note:', err?.message || err);
+      }
+    }
+    return true;
   },
 
   // ------------------------------------------

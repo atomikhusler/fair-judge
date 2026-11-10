@@ -1,83 +1,130 @@
-import { SupabaseParticipant, SupabaseScore, RubricCriterion, TieBreakerMethod } from './supabaseTypes';
+import { SupabaseParticipant, SupabaseScore, TieBreakerMethod } from './supabaseTypes';
+import {
+  computeRankings,
+  RankedParticipantItem,
+  WorkerRankingPayload,
+  WorkerRankingResponse,
+} from './tieBreakerEngine.worker';
 
-export interface RankedParticipant {
-  id: string;
-  name: string;
-  school: string;
-  sl_no: string;
-  class_or_age?: string;
-  totalScore: number;
-  avgScore: number;
-  judgeCount: number;
-  scoresCount?: number;
-  rank: number;
-  isTied: boolean;
-  tieBreakerApplied?: boolean;
-  scoreBreakdown?: Record<string, number>;
-  participant?: SupabaseParticipant;
+export type { RankedParticipantItem };
+
+// Global Worker instance with fallback
+let workerInstance: Worker | null = null;
+const pendingCallbacks = new Map<
+  string,
+  {
+    resolve: (val: RankedParticipantItem[]) => void;
+    reject: (err: any) => void;
+  }
+>();
+
+function getWorker(): Worker | null {
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+    return null;
+  }
+  if (!workerInstance) {
+    try {
+      workerInstance = new Worker(
+        new URL('./tieBreakerEngine.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
+      workerInstance.onmessage = (event: MessageEvent<WorkerRankingResponse>) => {
+        const { id, result } = event.data;
+        const cb = pendingCallbacks.get(id);
+        if (cb) {
+          cb.resolve(result);
+          pendingCallbacks.delete(id);
+        }
+      };
+      workerInstance.onerror = (err) => {
+        console.warn('TieBreaker Web Worker error, falling back to main thread:', err);
+      };
+    } catch (e) {
+      console.warn('Unable to initialize Web Worker for tie-breakers:', e);
+      workerInstance = null;
+    }
+  }
+  return workerInstance;
 }
 
+/**
+ * Synchronous ranking & tie-breaker computation on the main thread.
+ * Used as immediate fallback or when async promises are not suitable.
+ */
 export function calculateRankings(
   participants: SupabaseParticipant[],
   scores: SupabaseScore[],
-  _assignedJudgesCount: number = 0,
-  _method: TieBreakerMethod = 'olympic',
-  _tieBreakerEnabled: boolean = false
-): RankedParticipant[] {
-  const scoreMap = new Map<string, number[]>();
-  scores.forEach((s) => {
-    const list = scoreMap.get(s.participant_id) || [];
-    list.push(Number(s.total_score) || 0);
-    scoreMap.set(s.participant_id, list);
-  });
-
-  const ranked: RankedParticipant[] = participants.map((p) => {
-    const rawScores = scoreMap.get(p.id) || [];
-    const count = rawScores.length;
-    let total = 0;
-    if (count > 0) {
-      total = rawScores.reduce((acc, v) => acc + v, 0);
-    }
-    const avg = count > 0 ? total / count : 0;
-    return {
-      id: p.id,
-      name: p.name,
-      school: p.school,
-      sl_no: p.sl_no,
-      class_or_age: p.class_or_age,
-      totalScore: Number(total.toFixed(2)),
-      avgScore: Number(avg.toFixed(2)),
-      judgeCount: count,
-      scoresCount: count,
-      rank: 0,
-      isTied: false,
-      participant: p,
-    };
-  });
-
-  ranked.sort((a, b) => b.totalScore - a.totalScore);
-
-  let currentRank = 1;
-  for (let i = 0; i < ranked.length; i++) {
-    if (i > 0 && ranked[i].totalScore === ranked[i - 1].totalScore) {
-      ranked[i].rank = ranked[i - 1].rank;
-      ranked[i].isTied = true;
-      ranked[i - 1].isTied = true;
-    } else {
-      ranked[i].rank = currentRank;
-    }
-    currentRank++;
-  }
-
-  return ranked;
+  assignedJudgesCount: number = 0,
+  method: TieBreakerMethod = 'olympic',
+  tieBreakerEnabled: boolean = false
+): RankedParticipantItem[] {
+  return computeRankings(
+    participants,
+    scores,
+    assignedJudgesCount,
+    method,
+    tieBreakerEnabled
+  );
 }
 
+/**
+ * Multithreaded ranking calculation running on a background Web Worker.
+ * Frees the main UI thread during heavy sorting/trimming on 100+ participants.
+ */
 export async function calculateRankingsAsync(
   participants: SupabaseParticipant[],
   scores: SupabaseScore[],
   assignedJudgesCount: number = 0,
   method: TieBreakerMethod = 'olympic',
   tieBreakerEnabled: boolean = false
-): Promise<RankedParticipant[]> {
-  return calculateRankings(participants, scores, assignedJudgesCount, method, tieBreakerEnabled);
+): Promise<RankedParticipantItem[]> {
+  const worker = getWorker();
+  if (!worker) {
+    return calculateRankings(
+      participants,
+      scores,
+      assignedJudgesCount,
+      method,
+      tieBreakerEnabled
+    );
+  }
+
+  const id = `tb_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const payload: WorkerRankingPayload = {
+    id,
+    participants,
+    scores,
+    assignedJudgesCount,
+    method,
+    tieBreakerEnabled,
+  };
+
+  return new Promise<RankedParticipantItem[]>((resolve, reject) => {
+    // 5-second timeout safeguard: if worker hangs, resolve synchronously
+    const timer = setTimeout(() => {
+      pendingCallbacks.delete(id);
+      resolve(
+        calculateRankings(
+          participants,
+          scores,
+          assignedJudgesCount,
+          method,
+          tieBreakerEnabled
+        )
+      );
+    }, 5000);
+
+    pendingCallbacks.set(id, {
+      resolve: (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      reject: (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    });
+
+    worker.postMessage(payload);
+  });
 }
