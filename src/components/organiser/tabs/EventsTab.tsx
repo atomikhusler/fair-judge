@@ -1204,6 +1204,12 @@ export function EventsTab({
                           <span className={`w-1.5 h-1.5 rounded-full ${badgeDotClasses}`} />
                           {badgeText}
                         </span>
+                        {evt.is_locked && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                            <Lock className="w-2.5 h-2.5" />
+                            Locked
+                          </span>
+                        )}
                         {evt.is_archived && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25">
                             <Archive className="w-2.5 h-2.5" />
@@ -1292,7 +1298,7 @@ export function EventsTab({
                   {/* BOTTOM ROW: Smart assignment buttons */}
                   <div className="mt-4 pt-3 border-t border-stone-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
                     {/* Participants Button */}
-                    {!hasParticipants && !isLive && !isEnded && !isPaused ? (
+                    {!evt.is_locked && !hasParticipants && !isLive && !isEnded && !isPaused ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -1321,7 +1327,7 @@ export function EventsTab({
                     )}
 
                     {/* Judges Button */}
-                    {!hasJudges && !isLive && !isEnded && !isPaused ? (
+                    {!evt.is_locked && !hasJudges && !isLive && !isEnded && !isPaused ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -1329,7 +1335,7 @@ export function EventsTab({
                           setJudgeSearch('');
                           setIsAssignJudgeDrawerOpen(true);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold border border-emerald-600 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold border border-amber-500 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Add Judges</span>
@@ -1609,23 +1615,32 @@ export function EventsTab({
               </div>
             </div>
 
-            {/* Add Participant action (Allowed when upcoming/draft OR LIVE continuing) */}
-            {activeParticipantsModalEvent.status !== 'ended' && activeParticipantsModalEvent.status !== 'archived' && (
-              <button
-                type="button"
-                onClick={() => setIsEnrollDrawerOpen(!isEnrollDrawerOpen)}
-                className="min-h-[38px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>Enroll</span>
-              </button>
-            )}
+            {/* Add Participant action (Allowed when upcoming/draft OR LIVE continuing, unless locked) */}
+            {activeParticipantsModalEvent.status !== 'ended' &&
+              activeParticipantsModalEvent.status !== 'archived' &&
+              !activeParticipantsModalEvent.is_locked && (
+                <button
+                  type="button"
+                  onClick={() => setIsEnrollDrawerOpen(!isEnrollDrawerOpen)}
+                  className="min-h-[38px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Enroll</span>
+                </button>
+              )}
           </div>
 
           {/* Body */}
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
-            {/* Event Live / Sealed Banner */}
-            {activeParticipantsModalEvent.status === 'active' ? (
+            {/* Event Locked / Live / Sealed Banner */}
+            {activeParticipantsModalEvent.is_locked ? (
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
+                <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>
+                  Roster Locked: This event&apos;s roster is frozen. Participants and performance order cannot be changed.
+                </span>
+              </div>
+            ) : activeParticipantsModalEvent.status === 'active' ? (
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
                 <span>
@@ -1712,7 +1727,9 @@ export function EventsTab({
             {/* List of Enrolled Participants (Lineup Builder) */}
             <div className="space-y-2">
               {(() => {
-                const isLiveLocked = (activeParticipantsModalEvent.status || 'draft').toLowerCase() === 'active';
+                const isLiveLocked =
+                  (activeParticipantsModalEvent.status || 'draft').toLowerCase() === 'active' ||
+                  Boolean(activeParticipantsModalEvent.is_locked);
                 const assignedIds = (activeParticipantsModalEvent.assigned_participants || []).filter((id) =>
                   activeParticipantIdSet.has(id)
                 );
@@ -1882,15 +1899,17 @@ export function EventsTab({
                               </div>
                             )}
 
-                            {/* Remove participant button */}
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveParticipantFromEvent(p.id)}
-                              title="Remove from this event"
-                              className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {/* Remove participant button (Hidden when roster locked) */}
+                            {!activeParticipantsModalEvent.is_locked && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveParticipantFromEvent(p.id)}
+                                title="Remove from this event"
+                                className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -1936,11 +1955,12 @@ export function EventsTab({
             {/* Add / Toggle Judge button */}
             {activeJudgesModalEvent.status !== 'active' &&
               activeJudgesModalEvent.status !== 'ended' &&
-              activeJudgesModalEvent.status !== 'archived' && (
+              activeJudgesModalEvent.status !== 'archived' &&
+              !activeJudgesModalEvent.is_locked && (
                 <button
                   type="button"
                   onClick={() => setIsAssignJudgeDrawerOpen(!isAssignJudgeDrawerOpen)}
-                  className="min-h-[38px] px-3.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                  className="min-h-[38px] px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold border border-amber-500 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Assign</span>
@@ -1950,8 +1970,15 @@ export function EventsTab({
 
           {/* Body */}
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
-            {/* Event Live / Sealed Warning */}
-            {activeJudgesModalEvent.status === 'active' ? (
+            {/* Event Locked / Live / Sealed Warning */}
+            {activeJudgesModalEvent.is_locked ? (
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
+                <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>
+                  Roster Locked: Jury assignments are frozen in read-only mode. Judges cannot be assigned or unassigned.
+                </span>
+              </div>
+            ) : activeJudgesModalEvent.status === 'active' ? (
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
                 <span>
@@ -2091,15 +2118,17 @@ export function EventsTab({
                       </div>
                     </div>
 
-                    {/* Unassign Judge Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleJudgeInEvent(j.id)}
-                      title="Remove judge from event"
-                      className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer shrink-0"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {/* Unassign Judge Button (Hidden when roster locked) */}
+                    {!activeJudgesModalEvent.is_locked && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleJudgeInEvent(j.id)}
+                        title="Remove judge from event"
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-all cursor-pointer shrink-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 ));
               })()}

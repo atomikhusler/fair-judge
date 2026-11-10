@@ -894,6 +894,18 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   // -------------------------------------------------------------
   const promptDeleteParticipant = async (pId: string, name: string) => {
     try {
+      // Pre-flight check: locked events
+      const lockedEvent = events.find(
+        (e) => e.is_locked && (e.assigned_participants || []).includes(pId)
+      );
+      if (lockedEvent) {
+        showToast(
+          `Cannot delete: Participant is enrolled in locked event "${lockedEvent.name}". Unlock event first.`,
+          'error'
+        );
+        return;
+      }
+
       const safety = await dbService.checkParticipantDeletion(pId);
 
       // Tier 1: Ended Events (Hard Block)
@@ -925,6 +937,18 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   };
 
   const promptDeleteJudge = (jId: string, name: string) => {
+    // Pre-flight check: locked events
+    const lockedEvent = events.find(
+      (e) => e.is_locked && (e.assigned_judges || []).includes(jId)
+    );
+    if (lockedEvent) {
+      showToast(
+        `Cannot delete: Judge is assigned to locked event "${lockedEvent.name}". Unlock event first.`,
+        'error'
+      );
+      return;
+    }
+
     setDeleteModalState({
       isOpen: true,
       type: 'judge',

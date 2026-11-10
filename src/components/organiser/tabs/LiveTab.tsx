@@ -14,7 +14,9 @@ import {
   Users, 
   CheckCircle2, 
   Activity, 
-  ShieldCheck 
+  ShieldCheck,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { 
   Organization, 
@@ -25,7 +27,14 @@ import {
   EventStatus 
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
-import { getPendingCount, subscribeToQueueChanges } from '../../../lib/offlineQueue';
+import { 
+  getPendingCount, 
+  subscribeToQueueChanges, 
+  getFailedMutations, 
+  retryFailedMutation, 
+  discardFailedMutation, 
+  PendingMutationRecord 
+} from '../../../lib/offlineQueue';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 
 interface LiveTimerProps {
@@ -137,6 +146,7 @@ interface EventCardProps {
   onPause: (event: SupabaseEvent, e: React.MouseEvent) => void;
   onResume: (event: SupabaseEvent, e: React.MouseEvent) => void;
   onOpenEndConfirm: (event: SupabaseEvent, e: React.MouseEvent) => void;
+  onToggleLock: (event: SupabaseEvent) => void;
   onOpenPublicView?: (eventId: string) => void;
 }
 
@@ -153,6 +163,7 @@ export const EventCard = React.memo(function EventCard({
   onPause,
   onResume,
   onOpenEndConfirm,
+  onToggleLock,
   onOpenPublicView,
 }: EventCardProps) {
   // Required judges count
@@ -242,11 +253,50 @@ export const EventCard = React.memo(function EventCard({
       style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
       className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:border-stone-300 dark:hover:border-zinc-700"
     >
-      {/* ---------------- TOP ROW: [CATEGORY] Pill (Left) | [STATUS] Badge (Right) ---------------- */}
+      {/* ---------------- TOP ROW: [CATEGORY] Pill & Lock Button (Left) | [STATUS] Badge (Right) ---------------- */}
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-700/50 truncate max-w-[160px]">
-          {event.category || 'General'}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-700/50 truncate max-w-[130px]">
+            {event.category || 'General'}
+          </span>
+
+          {/* Neutral Lock / Unlock Button (44px hit area, aria-pressed, subtle styling) */}
+          <button
+            type="button"
+            aria-pressed={Boolean(event.is_locked)}
+            disabled={event.status === 'ended' || event.status === 'archived'}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleLock(event);
+            }}
+            className={`min-h-[44px] min-w-[44px] px-2.5 flex items-center justify-center rounded-xl border transition-all ${
+              event.status === 'ended' || event.status === 'archived'
+                ? 'opacity-60 cursor-not-allowed border-stone-200/40 dark:border-zinc-800 text-stone-400 dark:text-zinc-500'
+                : event.is_locked
+                ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 cursor-pointer'
+                : 'border-stone-200/60 dark:border-zinc-700 bg-stone-100/60 dark:bg-zinc-800/60 text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white cursor-pointer'
+            }`}
+            title={
+              event.status === 'ended' || event.status === 'archived'
+                ? 'Sealed: Roster cannot be modified'
+                : event.is_locked
+                ? 'Roster Locked: Click to unlock'
+                : 'Roster Unlocked: Click to lock roster'
+            }
+          >
+            {event.is_locked ? (
+              <span className="flex items-center gap-1 text-[11px] font-bold">
+                <Lock className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Locked</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[11px] font-bold">
+                <Unlock className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Unlocked</span>
+              </span>
+            )}
+          </button>
+        </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {event.status === 'active' && (
@@ -702,13 +752,24 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [unreadAlerts, setUnreadAlerts] = useState(false);
   const [pendingScoresCount, setPendingScoresCount] = useState(0);
+  const [failedMutations, setFailedMutations] = useState<PendingMutationRecord[]>([]);
   const prevWarningsCountRef = useRef(0);
 
   // 3. Accordion Expanded Card State (Single expandedCardId or null)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
 
-  // 4. Double-Confirmation Modal State for Ending Session
+  // 4. Double-Confirmation Modal State for Ending Session & Unlocking Live Event
   const [confirmingEvent, setConfirmingEvent] = useState<SupabaseEvent | null>(null);
+  const [unlockConfirmEvent, setUnlockConfirmEvent] = useState<SupabaseEvent | null>(null);
+
+  const refreshFailedMutations = useCallback(async () => {
+    try {
+      const failed = await getFailedMutations();
+      setFailedMutations(failed);
+    } catch (err) {
+      console.error('Failed to get failed mutations:', err);
+    }
+  }, []);
 
   // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
   useEffect(() => {
@@ -744,6 +805,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       getPendingCount().then((count) => {
         setPendingScoresCount(count);
       });
+      refreshFailedMutations();
     });
 
     // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
@@ -752,24 +814,24 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     dbService.getJudges(organization.org_id);
     dbService.getAllScores();
     getPendingCount().then((count) => setPendingScoresCount(count));
+    refreshFailedMutations();
 
     return () => {
       unsubBus();
       unsubscribeQueue();
     };
-  }, [organization.org_id]);
-
+  }, [organization.org_id, refreshFailedMutations]);
 
   // Modal Scroll Lock: Ensure body does not scroll while confirm modal or alert popover is open
   useEffect(() => {
-    if (confirmingEvent || isAlertsOpen) {
+    if (confirmingEvent || isAlertsOpen || unlockConfirmEvent) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = originalOverflow;
       };
     }
-  }, [confirmingEvent, isAlertsOpen]);
+  }, [confirmingEvent, isAlertsOpen, unlockConfirmEvent]);
 
   // Helper to compute live elapsed seconds for an event
   const computeEventElapsedSeconds = useCallback((event: SupabaseEvent): number => {
@@ -801,6 +863,14 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   // -------------------------------------------------------------
   const specificWarnings = useMemo(() => {
     const list: Array<{ title: string; desc: string }> = [];
+
+    // 0. Permanent Mutation Failures Warning
+    if (failedMutations.length > 0) {
+      list.push({
+        title: `${failedMutations.length} Sync Mutation${failedMutations.length > 1 ? 's' : ''} Failed`,
+        desc: `${failedMutations.length} queued mutation${failedMutations.length > 1 ? 's' : ''} encountered server rejection (e.g. roster locked or constraint). Open alerts to retry or discard.`,
+      });
+    }
 
     // 1. Pending Scores Warning
     if (pendingScoresCount > 0) {
@@ -836,7 +906,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     });
 
     return list;
-  }, [events, pendingScoresCount]);
+  }, [events, pendingScoresCount, failedMutations]);
 
   // Manage unreadAlerts state: trigger red dot if warnings exist
   useEffect(() => {
@@ -954,6 +1024,50 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       setConfirmingEvent(null);
     }
   };
+
+  const handleToggleLock = useCallback(async (event: SupabaseEvent) => {
+    if (event.status === 'ended' || event.status === 'archived') {
+      return; // Sealed
+    }
+    if (event.is_locked) {
+      if (event.status === 'active') {
+        // Confirmation modal before unlocking an active (live) event
+        setUnlockConfirmEvent(event);
+        return;
+      }
+      try {
+        await dbService.updateEvent(event.id, { is_locked: false });
+        setEvents((prev) =>
+          prev.map((item) => (item.id === event.id ? { ...item, is_locked: false } : item))
+        );
+      } catch (err) {
+        console.error('Failed to unlock event:', err);
+      }
+    } else {
+      try {
+        await dbService.updateEvent(event.id, { is_locked: true });
+        setEvents((prev) =>
+          prev.map((item) => (item.id === event.id ? { ...item, is_locked: true } : item))
+        );
+      } catch (err) {
+        console.error('Failed to lock event:', err);
+      }
+    }
+  }, []);
+
+  const handleConfirmUnlockLive = useCallback(async () => {
+    if (!unlockConfirmEvent) return;
+    try {
+      await dbService.updateEvent(unlockConfirmEvent.id, { is_locked: false });
+      setEvents((prev) =>
+        prev.map((item) => (item.id === unlockConfirmEvent.id ? { ...item, is_locked: false } : item))
+      );
+    } catch (err) {
+      console.error('Failed to unlock live event:', err);
+    } finally {
+      setUnlockConfirmEvent(null);
+    }
+  }, [unlockConfirmEvent]);
 
   // -------------------------------------------------------------
   // DATA FILTERING & AUTO-SORT ALGORITHM
@@ -1115,6 +1229,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                 onPause={handlePauseSession}
                 onResume={handleResumeSession}
                 onOpenEndConfirm={handleOpenEndConfirm}
+                onToggleLock={handleToggleLock}
                 onOpenPublicView={onOpenPublicView}
               />
             );
@@ -1181,8 +1296,56 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       )}
 
       {/* ======================================================== */}
+      {/* DOUBLE-CONFIRMATION MODAL FOR UNLOCKING LIVE EVENT       */}
+      {/* Rendered outside the scroll container with body lock     */}
+      {/* ======================================================== */}
+      {unlockConfirmEvent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+          onClick={() => setUnlockConfirmEvent(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-4"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+              <Unlock className="w-6 h-6 stroke-[2.2]" />
+            </div>
+
+            <div className="text-center space-y-1.5">
+              <h3 className="text-lg font-black text-stone-900 dark:text-white">
+                Unlock Live Event Roster?
+              </h3>
+              <p className="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">
+                &ldquo;{unlockConfirmEvent.name}&rdquo; is currently <span className="font-bold text-emerald-600 dark:text-emerald-400">LIVE</span>. Unlocking the roster permits modifications to the participant order and jury lineup while judges may be evaluating.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setUnlockConfirmEvent(null)}
+                className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-stone-700 dark:text-zinc-200 transition-colors cursor-pointer"
+              >
+                Keep Locked
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmUnlockLive}
+                className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-900/20 active:scale-95 transition-all cursor-pointer"
+              >
+                Unlock Roster
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
       {/* SMART NOTIFICATION BELL POPOVER / MODAL                  */}
-      {/* Shows specific warnings or clean status                  */}
+      {/* Shows specific warnings, failed syncs, or clean status    */}
       {/* ======================================================== */}
       {isAlertsOpen && (
         <div
@@ -1221,6 +1384,52 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
 
             {/* Warnings List */}
             <div className="space-y-2.5 max-h-[60vh] overflow-y-auto">
+              {/* Permanent Mutation Failures */}
+              {failedMutations.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  <div className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    Permanent Sync Failures ({failedMutations.length})
+                  </div>
+                  {failedMutations.map((m) => (
+                    <div
+                      key={m.id}
+                      className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 space-y-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                          {m.table.toUpperCase()} Mutation Rejected
+                        </div>
+                        <div className="text-[11px] text-stone-600 dark:text-zinc-300 mt-0.5 leading-relaxed font-mono break-all">
+                          {m.lastError || 'Server rejected mutation (roster locked or constraints)'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await retryFailedMutation(m.id);
+                            await refreshFailedMutations();
+                          }}
+                          className="px-3 py-1 rounded-lg text-xs font-bold bg-stone-900 text-white dark:bg-zinc-100 dark:text-black hover:opacity-90 transition-all cursor-pointer"
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await discardFailedMutation(m.id);
+                            await refreshFailedMutations();
+                          }}
+                          className="px-3 py-1 rounded-lg text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all cursor-pointer"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {specificWarnings.length > 0 ? (
                 specificWarnings.map((warning, idx) => (
                   <div
