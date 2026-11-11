@@ -320,11 +320,6 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     setCustomFields(organization.custom_participant_fields || []);
   }, [organization.custom_participant_fields]);
 
-  // Temporary Mount Log to observe component lifecycle
-  useEffect(() => {
-    console.log('[DEBUG-MOUNT] PeopleTab mounted at', Date.now());
-    return () => console.log('[DEBUG-UNMOUNT] PeopleTab unmounted at', Date.now());
-  }, []);
 
   // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
   useEffect(() => {

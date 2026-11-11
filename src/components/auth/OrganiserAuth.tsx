@@ -139,42 +139,42 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
   };
 
   return (
-    <div className="w-full max-w-md mx-auto bg-zinc-900 border border-zinc-800 border-t-white/5 rounded-3xl p-6 md:p-8 shadow-2xl shadow-black/80 relative animate-in fade-in zoom-in-95 duration-200">
+    <div className="w-full max-w-md mx-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 md:p-8 shadow-xl dark:shadow-2xl dark:shadow-black/80 relative animate-in fade-in zoom-in-95 duration-200">
       {/* Floating Glassmorphic Back Button */}
       <button
         type="button"
         onClick={onBack}
         aria-label="Back to role selection"
-        className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 border-t-white/5 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-95 shadow-lg z-20"
+        className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer active:scale-95 shadow-sm z-20"
       >
         <ChevronLeft className="w-5 h-5" />
       </button>
 
       {/* Persistent Shrinked App Logo & Centered Header Anchor */}
       <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
-        <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-1.5 shadow-sm shadow-emerald-500/10">
+        <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 dark:text-emerald-400 flex items-center justify-center mb-1.5 shadow-sm shadow-emerald-500/10">
           <ShieldCheck className="w-5 h-5 stroke-[2.2]" />
         </div>
-        <h1 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+        <h1 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider font-mono">
           Organiser Portal
         </h1>
-        <span className="text-[10px] uppercase tracking-widest text-zinc-500">
+        <span className="text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
           Fair Judge
         </span>
       </div>
 
       {/* The Segmented Toggle: Premium pill container */}
-      <div className="bg-zinc-900 p-1 rounded-xl flex mb-6 border border-zinc-800/80 border-t-white/5">
+      <div className="bg-zinc-100 dark:bg-zinc-900 p-1 rounded-xl flex mb-6 border border-zinc-200 dark:border-zinc-800/80">
         <button
           type="button"
           onClick={() => {
             setAuthMode('login');
             setErrorMessage('');
           }}
-          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg flex items-center justify-center cursor-pointer ${
+          className={`flex-1 py-2 text-xs font-bold transition-colors rounded-lg flex items-center justify-center cursor-pointer ${
             authMode === 'login'
-              ? 'bg-zinc-800 text-emerald-400 shadow-md border border-zinc-700/60'
-              : 'text-zinc-400 hover:text-white'
+              ? 'bg-white dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 shadow-sm border border-zinc-200/80 dark:border-zinc-700/60'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
           }`}
         >
           Sign In
@@ -185,10 +185,10 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
             setAuthMode('register');
             setErrorMessage('');
           }}
-          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg flex items-center justify-center cursor-pointer ${
+          className={`flex-1 py-2 text-xs font-bold transition-colors rounded-lg flex items-center justify-center cursor-pointer ${
             authMode === 'register'
-              ? 'bg-zinc-800 text-emerald-400 shadow-md border border-zinc-700/60'
-              : 'text-zinc-400 hover:text-white'
+              ? 'bg-white dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 shadow-sm border border-zinc-200/80 dark:border-zinc-700/60'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
           }`}
         >
           Register

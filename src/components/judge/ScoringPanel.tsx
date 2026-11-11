@@ -111,7 +111,9 @@ export function ScoringPanel({
     };
   }, []);
 
-  const rubricList: RubricCriterion[] = event.rubric_schema || event.rubric || [];
+  const rubricList: RubricCriterion[] = useMemo(() => {
+    return event.rubric_schema || event.rubric || [];
+  }, [event.id, event.rubric_schema]);
 
   // Load organization, participants & all scores submitted by this judge
   const loadData = async () => {
@@ -249,6 +251,7 @@ export function ScoringPanel({
   // Score Draft Engine: Key includes eventId, judgeId and participantId; v1; 24h TTL
   const lastLoadedParticipantIdRef = useRef<string | null>(null);
   const isDirtyRef = useRef<boolean>(false);
+  const scoresOwnerIdRef = useRef<string | null>(null);
 
   const getScoreDraftKey = useCallback(
     (participantId: string) => `fj_draft_score_${event.id}_${judge.id}_${participantId}`,
@@ -282,16 +285,19 @@ export function ScoringPanel({
   // Debounced auto-save score draft
   useEffect(() => {
     if (!currentParticipant || !isDirtyRef.current) return;
-    const key = getScoreDraftKey(currentParticipant.id);
+    if (scoresOwnerIdRef.current !== currentParticipant.id) return;
+    const participantId = currentParticipant.id;
+    const key = getScoreDraftKey(participantId);
     const timer = setTimeout(() => {
       try {
+        if (scoresOwnerIdRef.current !== participantId) return;
         const hasAnyScore = Object.values(scoresMap).some((v) => v !== null && v !== undefined);
         if (hasAnyScore) {
           const draft = {
             version: 1,
             eventId: event.id,
             judgeId: judge.id,
-            participantId: currentParticipant.id,
+            participantId,
             scoresMap,
             timestamp: Date.now(),
           };
@@ -310,6 +316,11 @@ export function ScoringPanel({
     const participantId = currentParticipant.id;
     const isParticipantChanged = lastLoadedParticipantIdRef.current !== participantId;
 
+    if (isParticipantChanged) {
+      isDirtyRef.current = false;
+      scoresOwnerIdRef.current = participantId;
+    }
+
     dbService
       .getScoreForJudgeParticipant(event.id, judge.id, participantId)
       .then((score) => {
@@ -317,6 +328,10 @@ export function ScoringPanel({
         setExistingScore(score);
 
         if (score) {
+          if (isDirtyRef.current) {
+            lastLoadedParticipantIdRef.current = participantId;
+            return;
+          }
           const filled: Record<string, number | null> = {};
           rubricList.forEach((c) => {
             filled[c.id] =
@@ -326,6 +341,7 @@ export function ScoringPanel({
           });
           setScoresMap(filled);
           isDirtyRef.current = false;
+          scoresOwnerIdRef.current = participantId;
           lastLoadedParticipantIdRef.current = participantId;
         } else {
           // If sliders are dirty and participant has not changed, skip reset entirely!
@@ -339,6 +355,7 @@ export function ScoringPanel({
             if (draft && event.status !== 'ended') {
               setScoresMap(draft);
               isDirtyRef.current = true;
+              scoresOwnerIdRef.current = participantId;
             } else {
               const fresh: Record<string, number | null> = {};
               rubricList.forEach((c) => {
@@ -346,6 +363,7 @@ export function ScoringPanel({
               });
               setScoresMap(fresh);
               isDirtyRef.current = false;
+              scoresOwnerIdRef.current = participantId;
             }
             lastLoadedParticipantIdRef.current = participantId;
           } else {
@@ -353,6 +371,7 @@ export function ScoringPanel({
             const draft = loadScoreDraft(participantId);
             if (draft && event.status !== 'ended') {
               setScoresMap(draft);
+              scoresOwnerIdRef.current = participantId;
             }
           }
         }
@@ -368,6 +387,9 @@ export function ScoringPanel({
     if (areSlidersDisabled) return;
     triggerHaptic('tick');
     isDirtyRef.current = true;
+    if (currentParticipant) {
+      scoresOwnerIdRef.current = currentParticipant.id;
+    }
     setScoresMap((prev) => ({
       ...prev,
       [criterionId]: val,
@@ -690,45 +712,49 @@ export function ScoringPanel({
                   </div>
                   <div className="space-y-2.5">
                     {/* Row 1: 100% Opacity */}
-                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-100 animate-pulse">
-                      <div className="flex items-center space-x-3.5 min-w-0">
+                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-100">
+                      <div className="flex items-center space-x-3.5 min-w-0 animate-pulse">
                         <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
                         <div className="space-y-2 min-w-0">
                           <div className="h-4 w-32 bg-stone-200 dark:bg-zinc-800 rounded-md" />
                           <div className="h-3 w-20 bg-stone-200 dark:bg-zinc-800 rounded-md" />
                         </div>
                       </div>
-                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0 animate-pulse" />
                     </div>
 
                     {/* Row 2: 70% Opacity */}
-                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-70 animate-pulse">
-                      <div className="flex items-center space-x-3.5 min-w-0">
+                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-70">
+                      <div className="flex items-center space-x-3.5 min-w-0 animate-pulse">
                         <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
                         <div className="space-y-2 min-w-0">
                           <div className="h-4 w-28 bg-stone-200 dark:bg-zinc-800 rounded-md" />
                           <div className="h-3 w-16 bg-stone-200 dark:bg-zinc-800 rounded-md" />
                         </div>
                       </div>
-                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0 animate-pulse" />
                     </div>
 
                     {/* Row 3: 40% Opacity */}
-                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-40 animate-pulse">
-                      <div className="flex items-center space-x-3.5 min-w-0">
+                    <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-40">
+                      <div className="flex items-center space-x-3.5 min-w-0 animate-pulse">
                         <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
                         <div className="space-y-2 min-w-0">
                           <div className="h-4 w-24 bg-stone-200 dark:bg-zinc-800 rounded-md" />
                           <div className="h-3 w-14 bg-stone-200 dark:bg-zinc-800 rounded-md" />
                         </div>
                       </div>
-                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0 animate-pulse" />
                     </div>
                   </div>
                 </div>
               ) : filteredUpcoming.length === 0 ? (
                 <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-xs text-zinc-400 shadow-sm">
-                  {listSearch ? 'No upcoming competitors match your search.' : 'All assigned competitors have been evaluated! 🎉'}
+                  {listSearch
+                    ? 'No upcoming competitors match your search.'
+                    : participants.length === 0
+                    ? 'No competitors assigned to this event yet.'
+                    : 'All assigned competitors have been evaluated! 🎉'}
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -743,7 +769,7 @@ export function ScoringPanel({
                         key={p.id}
                         style={{ animationDelay: `${Math.min(idx, 8) * 50}ms` }}
                         onClick={() => handleOpenParticipant(p)}
-                        className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-850 rounded-2xl shadow-sm transition-all cursor-pointer group flex items-center justify-between active:scale-95 transition-transform duration-75 ease-out will-change-transform animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both"
+                        className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-800 rounded-2xl shadow-sm transition-colors cursor-pointer group flex items-center justify-between active:scale-95 transition-transform duration-75 ease-out will-change-transform animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both"
                       >
                         <div className="flex items-center space-x-3.5 min-w-0 mr-3">
                           <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 font-mono font-black text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
@@ -933,7 +959,7 @@ export function ScoringPanel({
         <div className="shrink-0 z-40 px-4 pt-3 pb-2 bg-stone-100/90 dark:bg-zinc-900/90 backdrop-blur-md border-b border-stone-200/60 dark:border-zinc-800/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 min-w-0 flex-1">
-              <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-850 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-amber-500 dark:text-amber-400 shrink-0 shadow-sm">
+              <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-amber-500 dark:text-amber-400 shrink-0 shadow-sm">
                 {currentSerial}
               </div>
               <div className="min-w-0 flex-1">
@@ -1172,7 +1198,7 @@ export function ScoringPanel({
       {isReviewSheetOpen && currentParticipant && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 transition-opacity animate-in fade-in duration-200">
           <div
-            className="w-full max-w-lg bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-t-3xl shadow-2xl p-5 flex flex-col max-h-[85vh] transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] translate-y-0 will-change-transform animate-in slide-in-from-bottom"
+            className="w-full max-w-lg bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-t-3xl shadow-2xl p-5 flex flex-col max-h-[85vh] animate-sheet-slide-up will-change-transform"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Grab Handle */}
@@ -1215,8 +1241,8 @@ export function ScoringPanel({
             </div>
 
             {/* Total Score Hero */}
-            <div className="py-4 my-2 text-center bg-zinc-50 dark:bg-zinc-850 rounded-2xl border border-zinc-200 dark:border-zinc-800 shrink-0">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 font-bold block mb-1">
+            <div className="py-4 my-2 text-center bg-zinc-50 dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shrink-0">
+              <span className="text-xs font-mono uppercase tracking-widest text-zinc-400 font-bold block mb-1">
                 Final Score Review
               </span>
               <div className="text-3xl font-black text-zinc-900 dark:text-white tabular-nums whitespace-nowrap">
@@ -1228,7 +1254,7 @@ export function ScoringPanel({
 
             {/* Criteria Marks: Seamless Flat List Rows with subtle bottom border */}
             <div className="flex-1 overflow-y-auto divide-y divide-zinc-200 dark:divide-zinc-800 py-1 pr-1 my-2">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 font-bold px-1 block pb-2">
+              <span className="text-xs font-mono uppercase tracking-wider text-zinc-400 font-bold px-1 block pb-2">
                 Criteria Marks
               </span>
               {rubricList.map((criterion) => {
@@ -1243,7 +1269,7 @@ export function ScoringPanel({
                         {criterion.name}
                       </p>
                       {criterion.description && (
-                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
                           {criterion.description}
                         </p>
                       )}
@@ -1263,7 +1289,7 @@ export function ScoringPanel({
                 type="button"
                 disabled={isSubmitting || isSubmittedBeat}
                 onClick={() => setIsReviewSheetOpen(false)}
-                className="flex-1 py-3.5 px-4 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 font-extrabold text-sm hover:bg-zinc-200 dark:hover:bg-zinc-750 disabled:opacity-40 cursor-pointer active:scale-95 transition-transform duration-75 ease-out will-change-transform"
+                className="flex-1 py-3.5 px-4 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 font-extrabold text-sm hover:bg-zinc-200 dark:hover:bg-zinc-800 disabled:opacity-40 cursor-pointer active:scale-95 transition-transform duration-75 ease-out will-change-transform"
               >
                 Review
               </button>
@@ -1272,7 +1298,7 @@ export function ScoringPanel({
                 type="button"
                 disabled={isSubmitting || isSubmittedBeat}
                 onClick={handleConfirmLockScore}
-                className={`flex-1 py-3.5 px-4 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all duration-75 ease-out will-change-transform cursor-pointer ${
+                className={`flex-1 py-3.5 px-4 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform duration-75 ease-out will-change-transform cursor-pointer ${
                   isSubmittedBeat
                     ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
                     : 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/25'

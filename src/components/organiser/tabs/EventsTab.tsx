@@ -256,11 +256,6 @@ export function EventsTab({
   );
 
 
-  // Temporary Mount Log to observe component lifecycle
-  useEffect(() => {
-    console.log('[DEBUG-MOUNT] EventsTab mounted at', Date.now());
-    return () => console.log('[DEBUG-UNMOUNT] EventsTab unmounted at', Date.now());
-  }, []);
 
   // ========================================================
   // 4. EVENT-DRIVEN SYNC (Pure EventBus with Zero-Flash Hydration)

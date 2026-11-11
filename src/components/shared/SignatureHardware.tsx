@@ -8,7 +8,8 @@ import {
   Send, 
   Download, 
   Trash2,
-  ChevronRight
+  ChevronRight,
+  Code
 } from 'lucide-react';
 import { APP_VERSION } from '../../config/version';
 import { TELEGRAM_SUPPORT_URL } from '../../config/support';
@@ -325,7 +326,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
           {/* ABOUT SCREEN STATE */}
           {isAbout && (
             <div
-              className={`h-full flex flex-col items-center justify-center text-center space-y-2 py-2 transition-all duration-300 motion-reduce:transition-none ${
+              className={`h-full flex flex-col items-center justify-center text-center space-y-2.5 my-auto transition-transform duration-300 motion-reduce:transition-none ${
                 wakeStage === 'blinking' ? 'opacity-70 translate-y-1' : 'opacity-100 translate-y-0'
               }`}
             >
@@ -345,14 +346,21 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                 <h2 className="text-lg font-black tracking-tight text-zinc-50">
                   Fair Judge
                 </h2>
-                <p className="text-[10px] tracking-[0.25em] uppercase font-mono text-zinc-300">
+                <p className="text-[10px] tracking-[0.25em] uppercase font-mono text-zinc-400">
                   Judge Transparently
                 </p>
               </div>
 
-              {/* Signature */}
-              <div className="pt-2 text-[11px] font-mono text-zinc-300 tracking-wide">
-                Engineered with intent. <span className="text-zinc-400">&lt;/&gt;</span> Sahil Kumar Rout
+              {/* Developer Credit - Option B */}
+              <div className="pt-2 flex flex-col items-center justify-center text-center max-w-[280px] mx-auto">
+                <span className="text-[9px] font-bold tracking-[0.2em] uppercase text-zinc-400">
+                  ENGINEERED WITH INTENT
+                </span>
+                <div className="flex items-center justify-center gap-1.5 mt-1 text-xs font-semibold text-zinc-200">
+                  <Code className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={2.2} />
+                  <span>Sahil Kumar Rout</span>
+                  <Code className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={2.2} />
+                </div>
               </div>
             </div>
           )}
@@ -449,17 +457,17 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
             aria-label="Terminal Mode"
             tabIndex={0}
             onKeyDown={handleKeyDown}
-            className="relative h-11 rounded-xl bg-zinc-200/90 dark:bg-zinc-950/90 border border-zinc-300 dark:border-white/10 shadow-inner flex items-center p-1 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            className="relative h-11 rounded-xl bg-zinc-200/90 dark:bg-zinc-950/90 border border-zinc-300 dark:border-white/10 shadow-inner flex items-center p-1 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 shadow-[0_0_12px_rgba(255,255,255,0.03)]"
           >
-            {/* Sliding 28px Knob Indicator */}
+            {/* Sliding Small Pill/Dot Knob Indicator with Faint Glow */}
             <div
               className={`absolute top-1 left-1 bottom-1 w-[calc((100%-8px)/3)] flex items-center justify-center pointer-events-none transition-transform duration-350 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${knobTranslate}`}
               style={{ willChange: 'transform' }}
             >
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-b from-white to-zinc-200 dark:from-zinc-100 dark:to-zinc-300 shadow-md border border-zinc-300/60 dark:border-zinc-400/50" />
+              <div className="w-[calc(100%-4px)] h-7 rounded-lg bg-gradient-to-b from-white to-zinc-200 dark:from-zinc-100 dark:to-zinc-300 shadow-md border border-zinc-300/60 dark:border-zinc-400/50 shadow-[0_0_8px_rgba(255,255,255,0.2)]" />
             </div>
 
-            {/* 3 Clickable Zones (Min 44px Tap Height) */}
+            {/* 3 Clickable Zones (Min 44px Tap Height, Press Scale 0.97, Never Clipped) */}
             <div className="grid grid-cols-3 relative z-10 w-full h-full">
               {(['sleep', 'about', 'test'] as const).map((pos) => {
                 const isSelected = position === pos;
@@ -470,13 +478,13 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                     role="radio"
                     aria-checked={isSelected}
                     onClick={() => handleSwitchChange(pos)}
-                    className={`h-full min-h-[44px] flex items-center justify-center text-[10px] font-mono font-bold tracking-wider uppercase transition-colors duration-150 cursor-pointer select-none rounded-lg ${
+                    className={`h-full min-h-[44px] px-1 flex items-center justify-center text-[10px] font-mono font-bold tracking-wider uppercase transition-colors duration-150 cursor-pointer select-none rounded-lg active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform ${
                       isSelected
                         ? 'text-zinc-900 font-extrabold'
                         : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
                     }`}
                   >
-                    {pos}
+                    <span className="truncate px-0.5">{pos}</span>
                   </button>
                 );
               })}
@@ -647,8 +655,8 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
         </div>
       </div>
 
-      {/* Caption below everything */}
-      <p className="text-center text-[11px] text-zinc-500 dark:text-zinc-400 font-mono mt-2.5 px-2">
+      {/* Caption below everything (normal font) */}
+      <p className="text-center text-xs text-zinc-500 dark:text-zinc-400 mt-2.5 px-2 font-normal leading-relaxed">
         Scores save on this phone first, then sync when you're online.
       </p>
     </div>

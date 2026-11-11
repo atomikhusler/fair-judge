@@ -285,7 +285,7 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
       );
       const isServerReturned = Boolean(err?.code || isRosterLocked || isRls);
 
-      // On ROSTER_LOCKED: retry once with assigned_participants, assigned_judges and participant_sl_numbers stripped
+      // On ROSTER_LOCKED: re-queue non-roster fields as a NEW UPDATE item
       if (isRosterLocked && item.table === 'events' && item.operation === 'UPDATE' && item.payload) {
         const fullPayload = { ...(item.payload || {}) };
         const rosterPayload: Record<string, any> = {};
@@ -299,23 +299,23 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
           }
         }
 
-        // Retry the non-roster part (e.g. status changes, timer updates) once
+        // Do NOT retry non-roster fields in memory. Re-queue them as a NEW UPDATE item
+        // (new id, same table and entityId, roster columns stripped, syncStatus 'pending', db.put BEFORE touching the original).
         if (Object.keys(nonRosterPayload).length > 0) {
-          try {
-            const { error: retryErr } = await supabase
-              .from('events')
-              .update(nonRosterPayload)
-              .eq('id', item.entityId);
-
-            if (!retryErr) {
-              syncedCount++;
-            }
-          } catch (retryEx) {
-            console.warn('Retry with stripped non-roster fields also failed:', retryEx);
-          }
+          const newNonRosterItem: PendingMutationRecord = {
+            id: `mut_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            table: item.table,
+            operation: 'UPDATE',
+            entityId: item.entityId,
+            payload: nonRosterPayload,
+            queuedAt: new Date().toISOString(),
+            syncStatus: 'pending',
+            retryCount: 0,
+          };
+          await db.put('pending_mutations', newNonRosterItem);
         }
 
-        // Mark only the roster part failed
+        // Mark ONLY the original roster item failed: payload reduced to roster fields, lastError set.
         item.payload = rosterPayload;
         item.syncStatus = 'failed';
         item.lastError = 'ROSTER_LOCKED: Roster modifications rejected because event is locked.';
@@ -334,7 +334,11 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
       item.retryCount = (item.retryCount || 0) + 1;
       item.lastError = err?.message || 'Server rejected mutation';
 
-      if (item.retryCount >= 3 || isRls) {
+      // A ROSTER_LOCKED error on participant or judge DELETE is marked failed immediately, not after 3 strikes
+      const isRosterLockedDelete =
+        isRosterLocked && (item.table === 'participants' || item.table === 'judges') && item.operation === 'DELETE';
+
+      if (item.retryCount >= 3 || isRls || isRosterLockedDelete) {
         item.syncStatus = 'failed';
       }
 
@@ -345,6 +349,25 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
 
   notifyQueueChange();
   return { syncedCount, failedCount };
+}
+
+/**
+ * Scans localStorage for keys starting with fj_draft_ and removes them safely.
+ */
+export function clearAllScoreDrafts(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('fj_draft_') || key.startsWith('draft_score_'))) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+  } catch {}
 }
 
 // ==========================================

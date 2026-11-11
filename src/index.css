@@ -196,17 +196,15 @@
 @keyframes shimmer {
   0%, 100% {
     opacity: 0.7;
-    filter: brightness(0.95);
   }
   50% {
     opacity: 1;
-    filter: brightness(1.25);
   }
 }
 
 .animate-shimmer {
   animation: shimmer 4s ease-in-out infinite;
-  will-change: opacity, filter;
+  will-change: opacity;
 }
 
 @keyframes flipY {
@@ -277,13 +275,29 @@
   animation: softPulse 2.4s ease-in-out infinite;
 }
 
+/* Epic 15.5 Review Sheet Slide Up */
+@keyframes sheetSlideUp {
+  0% {
+    transform: translateY(100%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.animate-sheet-slide-up {
+  animation: sheetSlideUp 500ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  will-change: transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-wake-blink,
   .animate-led-breathe,
   .animate-sweep,
   .animate-line-in,
   .animate-led-soft-pulse,
-  .animate-led-warning-pulse {
+  .animate-led-warning-pulse,
+  .animate-sheet-slide-up {
     animation: none !important;
     transition: none !important;
   }

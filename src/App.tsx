@@ -18,9 +18,9 @@ import {
 } from './lib/supabase';
 import { SuperAdminSetupModal } from './components/auth/SuperAdminSetupModal';
 import { initCacheStorage } from './lib/db/indexedDB';
-import { initOfflineSyncListener } from './lib/offlineQueue';
+import { initOfflineSyncListener, clearAllScoreDrafts } from './lib/offlineQueue';
+import { areRecordsEqual } from './lib/eventBus';
 import { Scale } from 'lucide-react';
-import { TabSkeleton } from './components/common/Skeletons';
 
 // Code Splitting: Asynchronously load major route panels to minimize initial JS payload
 const OrganiserDashboard = lazy(() =>
@@ -39,10 +39,25 @@ const PublicLeaderboard = lazy(() =>
 export type UserSession = StoredUserSession;
 
 export default function App() {
-  const [isBooting, setIsBooting] = useState(true);
+  const [isBooting, setIsBooting] = useState(false);
   const [isBootFading, setIsBootFading] = useState(false);
   const [session, setSession] = useState<UserSession | null>(getStoredSession);
-  const [judgeEvents, setJudgeEvents] = useState<SupabaseEvent[]>([]);
+  const [judgeEvents, setJudgeEvents] = useState<SupabaseEvent[]>(() => {
+    const s = getStoredSession();
+    if (s?.role === 'judge' && s.org?.org_id) {
+      const allEvents = dbService.getCachedEvents(s.org.org_id);
+      let assigned = allEvents.filter(
+        (e) =>
+          (s.judge?.id && e.assigned_judges.includes(s.judge.id)) ||
+          (s.judge?.assigned_events || []).includes(e.id)
+      );
+      if (assigned.length === 0) {
+        assigned = allEvents.filter((e) => e.status === 'active');
+      }
+      return assigned;
+    }
+    return [];
+  });
   const [activeJudgeEvent, setActiveJudgeEvent] = useState<SupabaseEvent | null>(null);
 
   // Public projector screen state
@@ -57,46 +72,22 @@ export default function App() {
   } | null>(null);
   const authSplashTimerRef = useRef<{ hold?: number; fade?: number }>({});
 
-  // Data-Driven Cold Boot Sequence & App Hydration (Directive 2)
+  // Instant App Hydration
   useEffect(() => {
-    let isCancelled = false;
     let unsubSync: (() => void) | null = null;
 
-    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    const runBootSequence = async () => {
-      try {
-        // Storage Eviction Defense: Protect queued scores & IndexedDB cache from browser eviction
-        if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
-          navigator.storage.persist().catch(() => {});
-        }
-
-        // Hydrate local cache and database state
-        await initCacheStorage();
-        if (isCancelled) return;
-
-        const stored = getStoredSession();
-        setSession(stored);
-        unsubSync = initOfflineSyncListener();
-
-        // 800ms initialization delay hold
-        await delay(800);
-        if (isCancelled) return;
-
-        // Trigger 400ms CSS exit animation
-        setIsBootFading(true);
-        await delay(400);
-        if (isCancelled) return;
-
-        // Clean unmount from DOM
-        setIsBooting(false);
-      } catch (err) {
-        console.warn('Boot sequence error:', err);
-        setIsBooting(false);
+    try {
+      // Storage Eviction Defense: Protect queued scores & IndexedDB cache from browser eviction
+      if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().catch(() => {});
       }
-    };
 
-    runBootSequence();
+      // Hydrate local cache and database state non-blockingly
+      initCacheStorage().catch(() => {});
+      unsubSync = initOfflineSyncListener();
+    } catch (err) {
+      console.warn('Boot sequence error:', err);
+    }
 
     const handleSessionEvent = () => {
       const stored = getStoredSession();
@@ -115,7 +106,6 @@ export default function App() {
     }
 
     return () => {
-      isCancelled = true;
       if (unsubSync) unsubSync();
       window.removeEventListener('fairjudge_session_change', handleSessionEvent);
     };
@@ -141,7 +131,7 @@ export default function App() {
         assigned = allEvents.filter((e) => e.status === 'active');
       }
 
-      setJudgeEvents(assigned);
+      setJudgeEvents((prev) => (areRecordsEqual(prev, assigned) ? prev : assigned));
 
       // Keep activeJudgeEvent synchronized if the Organiser pauses/ends/updates it
       setActiveJudgeEvent((prev) => {
@@ -191,6 +181,7 @@ export default function App() {
 
   // Organiser Login Handler
   const handleOrganiserLogin = (org: Organization) => {
+    clearAllScoreDrafts();
     const newSession: UserSession = {
       role: 'organiser',
       org,
@@ -206,6 +197,7 @@ export default function App() {
     judge: SupabaseJudge,
     assignedEvents: SupabaseEvent[]
   ) => {
+    clearAllScoreDrafts();
     const cleanOrgId = orgId.trim().toUpperCase();
     let orgRecord: Organization | null = null;
     try {
@@ -231,6 +223,7 @@ export default function App() {
 
   // Logout Handler
   const handleLogout = () => {
+    clearAllScoreDrafts();
     setStoredSession(null);
     setSession(null);
     setActiveJudgeEvent(null);
@@ -360,19 +353,31 @@ export default function App() {
       {/* Target 1: Transient Auth Splash (Solid dark overlay, zero stutter, 60fps GPU fade) */}
       {authSplash && (
         <div
-          className={`fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center text-white px-6 transition-opacity duration-500 will-change-opacity ${
+          role="status"
+          aria-live="polite"
+          className={`fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center text-white px-6 transition-opacity duration-500 ${
             authSplash.isFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
           }`}
         >
           <div className="flex flex-col items-center text-center max-w-sm w-full">
-            <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mb-5 shadow-xl shadow-emerald-500/20">
+            <div
+              className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-xl ${
+                session?.role === 'judge'
+                  ? 'bg-amber-500/15 border border-amber-500/40 text-amber-400 shadow-amber-500/20'
+                  : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 shadow-emerald-500/20'
+              }`}
+            >
               <Scale className="w-8 h-8 stroke-[2.2]" />
             </div>
             <p className="text-base sm:text-lg font-semibold text-zinc-100 tracking-tight">
               Welcome back, <span className="font-extrabold text-white">{authSplash.name}</span>
             </p>
             <p className="text-xs font-mono text-zinc-400 mt-2 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span
+                className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                  session?.role === 'judge' ? 'bg-amber-400' : 'bg-emerald-400'
+                }`}
+              />
               <span>Syncing offline ledger...</span>
             </p>
           </div>
@@ -380,7 +385,7 @@ export default function App() {
       )}
 
       <NetworkStatusIndicator />
-      <Suspense fallback={<TabSkeleton />}>
+      <Suspense fallback={<div className="w-full h-full min-h-[100dvh] bg-stone-50 dark:bg-black" />}>
         <div className="w-full h-full animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out will-change-transform">
           {renderScreenContent()}
         </div>

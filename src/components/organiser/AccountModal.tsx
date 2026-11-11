@@ -187,7 +187,11 @@ export function AccountModal({
       setResetInput('');
       showToast('All competition data wiped.');
     } catch (err: any) {
-      showToast(`Reset failed: ${err.message}`);
+      if (err?.code === 'ROSTER_LOCKED' || err?.message?.includes('ROSTER_LOCKED')) {
+        showToast('Unlock your events first.');
+      } else {
+        showToast(`Reset failed: ${err.message}`);
+      }
     } finally {
       setIsProcessingDanger(false);
     }
@@ -207,7 +211,11 @@ export function AccountModal({
       onClose();
       onLogout();
     } catch (err: any) {
-      showToast(`Delete failed: ${err.message}`);
+      if (err?.code === 'ROSTER_LOCKED' || err?.message?.includes('ROSTER_LOCKED')) {
+        showToast('Unlock your events first.');
+      } else {
+        showToast(`Delete failed: ${err.message}`);
+      }
     } finally {
       setIsProcessingDanger(false);
     }

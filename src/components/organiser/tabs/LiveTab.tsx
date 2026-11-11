@@ -36,6 +36,7 @@ import {
   PendingMutationRecord 
 } from '../../../lib/offlineQueue';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
+import { showToast } from '../../common/ToastProvider';
 
 interface LiveTimerProps {
   status: EventStatus;
@@ -1040,8 +1041,9 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         setEvents((prev) =>
           prev.map((item) => (item.id === event.id ? { ...item, is_locked: false } : item))
         );
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to unlock event:', err);
+        showToast(err?.message || 'Failed to unlock event', 'error');
       }
     } else {
       try {
@@ -1049,8 +1051,9 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         setEvents((prev) =>
           prev.map((item) => (item.id === event.id ? { ...item, is_locked: true } : item))
         );
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to lock event:', err);
+        showToast(err?.message || 'Failed to lock event', 'error');
       }
     }
   }, []);
@@ -1062,8 +1065,9 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       setEvents((prev) =>
         prev.map((item) => (item.id === unlockConfirmEvent.id ? { ...item, is_locked: false } : item))
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to unlock live event:', err);
+      showToast(err?.message || 'Failed to unlock live event', 'error');
     } finally {
       setUnlockConfirmEvent(null);
     }
@@ -1112,18 +1116,53 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     return new Map(allParticipants.map((p) => [p.id, p]));
   }, [allParticipants]);
 
+  // Memoize participants and scores per event, reusing previous array references via areRecordsEqual
+  const prevParticipantsByEventRef = useRef<Map<string, SupabaseParticipant[]>>(new Map());
+  const prevScoresByEventRef = useRef<Map<string, SupabaseScore[]>>(new Map());
+
+  const participantsByEvent = useMemo(() => {
+    const map = new Map<string, SupabaseParticipant[]>();
+    for (const evt of events) {
+      const assignedIds = evt.assigned_participants || [];
+      const nextList =
+        assignedIds.length === 0
+          ? []
+          : assignedIds
+              .map((id) => participantMap.get(id))
+              .filter((p): p is SupabaseParticipant => Boolean(p));
+
+      const prevList = prevParticipantsByEventRef.current.get(evt.id);
+      if (prevList && areRecordsEqual(prevList, nextList)) {
+        map.set(evt.id, prevList);
+      } else {
+        map.set(evt.id, nextList);
+      }
+    }
+    prevParticipantsByEventRef.current = map;
+    return map;
+  }, [events, participantMap]);
+
+  const scoresByEvent = useMemo(() => {
+    const map = new Map<string, SupabaseScore[]>();
+    for (const evt of events) {
+      const nextScores = allScores.filter((s) => s.event_id === evt.id);
+      const prevScores = prevScoresByEventRef.current.get(evt.id);
+      if (prevScores && areRecordsEqual(prevScores, nextScores)) {
+        map.set(evt.id, prevScores);
+      } else {
+        map.set(evt.id, nextScores);
+      }
+    }
+    prevScoresByEventRef.current = map;
+    return map;
+  }, [events, allScores]);
+
   // STRICT ROSTER RULE: If assigned_participants.length === 0, return [] (do NOT fallback to full org roster)
   const getEventParticipants = useCallback(
     (event: SupabaseEvent): SupabaseParticipant[] => {
-      const assignedIds = event.assigned_participants || [];
-      if (assignedIds.length === 0) {
-        return [];
-      }
-      return assignedIds
-        .map((id) => participantMap.get(id))
-        .filter((p): p is SupabaseParticipant => Boolean(p));
+      return participantsByEvent.get(event.id) || [];
     },
-    [participantMap]
+    [participantsByEvent]
   );
 
   const getParticipantDisplayName = (
@@ -1210,9 +1249,9 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         ) : (
           filteredEvents.map((event) => {
             const isExpanded = expandedCardId === event.id;
-            const eventParticipants = getEventParticipants(event);
+            const eventParticipants = participantsByEvent.get(event.id) || [];
             const eventJudgesCount = event.assigned_judges?.length || 0;
-            const eventScores = allScores.filter((s) => s.event_id === event.id);
+            const eventScores = scoresByEvent.get(event.id) || [];
 
             return (
               <EventCard

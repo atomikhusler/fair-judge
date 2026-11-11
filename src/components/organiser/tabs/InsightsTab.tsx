@@ -1121,10 +1121,10 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                   return (
                     <div
                       key={event.id}
-                      className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5"
+                      className="bg-white dark:bg-zinc-950 border border-cyan-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5"
                     >
                       {/* Event Title + Category Header */}
-                      <div className="flex items-start justify-between gap-2 border-b border-stone-100 dark:border-zinc-800/80 pb-2.5">
+                      <div className="flex items-start justify-between gap-2 border-b border-cyan-500/10 dark:border-cyan-500/20 pb-2.5">
                         <div>
                           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
                             {(event as any).category || 'General Division'}
@@ -1253,7 +1253,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                 return (
                   <div
                     key={event.id}
-                    className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl overflow-hidden shadow-xs"
+                    className="bg-white dark:bg-zinc-950 border border-rose-500/20 rounded-2xl overflow-hidden shadow-xs"
                   >
                     {/* Accordion Trigger */}
                     <button
@@ -1426,7 +1426,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             </div>
 
             {/* 1. Absentee Tracker */}
-            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+            <div className="bg-white dark:bg-zinc-950 border border-amber-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <UserX className="w-4 h-4 text-rose-500" />
@@ -1472,7 +1472,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             </div>
 
             {/* 2. Judge Bias Meter */}
-            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+            <div className="bg-white dark:bg-zinc-950 border border-amber-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <Scale className="w-4 h-4 text-amber-500" />
@@ -1557,7 +1557,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             </div>
 
             {/* 3. Consensus Anomalies */}
-            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+            <div className="bg-white dark:bg-zinc-950 border border-amber-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <ShieldAlert className="w-4 h-4 text-orange-500" />
@@ -1658,7 +1658,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             </div>
 
             {/* Filter Controls Strip */}
-            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-3 shadow-xs space-y-2.5">
+            <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 shadow-xs space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 {/* Event Filter Dropdown */}
                 <div className="relative">
@@ -1795,7 +1795,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                 No cryptographic ballot commits match your current filters.
               </div>
             ) : (
-              <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 border-t-white/5 rounded-2xl p-4 sm:p-5 shadow-xs">
+              <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xs">
                 <div className="border-l-2 border-stone-200 dark:border-zinc-800 ml-2.5 pl-4 space-y-5 pt-1">
                   {filteredScores.slice(0, 50).map((score) => {
                     const p = participantMap.get(score.participant_id);

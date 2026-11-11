@@ -9,7 +9,7 @@ import {
   TieBreakerMethod,
   VerificationStatus
 } from './supabaseTypes';
-import { queueMutationLocally, queueScoreLocally } from './offlineQueue';
+import { queueMutationLocally, queueScoreLocally, clearAllScoreDrafts } from './offlineQueue';
 import { 
   getHotCache, 
   setIndexedDBCache, 
@@ -708,7 +708,49 @@ export const dbService = {
   async resetOrganizationData(orgId: string): Promise<void> {
     const cleanOrgId = orgId.toUpperCase().trim();
 
-    // Clear local cache for this org immediately
+    if (isSupabaseConfigured()) {
+      // Delete events first, then participants and judges, sequentially (no Promise.all)
+      const { error: evtsErr } = await supabase.from('events').delete().ilike('org_id', cleanOrgId);
+      if (evtsErr) {
+        const isLocked =
+          evtsErr.message?.includes('ROSTER_LOCKED') ||
+          (evtsErr.details && String(evtsErr.details).includes('ROSTER_LOCKED'));
+        if (isLocked) {
+          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+          (lockedErr as any).code = 'ROSTER_LOCKED';
+          throw lockedErr;
+        }
+        throw evtsErr;
+      }
+
+      const { error: partsErr } = await supabase.from('participants').delete().ilike('org_id', cleanOrgId);
+      if (partsErr) {
+        const isLocked =
+          partsErr.message?.includes('ROSTER_LOCKED') ||
+          (partsErr.details && String(partsErr.details).includes('ROSTER_LOCKED'));
+        if (isLocked) {
+          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+          (lockedErr as any).code = 'ROSTER_LOCKED';
+          throw lockedErr;
+        }
+        throw partsErr;
+      }
+
+      const { error: jdgsErr } = await supabase.from('judges').delete().ilike('org_id', cleanOrgId);
+      if (jdgsErr) {
+        const isLocked =
+          jdgsErr.message?.includes('ROSTER_LOCKED') ||
+          (jdgsErr.details && String(jdgsErr.details).includes('ROSTER_LOCKED'));
+        if (isLocked) {
+          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+          (lockedErr as any).code = 'ROSTER_LOCKED';
+          throw lockedErr;
+        }
+        throw jdgsErr;
+      }
+    }
+
+    // Clear local cache for this org
     const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
     const orgEventIds = new Set(
       events.filter((e) => e.org_id.toUpperCase().trim() === cleanOrgId).map((e) => e.id)
@@ -741,24 +783,32 @@ export const dbService = {
     );
 
     invalidateCache();
-
-    if (isSupabaseConfigured()) {
-      try {
-        await Promise.all([
-          supabase.from('events').delete().ilike('org_id', cleanOrgId),
-          supabase.from('participants').delete().ilike('org_id', cleanOrgId),
-          supabase.from('judges').delete().ilike('org_id', cleanOrgId),
-        ]);
-      } catch (err: any) {
-        console.warn('Offline mode: reset deferred to queue:', err?.message || err);
-      }
-    }
+    clearAllScoreDrafts();
   },
 
   async deleteOrganization(orgId: string): Promise<void> {
     const cleanOrgId = orgId.toUpperCase().trim();
 
     await this.resetOrganizationData(cleanOrgId);
+
+    if (isSupabaseConfigured()) {
+      const { error } = await supabase
+        .from('organizations')
+        .delete()
+        .ilike('org_id', cleanOrgId);
+      if (error) {
+        const isLocked =
+          error.message?.includes('ROSTER_LOCKED') ||
+          (error.details && String(error.details).includes('ROSTER_LOCKED'));
+        if (isLocked) {
+          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+          (lockedErr as any).code = 'ROSTER_LOCKED';
+          throw lockedErr;
+        }
+        throw error;
+      }
+    }
+
     const orgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
     saveCache(
       STORAGE_KEYS.ORGS,
@@ -767,19 +817,7 @@ export const dbService = {
     );
     setStoredSession(null);
     invalidateCache();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { error } = await supabase
-          .from('organizations')
-          .delete()
-          .ilike('org_id', cleanOrgId);
-        if (error) throw error;
-      } catch (err: any) {
-        console.warn('Offline mode: org deletion queued:', err?.message || err);
-        await queueMutationLocally('organizations', 'DELETE', cleanOrgId, null);
-      }
-    }
+    clearAllScoreDrafts();
   },
 
   // ------------------------------------------

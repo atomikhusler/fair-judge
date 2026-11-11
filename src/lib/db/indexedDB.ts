@@ -83,8 +83,6 @@ export async function initCacheStorage(): Promise<void> {
               await setIndexedDBCache(key, parsed, true);
             }
           }
-          // Remove from localStorage to free up synchronous quota
-          localStorage.removeItem(key);
         }
       } catch (e) {
         // Safe skip
@@ -106,6 +104,16 @@ export function getHotCache<T>(key: string, defaultVal: T): T {
   if (entry && entry.data !== undefined) {
     return entry.data as T;
   }
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed !== undefined && parsed !== null) {
+        hotMemoryCache.set(key, { key, data: parsed, timestamp: Date.now() });
+        return parsed as T;
+      }
+    }
+  } catch {}
   return defaultVal;
 }
 
@@ -144,6 +152,11 @@ export async function setIndexedDBCache<T>(
 
   // 1. Immediate in-memory hot mirror write
   hotMemoryCache.set(key, entry);
+
+  // Synchronous backup in localStorage for instant zero-latency recovery on page reloads
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {}
 
   // 2. Asynchronous write to IndexedDB
   try {

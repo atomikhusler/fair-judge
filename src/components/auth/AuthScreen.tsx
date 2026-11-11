@@ -4,6 +4,7 @@ import { Gateway } from './Gateway';
 import { OrganiserAuth } from './OrganiserAuth';
 import { JudgeAuth } from './JudgeAuth';
 import { AuthFooter } from './AuthFooter';
+import { ThemeToggleButton } from '../../lib/theme';
 
 export type AuthView = 'gateway' | 'organiser' | 'judge';
 
@@ -17,7 +18,12 @@ export function AuthScreen({ onOrganiserLogin, onJudgeLogin, initialView = 'gate
   const [authView, setAuthView] = useState<AuthView>(initialView);
 
   return (
-    <div className="min-h-[100dvh] w-full flex flex-col justify-between bg-zinc-950 text-zinc-100 p-4 md:p-6 relative overflow-x-hidden selection:bg-emerald-500 selection:text-black">
+    <div className="min-h-[100dvh] w-full flex flex-col justify-between bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 p-4 md:p-6 relative overflow-x-hidden transition-colors duration-500 selection:bg-emerald-500 selection:text-black">
+      {/* Absolute Theme Toggle */}
+      <div className="absolute top-6 right-6 z-50">
+        <ThemeToggleButton />
+      </div>
+
       {/* Background radial ambient highlight */}
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_60%_at_50%_-10%,rgba(16,185,129,0.08),transparent_70%)]" />
 

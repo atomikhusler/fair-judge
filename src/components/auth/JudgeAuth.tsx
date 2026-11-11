@@ -211,7 +211,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto bg-zinc-900 border border-zinc-800 border-t-white/5 rounded-3xl p-6 md:p-8 shadow-2xl shadow-black/80 relative animate-in fade-in zoom-in-95 duration-200">
+    <div className="w-full max-w-md mx-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 md:p-8 shadow-xl dark:shadow-2xl dark:shadow-black/80 relative animate-in fade-in zoom-in-95 duration-200">
       {/* Hidden Gallery Input */}
       <input
         ref={fileInputRef}
@@ -226,27 +226,27 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         type="button"
         onClick={onBack}
         aria-label="Back to role selection"
-        className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 border-t-white/5 hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform shadow-lg z-20"
+        className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors absolute left-4 top-4 flex items-center justify-center text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform shadow-sm z-20"
       >
         <ChevronLeft className="w-5 h-5" />
       </button>
 
       {/* Shrinked App Logo & Persistent Centered Header Anchor */}
       <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
-        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
+        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
           <Gavel className="w-5 h-5" />
         </div>
-        <h1 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+        <h1 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider font-mono">
           Judge Terminal
         </h1>
-        <span className="text-[10px] uppercase tracking-widest text-zinc-500">
+        <span className="text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
           Fair Judge
         </span>
       </div>
 
       {/* PRIMARY BLOCK: Unified Glassmorphic QR Card (Zero Tap-Fatigue) */}
-      <div className="bg-zinc-900 border border-zinc-800 border-t-white/5 rounded-2xl p-4 mb-5">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 text-center">
+      <div className="bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 mb-5">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-3 text-center">
           Instant Badge Access
         </div>
         
@@ -267,10 +267,10 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isProcessingGallery || isVerifying}
-            className="h-11 border border-zinc-800 hover:border-zinc-700 bg-zinc-900 hover:bg-zinc-800/80 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform text-zinc-300 hover:text-white font-semibold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            className="h-11 border border-zinc-300 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/80 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white font-semibold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isProcessingGallery ? (
-              <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+              <Loader2 className="w-4 h-4 animate-spin text-amber-500 dark:text-amber-400" />
             ) : (
               <ImageIcon className="w-4 h-4 shrink-0 text-zinc-400" />
             )}
@@ -280,16 +280,16 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
         {/* Live Camera Scanner Viewport if Active */}
         {isScanning && (
-          <div className="mt-4 p-3 rounded-xl bg-zinc-950 border border-zinc-800 animate-in fade-in zoom-in-95">
+          <div className="mt-4 p-3 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
-                <Camera className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
                 <span>Align badge QR in viewport</span>
               </span>
               <button
                 type="button"
                 onClick={stopScanner}
-                className="p-1 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
+                className="p-1 rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -297,11 +297,11 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
             <div
               id={qrRegionId}
-              className="w-full h-48 bg-black rounded-lg overflow-hidden border border-zinc-800 flex items-center justify-center text-xs text-zinc-500"
+              className="w-full h-48 bg-black rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 flex items-center justify-center text-xs text-zinc-500"
             />
 
             {scannerError && (
-              <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-center gap-2">
+              <div className="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{scannerError}</span>
               </div>
@@ -313,10 +313,10 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       {/* THE DIVIDER: Clean Horizontal Line with Muted OR Badge */}
       <div className="relative my-6 flex items-center justify-center">
         <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-zinc-800" />
+          <div className="w-full border-t border-zinc-200 dark:border-zinc-800" />
         </div>
-        <div className="relative bg-zinc-900 px-3 py-0.5 rounded-full border border-zinc-800/80">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+        <div className="relative bg-white dark:bg-zinc-900 px-3 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-800/80">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
             OR
           </span>
         </div>
@@ -326,47 +326,47 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       <form onSubmit={(e) => handleAuthenticate(e)} className="space-y-4">
         {/* Field 1: Organisation ID */}
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-1.5">
             Organisation ID
           </label>
-          <div className="bg-zinc-950 border border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
-            <Building2 className="w-4 h-4 text-zinc-500 shrink-0" />
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-colors">
+            <Building2 className="w-4 h-4 text-zinc-400 dark:text-zinc-500 shrink-0" />
             <input
               type="text"
               placeholder="e.g. FJ-ORG-9102"
               value={orgId}
               onChange={(e) => setOrgId(e.target.value.toUpperCase())}
               disabled={isVerifying}
-              className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full uppercase"
+              className="bg-transparent text-sm font-medium text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 outline-none w-full uppercase"
             />
           </div>
         </div>
 
         {/* Field 2: Judge ID */}
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-1.5">
             Judge ID
           </label>
-          <div className="bg-zinc-950 border border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
-            <UserCheck className="w-4 h-4 text-zinc-500 shrink-0" />
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-colors">
+            <UserCheck className="w-4 h-4 text-zinc-400 dark:text-zinc-500 shrink-0" />
             <input
               type="text"
               placeholder="e.g. J-01 or Full Name"
               value={judgeId}
               onChange={(e) => setJudgeId(e.target.value)}
               disabled={isVerifying}
-              className="bg-transparent text-sm font-medium text-white placeholder-zinc-600 outline-none w-full"
+              className="bg-transparent text-sm font-medium text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 outline-none w-full"
             />
           </div>
         </div>
 
         {/* Field 3: 4-Digit PIN (Directive 4: Strict 4-Digit Numeric Constraint) */}
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1.5">
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mb-1.5">
             4-Digit PIN
           </label>
-          <div className="bg-zinc-950 border border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-all">
-            <KeyRound className="w-4 h-4 text-zinc-500 shrink-0" />
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/20 rounded-xl px-3.5 h-11 flex items-center gap-2.5 transition-colors">
+            <KeyRound className="w-4 h-4 text-zinc-400 dark:text-zinc-500 shrink-0" />
             <input
               type="password"
               inputMode="numeric"
@@ -376,7 +376,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
               disabled={isVerifying}
-              className="bg-transparent text-sm font-mono tracking-widest font-bold text-white placeholder-zinc-600 outline-none w-full"
+              className="bg-transparent text-sm font-mono tracking-widest font-bold text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 outline-none w-full"
             />
           </div>
         </div>
