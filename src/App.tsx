@@ -79,7 +79,11 @@ export default function App() {
     try {
       // Storage Eviction Defense: Protect queued scores & IndexedDB cache from browser eviction
       if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
-        navigator.storage.persist().catch(() => {});
+        navigator.storage.persist().then((granted) => {
+          try {
+            localStorage.setItem('fj_storage_persisted', granted ? 'true' : 'false');
+          } catch {}
+        }).catch(() => {});
       }
 
       // Hydrate local cache and database state non-blockingly

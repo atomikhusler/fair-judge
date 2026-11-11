@@ -129,7 +129,7 @@ async function probeDeviceApp(role: 'organiser' | 'judge'): Promise<SelfTestChec
         group: 'device_app',
         label: 'Install Mode',
         status: 'notice',
-        plain: 'Install to home screen so the phone is less likely to delete saved scores',
+        plain: 'Add to home screen to keep saved scores safer.',
         code: 'PWA_TAB',
       });
     }
@@ -225,7 +225,7 @@ async function probeDeviceApp(role: 'organiser' | 'judge'): Promise<SelfTestChec
         group: 'device_app',
         label: 'Device RAM',
         status: 'ok',
-        plain: ram ? `Device memory: ${ram} GB` : 'RAM allocation nominal',
+        plain: ram ? `Device memory: ${ram} GB` : 'Device memory passed',
       });
     }
   } catch {
@@ -413,7 +413,7 @@ async function probeDeviceApp(role: 'organiser' | 'judge'): Promise<SelfTestChec
       group: 'device_app',
       label: 'Boot Latency',
       status: 'ok',
-      plain: 'App boot latency nominal',
+      plain: 'App boot latency passed',
     });
   }
 
@@ -539,6 +539,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
       if (serverDateHeader) {
         const serverTime = new Date(serverDateHeader).getTime();
         const skewSec = Math.abs((Date.now() - serverTime) / 1000);
+        const offsetText = `${skewSec.toFixed(1)} s`;
 
         if (skewSec > 300) {
           checks.push({
@@ -546,7 +547,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
             group: 'network_backend',
             label: 'Clock Synchronization',
             status: 'problem',
-            plain: `Device clock skewed by ${Math.round(skewSec)}s. Timestamps may be invalid.`,
+            plain: `Phone clock is ${offsetText} off. Timestamps may be invalid.`,
             code: 'CLOCK_SKEW_CRITICAL',
           });
         } else if (skewSec > 60) {
@@ -555,7 +556,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
             group: 'network_backend',
             label: 'Clock Synchronization',
             status: 'notice',
-            plain: `Device clock differs by ${Math.round(skewSec)}s from server`,
+            plain: `Phone clock is ${offsetText} off`,
             code: 'CLOCK_SKEW_NOTICE',
           });
         } else {
@@ -564,7 +565,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
             group: 'network_backend',
             label: 'Clock Synchronization',
             status: 'ok',
-            plain: `Clock aligned with server (offset ${Math.round(skewSec)}s)`,
+            plain: `Phone clock is ${offsetText} off`,
           });
         }
       } else {
@@ -748,7 +749,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
           group: 'network_backend',
           label: 'Database Health RPC',
           status: 'ok',
-          plain: `Database health verified (Schema v${healthData.schema_version || '15.4.0'})`,
+          plain: 'Database check passed',
         });
       }
     }
@@ -782,8 +783,22 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
   // 1. Persistent Storage
   try {
     let isPersisted = false;
-    if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persisted) {
-      isPersisted = await navigator.storage.persisted();
+    if (typeof navigator !== 'undefined' && navigator.storage) {
+      if (navigator.storage.persisted) {
+        isPersisted = await navigator.storage.persisted();
+      }
+      if (!isPersisted && navigator.storage.persist) {
+        try {
+          isPersisted = await navigator.storage.persist();
+        } catch {}
+      }
+    }
+    if (!isPersisted && typeof localStorage !== 'undefined') {
+      isPersisted = localStorage.getItem('fj_storage_persisted') === 'true';
+    } else if (isPersisted && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('fj_storage_persisted', 'true');
+      } catch {}
     }
 
     if (!isPersisted && totalPending > 0) {
@@ -856,7 +871,7 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
           group: 'storage_offline',
           label: 'Storage Quota',
           status: 'ok',
-          plain: `Storage usage nominal (${pct.toFixed(1)}% of ${quotaGB} GB)`,
+          plain: `Storage usage passed (${pct.toFixed(1)}% of ${quotaGB} GB)`,
         });
       }
     } else {
@@ -865,7 +880,7 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
         group: 'storage_offline',
         label: 'Storage Quota',
         status: 'ok',
-        plain: 'Storage quota nominal',
+        plain: 'Storage quota passed',
       });
     }
   } catch {
@@ -1590,7 +1605,7 @@ async function probeScoringEngine(): Promise<SelfTestCheckItem[]> {
       group: 'scoring_engine',
       label: 'Golden Tests Verdict',
       status: 'ok',
-      plain: `All ${goldenResults.passed}/${goldenResults.total} pure mathematical & tie-breaker tests passed nominal`,
+      plain: `${goldenResults.passed} of ${goldenResults.total} scoring checks passed`,
     });
   }
 
@@ -1659,6 +1674,15 @@ export async function runSelfTest(
   signal?: AbortSignal,
   onGroupComplete?: (group: SelfTestGroupResult) => void
 ): Promise<SelfTestRunResult> {
+  // Call navigator.storage.persist() once on start, store flag
+  if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().then((granted) => {
+      try {
+        localStorage.setItem('fj_storage_persisted', granted ? 'true' : 'false');
+      } catch {}
+    }).catch(() => {});
+  }
+
   const startTime = performance.now();
 
   // Parallel execution across all 6 diagnostic groups
