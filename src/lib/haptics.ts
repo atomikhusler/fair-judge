@@ -27,7 +27,7 @@ export function setHapticStrength(strength: HapticStrength): void {
   } catch {}
 }
 
-export function triggerHaptic(type: 'tick' | 'submit' | 'tap' = 'tick'): void {
+export function triggerHaptic(type: 'tick' | 'submit' | 'tap' | 'success' | 'warning' = 'tick'): void {
   if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return;
   const strength = getHapticStrength();
   if (strength === 'off') return;
@@ -48,6 +48,18 @@ export function triggerHaptic(type: 'tick' | 'submit' | 'tap' = 'tick'): void {
         Math.round(30 * m),
         Math.round(40 * m),
         Math.round(60 * m),
+      ]);
+    } else if (type === 'success') {
+      navigator.vibrate([
+        Math.round(30 * m),
+        Math.round(40 * m),
+        Math.round(50 * m),
+      ]);
+    } else if (type === 'warning') {
+      navigator.vibrate([
+        Math.round(60 * m),
+        Math.round(50 * m),
+        Math.round(70 * m),
       ]);
     }
   } catch {}

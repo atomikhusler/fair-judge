@@ -25,6 +25,7 @@ import { flushOfflineQueueToSupabase, downloadDiagnosticLog, getPendingScores, g
 import { showToast } from '../common/ToastProvider';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
 import { APP_VERSION } from '../../config/version';
+import { SignatureHardware } from '../shared/SignatureHardware';
 
 interface JudgeLobbyProps {
   orgId: string;
@@ -413,32 +414,10 @@ export function JudgeLobby({
                   </div>
                 </div>
 
-                {/* Intelligent 5-Tap Diagnostic Panel (Easter Egg) */}
-                {diagUnlocked && (
-                  <div className="space-y-2 p-3 bg-white dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800/80 shadow-sm animate-in fade-in duration-200">
-                    {diagQueuePending === 0 ? (
-                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-mono font-bold flex items-center justify-between">
-                        <span>All Systems Nominal • 0 In Queue</span>
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      </div>
-                    ) : (
-                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 text-xs font-mono font-bold flex items-center justify-between">
-                        <span>Queue Jammed • {diagQueuePending} Items Waiting</span>
-                        <AlertTriangle className="w-4 h-4 shrink-0" />
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={handleDownloadDiagnostic}
-                      disabled={isDownloadingLog}
-                      className="w-full py-2 px-3 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-black font-mono font-bold text-xs flex items-center justify-center space-x-2 active:scale-95 transition-transform cursor-pointer shadow-xs disabled:opacity-50"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>{isDownloadingLog ? 'Exporting Log...' : 'Download Diagnostic Log'}</span>
-                    </button>
-                  </div>
-                )}
+                {/* Signature Hardware: About + Self-Test Terminal (Epic 15.4) */}
+                <div className="pt-1 pb-1">
+                  <SignatureHardware role="judge" />
+                </div>
 
                 {/* Bold Red Logout Button */}
                 <button
@@ -455,11 +434,6 @@ export function JudgeLobby({
                   </div>
                   <ChevronRight className="w-4 h-4 opacity-50" />
                 </button>
-
-                {/* Standardized Developer Signature with Metallic Shimmer */}
-                <div className="text-[10px] uppercase tracking-widest text-zinc-500 text-center pt-2 pb-1 select-none">
-                  Engineered with Intent <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold mx-1">&lt;/&gt;</span> <span className="bg-gradient-to-r from-zinc-500 via-zinc-200 to-zinc-500 dark:from-zinc-400 dark:via-white dark:to-zinc-400 bg-clip-text text-transparent animate-shimmer">Sahil Kumar Rout</span>
-                </div>
               </div>
             </div>
           </div>

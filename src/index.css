@@ -222,6 +222,73 @@
   animation: flipY 650ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
+/* Epic 15.4 Signature Hardware Keyframes */
+@keyframes wakeBlink {
+  0% { opacity: 0; }
+  25% { opacity: 0.9; }
+  45% { opacity: 0.15; }
+  70% { opacity: 0.95; }
+  85% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+.animate-wake-blink {
+  animation: wakeBlink 230ms ease-out forwards;
+}
+
+@keyframes ledBreathe {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.8; }
+}
+
+.animate-led-breathe {
+  animation: ledBreathe 4s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  0% { transform: scaleX(0); opacity: 0.7; }
+  100% { transform: scaleX(1); opacity: 1; }
+}
+
+.animate-sweep {
+  animation: sweep 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: left;
+}
+
+@keyframes lineIn {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-line-in {
+  animation: lineIn 150ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+@keyframes softPulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.95; }
+}
+
+.animate-led-soft-pulse {
+  animation: softPulse 1.2s ease-in-out infinite;
+}
+
+.animate-led-warning-pulse {
+  animation: softPulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-wake-blink,
+  .animate-led-breathe,
+  .animate-sweep,
+  .animate-line-in,
+  .animate-led-soft-pulse,
+  .animate-led-warning-pulse {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 @media print {
   @page {
     size: A4 portrait;

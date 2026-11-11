@@ -28,6 +28,7 @@ import { useToast } from '../common/ToastProvider';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
 import { APP_VERSION } from '../../config/version';
 import { downloadDiagnosticLog, getPendingScores, getPendingMutations } from '../../lib/offlineQueue';
+import { SignatureHardware } from '../shared/SignatureHardware';
 
 export interface SettingsDrawerProps {
   isOpen: boolean;
@@ -977,74 +978,9 @@ export function SettingsDrawer({
 
           {/* -------------------------------------------------------- */}
           {/* SECTION 5: EXECUTIVE ABOUT CARD                          */}
-          {/* -------------------------------------------------------- */}
-          <div className="pt-4 pb-2">
-            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200/90 dark:border-zinc-800/90 p-5 shadow-xs text-center space-y-3">
-              {/* App Icon (Animates on healthy Easter egg trigger) */}
-              <div className={`w-11 h-11 rounded-2xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-400 shadow-xs ${diagAnimating ? 'animate-flip-y' : ''}`}>
-                <Scale className="w-5 h-5 stroke-[2.2]" />
-              </div>
-
-              {/* Title & Version (5-Tap Diagnostic Trigger) */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-center space-x-2">
-                  <span className="text-base font-black text-zinc-900 dark:text-white tracking-tight">
-                    Fair Judge
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleVersionTap}
-                    className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 active:scale-95 transition-transform cursor-pointer select-none"
-                    title="Tap 5 times to run system diagnostics"
-                  >
-                    v{APP_VERSION}
-                  </button>
-                </div>
-                <p className="text-[11px] font-mono text-zinc-500 tracking-wide">
-                  Offline-First Cryptographic Scoring Engine
-                </p>
-              </div>
-
-              {/* Status Indicator */}
-              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-stone-100 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 text-[10px] font-semibold text-zinc-600 dark:text-zinc-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Operational • Local Ledger Sync</span>
-              </div>
-
-              {/* Intelligent 5-Tap Diagnostic Panel (Easter Egg) */}
-              {diagUnlocked && (
-                <div className="pt-2 space-y-2 border-t border-stone-100 dark:border-zinc-800/60 animate-in fade-in duration-200">
-                  {diagQueuePending === 0 ? (
-                    <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-mono font-bold flex items-center justify-between">
-                      <span>All Systems Nominal • 0 In Queue</span>
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    </div>
-                  ) : (
-                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 text-xs font-mono font-bold flex items-center justify-between">
-                      <span>Queue Jammed • {diagQueuePending} Items Waiting</span>
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleDownloadDiagnostic}
-                    disabled={isDownloadingLog}
-                    className="w-full py-2 px-3 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-black font-mono font-bold text-xs flex items-center justify-center space-x-2 active:scale-95 transition-transform cursor-pointer shadow-xs disabled:opacity-50"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{isDownloadingLog ? 'Exporting Log...' : 'Download Diagnostic Log'}</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Standardized Developer Signature with Metallic Shimmer */}
-              <div className="pt-2 border-t border-stone-100 dark:border-zinc-800/60">
-                <p className="text-[10px] uppercase tracking-widest text-zinc-500">
-                  Engineered with Intent <span className="animate-pulse bg-gradient-to-r from-emerald-500 to-emerald-300 bg-clip-text text-transparent font-mono font-bold mx-1">&lt;/&gt;</span> <span className="bg-gradient-to-r from-zinc-500 via-zinc-200 to-zinc-500 dark:from-zinc-400 dark:via-white dark:to-zinc-400 bg-clip-text text-transparent animate-shimmer">Sahil Kumar Rout</span>
-                </p>
-              </div>
-            </div>
+          {/* Signature Hardware: About + Self-Test Terminal (Epic 15.4) */}
+          <div className="pt-3 pb-2">
+            <SignatureHardware role="organiser" />
           </div>
 
         </div>
