@@ -7,6 +7,7 @@
 
 import { supabase, isSupabaseConfigured } from './supabase';
 import { APP_VERSION } from '../config/version';
+import { stampLocal, safeName, downloadJson } from './downloadUtils';
 import { 
   getPendingScores, 
   getPendingMutations, 
@@ -462,7 +463,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     const reason = !isOnline ? 'Skipped: device is offline' : 'Skipped: Supabase not configured';
     checks.push(
       { id: 'backend_latency', group: 'network_backend', label: 'Backend Reachability', status: 'skipped', plain: reason },
-      { id: 'clock_skew', group: 'network_backend', label: 'Clock Synchronization', status: 'skipped', plain: reason },
+      { id: 'clock_skew', group: 'network_backend', label: 'Clock Synchronization', status: 'skipped', plain: 'Could not measure clock offset (server time unavailable)' },
       { id: 'tables_readable', group: 'network_backend', label: 'Core Tables', status: 'skipped', plain: reason },
       { id: 'required_columns', group: 'network_backend', label: 'Schema Columns', status: 'skipped', plain: reason },
       { id: 'security_hygiene', group: 'network_backend', label: 'Security Hygiene', status: 'skipped', plain: reason },
@@ -539,7 +540,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
       if (serverDateHeader) {
         const serverTime = new Date(serverDateHeader).getTime();
         const skewSec = Math.abs((Date.now() - serverTime) / 1000);
-        const offsetText = `${skewSec.toFixed(1)} s`;
+        const n = skewSec.toFixed(1);
 
         if (skewSec > 300) {
           checks.push({
@@ -547,16 +548,16 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
             group: 'network_backend',
             label: 'Clock Synchronization',
             status: 'problem',
-            plain: `Phone clock is ${offsetText} off. Timestamps may be invalid.`,
+            plain: `Clock is off by ${n}s. Fix your phone's date and time.`,
             code: 'CLOCK_SKEW_CRITICAL',
           });
-        } else if (skewSec > 60) {
+        } else if (skewSec > 120) {
           checks.push({
             id: 'clock_skew',
             group: 'network_backend',
             label: 'Clock Synchronization',
             status: 'notice',
-            plain: `Phone clock is ${offsetText} off`,
+            plain: `Clock is off by ${n}s. Fix your phone's date and time.`,
             code: 'CLOCK_SKEW_NOTICE',
           });
         } else {
@@ -565,7 +566,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
             group: 'network_backend',
             label: 'Clock Synchronization',
             status: 'ok',
-            plain: `Phone clock is ${offsetText} off`,
+            plain: `Clock is within ${n}s of the server`,
           });
         }
       } else {
@@ -573,8 +574,8 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
           id: 'clock_skew',
           group: 'network_backend',
           label: 'Clock Synchronization',
-          status: 'ok',
-          plain: 'Clock verification completed',
+          status: 'skipped',
+          plain: 'Could not measure clock offset (server time unavailable)',
         });
       }
     }
@@ -583,8 +584,8 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
       id: 'clock_skew',
       group: 'network_backend',
       label: 'Clock Synchronization',
-      status: 'ok',
-      plain: 'Local timestamp synchronization active',
+      status: 'skipped',
+      plain: 'Could not measure clock offset (server time unavailable)',
     });
   }
 
@@ -845,7 +846,21 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
       const quota = estimate.quota || 0;
       const usage = estimate.usage || 0;
       const pct = quota > 0 ? (usage / quota) * 100 : 0;
-      const quotaGB = (quota / (1024 * 1024 * 1024)).toFixed(1);
+      const pctStr = pct.toFixed(1);
+
+      const formatAdaptiveBytes = (bytes: number): string => {
+        if (bytes >= 1024 * 1024 * 1024) {
+          return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+        }
+        if (bytes >= 1024 * 1024) {
+          return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+        return `${(bytes / 1024).toFixed(1)} KB`;
+      };
+
+      const usedStr = formatAdaptiveBytes(usage);
+      const totalStr = formatAdaptiveBytes(quota);
+      const quotaText = `Using ${usedStr} of ${totalStr} (${pctStr}%)`;
 
       if (pct > 90) {
         checks.push({
@@ -853,7 +868,7 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
           group: 'storage_offline',
           label: 'Storage Quota',
           status: 'problem',
-          plain: `Storage space critically full (${pct.toFixed(0)}% used)`,
+          plain: `Storage space critically full: ${quotaText}`,
           code: 'QUOTA_CRITICAL',
         });
       } else if (pct > 70) {
@@ -862,7 +877,7 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
           group: 'storage_offline',
           label: 'Storage Quota',
           status: 'notice',
-          plain: `Storage space running low (${pct.toFixed(0)}% used)`,
+          plain: `Storage space running low: ${quotaText}`,
           code: 'QUOTA_HIGH',
         });
       } else {
@@ -871,7 +886,7 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
           group: 'storage_offline',
           label: 'Storage Quota',
           status: 'ok',
-          plain: `Storage usage passed (${pct.toFixed(1)}% of ${quotaGB} GB)`,
+          plain: quotaText,
         });
       }
     } else {
@@ -1672,7 +1687,8 @@ function aggregateGroup(
 export async function runSelfTest(
   role: 'organiser' | 'judge',
   signal?: AbortSignal,
-  onGroupComplete?: (group: SelfTestGroupResult) => void
+  onGroupComplete?: (group: SelfTestGroupResult) => void,
+  onCheck?: (check: SelfTestCheckItem, index: number, total: number) => void
 ): Promise<SelfTestRunResult> {
   // Call navigator.storage.persist() once on start, store flag
   if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
@@ -1684,41 +1700,54 @@ export async function runSelfTest(
   }
 
   const startTime = performance.now();
+  let checkIndex = 0;
+  const TOTAL_CHECKS = 39;
+
+  const handleGroup = (grp: SelfTestGroupResult) => {
+    if (signal?.aborted) return;
+    if (onCheck) {
+      for (const chk of grp.checks) {
+        checkIndex++;
+        onCheck(chk, checkIndex, TOTAL_CHECKS);
+      }
+    }
+    if (onGroupComplete) onGroupComplete(grp);
+  };
 
   // Parallel execution across all 6 diagnostic groups
   const groupAPromise = probeDeviceApp(role).then((checks) => {
     const grp = aggregateGroup('device_app', 'Device & App', checks);
-    if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
+    handleGroup(grp);
     return grp;
   });
 
   const groupBPromise = probeNetworkBackend().then((checks) => {
     const grp = aggregateGroup('network_backend', 'Network & Backend', checks);
-    if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
+    handleGroup(grp);
     return grp;
   });
 
   const groupCPromise = probeStorageOffline().then((checks) => {
     const grp = aggregateGroup('storage_offline', 'Storage & Offline', checks);
-    if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
+    handleGroup(grp);
     return grp;
   });
 
   const groupDPromise = probeDataIntegrity(role).then((checks) => {
     const grp = aggregateGroup('data_integrity', 'Data Integrity', checks);
-    if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
+    handleGroup(grp);
     return grp;
   });
 
   const groupEPromise = probeCodeHealth().then((checks) => {
     const grp = aggregateGroup('code_health', 'Code Health', checks);
-    if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
+    handleGroup(grp);
     return grp;
   });
 
   const groupFPromise = probeScoringEngine().then((checks) => {
     const grp = aggregateGroup('scoring_engine', 'Scoring Engine', checks);
-    if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
+    handleGroup(grp);
     return grp;
   });
 
@@ -1846,7 +1875,7 @@ export interface SelfTestReportJSON {
 export async function generateSelfTestReport(
   role: 'organiser' | 'judge',
   result: SelfTestRunResult
-): Promise<{ filename: string; jsonContent: string; summaryLines: string }> {
+): Promise<{ filename: string; jsonContent: string; summaryLines: string; report: SelfTestReportJSON }> {
   // 1. Gather queue metrics without scores or payloads
   const [scores, mutations, failed] = await Promise.all([
     getPendingScores().catch(() => []),
@@ -1945,13 +1974,8 @@ export async function generateSelfTestReport(
     errors,
   };
 
-  // 7. Format date token: yyyymmdd-hhmm
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const timestampStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-  const safeOrg = orgCode.replace(/[^a-zA-Z0-9_-]/g, '') || 'terminal';
-  const filename = `fairjudge-report-${safeOrg}-${timestampStr}.json`;
-
+  // 7. Format date token: fairjudge-report_{safeName(orgCode)}_{stampLocal()}.json
+  const filename = `fairjudge-report_${safeName(orgCode)}_${stampLocal()}.json`;
   const jsonContent = JSON.stringify(report, null, 2);
 
   // 8. 3-line clipboard summary
@@ -1959,20 +1983,11 @@ export async function generateSelfTestReport(
 Verdict: ${result.verdict}
 Counts: ${okCount} OK • ${noticeCount} Notice • ${problemCount} Problem`;
 
-  return { filename, jsonContent, summaryLines };
+  return { filename, jsonContent, summaryLines, report };
 }
 
-export function downloadReportFile(filename: string, jsonContent: string): void {
-  if (typeof window === 'undefined') return;
-  const blob = new Blob([jsonContent], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 100);
+export function downloadReportFile(filename: string, jsonContent: string | object): string {
+  if (typeof window === 'undefined') return filename;
+  const data = typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent;
+  return downloadJson(filename, data);
 }

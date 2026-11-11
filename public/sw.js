@@ -11,6 +11,7 @@ const STATIC_PRECACHE_ASSETS = [
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',
   '/assets/1793118251574.png',
+  '/fonts/Geist-Variable-latin.woff2',
 ];
 
 // Install Event: Pre-cache static shell assets

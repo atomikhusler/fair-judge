@@ -1,6 +1,7 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { APP_VERSION } from '../config/version';
+import { stampLocal, downloadJson } from './downloadUtils';
 
 export interface PendingScoreRecord {
   id: string;
@@ -736,17 +737,9 @@ export async function exportDiagnosticLog(): Promise<Record<string, any>> {
   };
 }
 
-export async function downloadDiagnosticLog(): Promise<void> {
+export async function downloadDiagnosticLog(): Promise<string> {
   const data = await exportDiagnosticLog();
-  const jsonStr = JSON.stringify(data, null, 2);
-  const blob = new Blob([jsonStr], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `fairjudge-diagnostic-v${APP_VERSION}-${Date.now()}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const filename = `fairjudge-queue-log_v${APP_VERSION}_${stampLocal()}.json`;
+  return downloadJson(filename, data);
 }
 

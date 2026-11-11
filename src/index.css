@@ -346,3 +346,265 @@
   }
 }
 
+/* Auth Backdrop Entrance Animation */
+@keyframes fjBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fj-auth-backdrop {
+  animation: fjBackdropIn 400ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fj-auth-backdrop {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}
+
+/* ==========================================================================
+   Physical Keycaps (Epic 15.6)
+   - Solid colors and pre-rendered shadow layers
+   - Animate ONLY transform and opacity (90ms, cubic-bezier(0.32, 0.72, 0, 1))
+   - prefers-reduced-motion: zero transform transition
+   ========================================================================== */
+.fj-keycap {
+  position: relative;
+  border-radius: 7px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(0);
+  transition: transform 90ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fj-keycap {
+    transition: none !important;
+  }
+}
+
+.fj-keycap:active,
+.fj-keycap[data-pressed="true"] {
+  transform: translateY(1.5px);
+}
+
+/* Face color (dark / light) */
+.fj-keycap-face {
+  background-color: #f4f4f5; /* zinc-100 */
+}
+
+.dark .fj-keycap-face {
+  background-color: #27272a; /* zinc-800 */
+}
+
+/* Rest Shadow */
+.fj-keycap-shadow-rest {
+  position: absolute;
+  inset: 0;
+  border-radius: 7px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 90ms cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: inset 0 1px 0 #ffffff, inset 0 -2px 0 #d4d4d8, 0 2px 3px rgba(0, 0, 0, 0.18);
+}
+
+.dark .fj-keycap-shadow-rest {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -2px 0 rgba(0, 0, 0, 0.55), 0 2px 3px rgba(0, 0, 0, 0.60);
+}
+
+/* Pressed Shadow */
+.fj-keycap-shadow-pressed {
+  position: absolute;
+  inset: 0;
+  border-radius: 7px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 90ms cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: inset 0 1px 0 #ffffff, inset 0 -0.5px 0 #d4d4d8, 0 0.5px 1px rgba(0, 0, 0, 0.12);
+}
+
+.dark .fj-keycap-shadow-pressed {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -0.5px 0 rgba(0, 0, 0, 0.40), 0 0.5px 1px rgba(0, 0, 0, 0.50);
+}
+
+.fj-keycap:active .fj-keycap-shadow-rest,
+.fj-keycap[data-pressed="true"] .fj-keycap-shadow-rest {
+  opacity: 0;
+}
+
+.fj-keycap:active .fj-keycap-shadow-pressed,
+.fj-keycap[data-pressed="true"] .fj-keycap-shadow-pressed {
+  opacity: 1;
+}
+
+/* -------------------------------------------------------------
+   Phase 4: Screen Typography, Choreography & Diagnostic Gauge
+   ------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/Geist-Variable-latin.woff2') format('woff2');
+  font-weight: 200 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+.fj-screen-font {
+  font-family: 'Geist', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Pause any running loops when container is not live (e.g. background tab or sleeping) */
+[data-live="false"] .fj-loop {
+  animation-play-state: paused !important;
+}
+
+/* Ambient Radial Glow */
+.fj-ambient-glow {
+  animation: fjAmbientGlow 4s ease-in-out infinite;
+}
+
+@keyframes fjAmbientGlow {
+  0%, 100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+/* Scanner Dot (3px emerald dot tracking across 180px hairline container) */
+.fj-scanner-dot {
+  animation: fjScannerDot 3.2s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes fjScannerDot {
+  0% {
+    transform: translate(0, -50%);
+  }
+  50% {
+    transform: translate(177px, -50%);
+  }
+  100% {
+    transform: translate(0, -50%);
+  }
+}
+
+/* Word Rise: staggered text entrance */
+.fj-word-rise {
+  animation: fjWordRise 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+@keyframes fjWordRise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Light Streak: subtle sheen sweeping across name */
+.fj-light-streak {
+  animation: fjLightStreak 4.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes fjLightStreak {
+  0%, 25% {
+    transform: translateX(-160%) skewX(-15deg);
+  }
+  55%, 100% {
+    transform: translateX(360%) skewX(-15deg);
+  }
+}
+
+/* Scan Line: 1px emerald bar sweeping down during diagnostics */
+.fj-scan-line {
+  animation: fjScanLine 2.4s linear infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes fjScanLine {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.55;
+  }
+  85% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(180px);
+    opacity: 0;
+  }
+}
+
+/* Console Line In: entrance for diagnostic log lines */
+.fj-console-line-in {
+  animation: fjConsoleLineIn 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+@keyframes fjConsoleLineIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Blinking Cursor: terminal block cursor */
+.fj-cursor-blink {
+  animation: fjCursorBlink 800ms steps(1, start) infinite;
+}
+
+@keyframes fjCursorBlink {
+  0%, 49% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0;
+  }
+}
+
+/* Diagnostic Arc: Exception permitted for gauge stroke-dashoffset */
+.fj-gauge-arc {
+  transition: stroke-dashoffset 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: stroke-dashoffset;
+}
+
+/* Reduced Motion Override for Phase 4 */
+@media (prefers-reduced-motion: reduce) {
+  .fj-ambient-glow,
+  .fj-scanner-dot,
+  .fj-word-rise,
+  .fj-light-streak,
+  .fj-scan-line,
+  .fj-console-line-in,
+  .fj-cursor-blink {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .fj-gauge-arc {
+    transition: none !important;
+  }
+}
+
+
