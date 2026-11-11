@@ -11,15 +11,20 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { APP_VERSION } from '../../config/version';
+import { TELEGRAM_SUPPORT_URL } from '../../config/support';
 import { triggerHaptic } from '../../lib/haptics';
 import { 
   runSelfTest, 
   SelfTestRunResult, 
   SelfTestGroupResult, 
   getLastTestResult, 
-  formatCheckedTimeAgo 
+  formatCheckedTimeAgo,
+  generateSelfTestReport,
+  downloadReportFile
 } from '../../lib/selfTest';
 import { getFailedMutations } from '../../lib/offlineQueue';
+import { blackBox } from '../../lib/blackBox';
+import { showToast } from '../common/ToastProvider';
 
 export type HardwareRole = 'organiser' | 'judge';
 export type SwitchPosition = 'sleep' | 'about' | 'test';
@@ -54,6 +59,10 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
   const [lastCheckedTime, setLastCheckedTime] = useState<string | null>(() => formatCheckedTimeAgo(getLastTestResult().timestamp));
   const [streamedGroups, setStreamedGroups] = useState<SelfTestGroupResult[]>([]);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+
+  // Clear Log Double-Tap Confirmation State
+  const [confirmClearLog, setConfirmClearLog] = useState(false);
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const autoWakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakePhaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -98,6 +107,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
       if (autoWakeTimerRef.current) clearTimeout(autoWakeTimerRef.current);
       if (wakePhaseTimerRef.current) clearTimeout(wakePhaseTimerRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
     };
   }, []);
 
@@ -126,10 +136,10 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
         setTestRunning(false);
         setLastCheckedTime('Checked just now');
 
-        // Verdict haptic pattern
+        // Verdict haptic pattern & screen reader announcement
         if (result.verdict === 'ALL CLEAR') {
           triggerHaptic('success');
-          setAnnouncement(`Self-test finished: All systems clear`);
+          setAnnouncement('Self-test finished: All clear');
         } else {
           triggerHaptic('warning');
           setAnnouncement(`Self-test finished: ${result.problemTotal} problem(s), ${result.noticeTotal} notice(s)`);
@@ -191,6 +201,62 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
     }
   };
 
+  // 1. Send to Developer Action
+  const handleSendToDeveloper = async () => {
+    triggerHaptic('tick');
+    if (!testResult) return;
+    try {
+      const { filename, jsonContent, summaryLines } = await generateSelfTestReport(role, testResult);
+      // (1) Download file
+      downloadReportFile(filename, jsonContent);
+
+      // (2) Copy 3-line summary to clipboard
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(summaryLines);
+        }
+      } catch {}
+
+      // (3) Open Telegram support URL
+      window.open(TELEGRAM_SUPPORT_URL, '_blank', 'noopener,noreferrer');
+
+      // (4) Toast
+      showToast('Report saved. Attach it in the Telegram group.', 'success');
+    } catch {
+      showToast('Failed to generate diagnostic report', 'error');
+    }
+  };
+
+  // 2. Download Report Action
+  const handleDownloadReport = async () => {
+    triggerHaptic('tick');
+    if (!testResult) return;
+    try {
+      const { filename, jsonContent } = await generateSelfTestReport(role, testResult);
+      downloadReportFile(filename, jsonContent);
+      showToast('Diagnostic report saved to downloads', 'info');
+    } catch {
+      showToast('Failed to export report', 'error');
+    }
+  };
+
+  // 3. Clear Error Log (Double-tap to confirm)
+  const handleClearErrorLog = () => {
+    triggerHaptic('tick');
+    if (!confirmClearLog) {
+      setConfirmClearLog(true);
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+      clearTimerRef.current = setTimeout(() => {
+        setConfirmClearLog(false);
+      }, 4000);
+    } else {
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+      blackBox.clearLog();
+      setConfirmClearLog(false);
+      showToast('Flight recorder error log cleared', 'info');
+    }
+  };
+
   const isSleep = position === 'sleep';
   const isTest = position === 'test';
   const isAbout = position === 'about';
@@ -211,16 +277,19 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
         {announcement}
       </div>
 
-      {/* CHASSIS */}
-      <div className="relative z-10 w-full rounded-2xl p-2 bg-gradient-to-b from-zinc-100 to-zinc-300 border border-zinc-300 shadow-sm dark:bg-zinc-900 dark:border-zinc-800 dark:border-t-white/10 dark:from-zinc-900 dark:to-zinc-900">
+      {/* CHASSIS (Theme-Adaptive, Aria-Hidden laptop frame) */}
+      <div 
+        className="relative z-10 w-full rounded-2xl p-2 bg-gradient-to-b from-zinc-100 to-zinc-300 border border-zinc-300 shadow-sm dark:bg-zinc-900 dark:border-zinc-800 dark:border-t-white/10 dark:from-zinc-900 dark:to-zinc-900"
+        aria-hidden="false"
+      >
         {/* Top Bezel with 4px Webcam Dot */}
         <div className="flex items-center justify-center pb-1.5" aria-hidden="true">
           <div className="w-1 h-1 rounded-full bg-zinc-600/70 dark:bg-zinc-500" />
         </div>
 
-        {/* OLED SCREEN (always dark background) */}
+        {/* OLED SCREEN (always dark background, fixed height) */}
         <div
-          className={`h-[220px] bg-zinc-950 rounded-xl border border-white/10 shadow-inner overflow-hidden relative flex flex-col justify-between p-3.5 transition-opacity duration-250 ease-out ${
+          className={`h-[220px] bg-zinc-950 rounded-xl border border-white/10 shadow-inner overflow-hidden relative flex flex-col justify-between p-3.5 transition-opacity duration-250 ease-out motion-reduce:transition-none ${
             isSleep ? 'opacity-[0.08]' : 'opacity-100'
           }`}
           style={{ willChange: 'opacity' }}
@@ -237,7 +306,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
             aria-hidden="true"
           />
           <div
-            className={`absolute top-0 left-1/2 -translate-x-1/2 w-[70%] h-3 bg-white/25 blur-[6px] rounded-full pointer-events-none transition-opacity duration-300 ${
+            className={`absolute top-0 left-1/2 -translate-x-1/2 w-[70%] h-3 bg-white/25 blur-[6px] rounded-full pointer-events-none transition-opacity duration-300 motion-reduce:transition-none ${
               isSleep ? 'opacity-0' : wakeStage === 'blinking' ? 'animate-wake-blink' : 'opacity-100'
             }`}
             aria-hidden="true"
@@ -256,7 +325,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
           {/* ABOUT SCREEN STATE */}
           {isAbout && (
             <div
-              className={`h-full flex flex-col items-center justify-center text-center space-y-2 py-2 transition-all duration-300 ${
+              className={`h-full flex flex-col items-center justify-center text-center space-y-2 py-2 transition-all duration-300 motion-reduce:transition-none ${
                 wakeStage === 'blinking' ? 'opacity-70 translate-y-1' : 'opacity-100 translate-y-0'
               }`}
             >
@@ -319,7 +388,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                       key={grp.id}
                       type="button"
                       onClick={() => setExpandedGroupId(isExpanded ? null : grp.id)}
-                      className={`w-full flex items-center justify-between px-2 py-1 rounded text-left transition-colors duration-150 cursor-pointer animate-line-in ${
+                      className={`w-full flex items-center justify-between px-2 py-1 rounded text-left transition-colors duration-150 cursor-pointer animate-line-in motion-reduce:transition-none ${
                         isExpanded ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-zinc-300'
                       }`}
                     >
@@ -344,7 +413,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                         ) : (
                           <span className="text-emerald-400">{grp.okCount} pass</span>
                         )}
-                        <ChevronRight className={`w-3 h-3 text-zinc-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        <ChevronRight className={`w-3 h-3 text-zinc-500 transition-transform motion-reduce:transition-none ${isExpanded ? 'rotate-90' : ''}`} />
                       </div>
                     </button>
                   );
@@ -384,7 +453,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
           >
             {/* Sliding 28px Knob Indicator */}
             <div
-              className={`absolute top-1 left-1 bottom-1 w-[calc((100%-8px)/3)] flex items-center justify-center pointer-events-none transition-transform duration-350 ease-[cubic-bezier(0.32,0.72,0,1)] ${knobTranslate}`}
+              className={`absolute top-1 left-1 bottom-1 w-[calc((100%-8px)/3)] flex items-center justify-center pointer-events-none transition-transform duration-350 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${knobTranslate}`}
               style={{ willChange: 'transform' }}
             >
               <div className="w-7 h-7 rounded-lg bg-gradient-to-b from-white to-zinc-200 dark:from-zinc-100 dark:to-zinc-300 shadow-md border border-zinc-300/60 dark:border-zinc-400/50" />
@@ -478,7 +547,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
 
       {/* RESULTS PANEL (Slides out from behind chassis, overlaps ~8px, lower z-index) */}
       <div
-        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out relative -mt-2 z-0 ${
+        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none relative -mt-2 z-0 ${
           expandedGroupId && activeGroup
             ? 'grid-rows-[1fr] opacity-100'
             : 'grid-rows-[0fr] opacity-0 pointer-events-none'
@@ -495,7 +564,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                   <button
                     type="button"
                     onClick={() => setExpandedGroupId(null)}
-                    className="text-[10px] font-mono text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+                    className="text-[10px] font-mono text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer min-h-[44px] flex items-center px-1"
                   >
                     Close
                   </button>
@@ -529,16 +598,48 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                   ))}
                 </div>
 
-                {/* Sticky Footer */}
-                <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-1 text-[10px] font-mono">
-                  <span className="text-zinc-400">Tap line to toggle</span>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedGroupId(null)}
-                    className="px-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
-                  >
-                    Collapse
-                  </button>
+                {/* Sticky Action Footer */}
+                <div className="sticky bottom-0 pt-2 pb-1 bg-white/95 dark:bg-zinc-900/95 border-t border-zinc-200/80 dark:border-zinc-800 space-y-1.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                    {/* 1. Send to Developer */}
+                    <button
+                      type="button"
+                      onClick={handleSendToDeveloper}
+                      disabled={!testResult}
+                      aria-label="Send diagnostic report to developer on Telegram"
+                      className="min-h-[44px] px-2.5 py-2 rounded-xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 font-mono font-bold text-[10px] uppercase tracking-wider flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-40 active:scale-95 transition-transform motion-reduce:transform-none shadow-xs"
+                    >
+                      <Send className="w-3 h-3 shrink-0" />
+                      <span className="truncate">Send to Dev</span>
+                    </button>
+
+                    {/* 2. Download Report */}
+                    <button
+                      type="button"
+                      onClick={handleDownloadReport}
+                      disabled={!testResult}
+                      aria-label="Download diagnostic report JSON"
+                      className="min-h-[44px] px-2.5 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border border-zinc-300 dark:border-zinc-700 font-mono font-bold text-[10px] uppercase tracking-wider flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-40 active:scale-95 transition-transform motion-reduce:transform-none shadow-xs"
+                    >
+                      <Download className="w-3 h-3 shrink-0" />
+                      <span className="truncate">Download</span>
+                    </button>
+
+                    {/* 3. Clear Error Log (Tap twice to confirm) */}
+                    <button
+                      type="button"
+                      onClick={handleClearErrorLog}
+                      aria-label="Clear flight recorder error log (tap twice to confirm)"
+                      className={`min-h-[44px] px-2 py-2 rounded-xl font-mono font-bold text-[10px] uppercase tracking-wider flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95 transition-transform motion-reduce:transform-none border shadow-xs ${
+                        confirmClearLog
+                          ? 'bg-red-500 text-white border-red-600 animate-pulse'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                      }`}
+                    >
+                      <Trash2 className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{confirmClearLog ? 'Confirm Clear' : 'Clear Log'}</span>
+                    </button>
+                  </div>
                 </div>
               </>
             )}

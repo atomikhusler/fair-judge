@@ -3,6 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { ThemeProvider } from './lib/theme';
 import App from './App.tsx';
 import './index.css';
+import { blackBox } from './lib/blackBox';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
+
+// Install Black Box error recording before first render
+blackBox.install();
 
 // Register Service Worker only in production to prevent caching Vite dev dependencies
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
@@ -42,7 +47,9 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 }
 
 createRoot(document.getElementById('root')!).render(
-  <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={true}>
-    <App />
-  </ThemeProvider>
+  <ErrorBoundary>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={true}>
+      <App />
+    </ThemeProvider>
+  </ErrorBoundary>
 );

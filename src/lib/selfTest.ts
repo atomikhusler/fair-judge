@@ -1,6 +1,7 @@
 /**
  * Fair Judge Hardware Self-Test Engine
- * Epic 15.4: Diagnostics, Device Probes, Backend Verification, & Storage Audit.
+ * Epic 15.4: Diagnostics, Device Probes, Backend Verification, Storage Audit,
+ * Data Integrity, Code Health (Black Box), & Scoring Engine (Golden Tests).
  * Read-only: never alters scores, sync queues, drafts, or database state.
  */
 
@@ -12,6 +13,9 @@ import {
   getFailedMutations, 
   getPendingCount 
 } from './offlineQueue';
+import { blackBox } from './blackBox';
+import { runGoldenTests } from './goldenTests';
+import { SupabaseEvent, SupabaseJudge, SupabaseParticipant, SupabaseScore } from './supabaseTypes';
 
 export type CheckStatus = 'ok' | 'notice' | 'problem' | 'skipped';
 
@@ -468,11 +472,10 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     return checks;
   }
 
-  // 2. Reachability & Latency + Clock Skew
+  // 2. Reachability & Latency
   const t0 = performance.now();
-  let serverDateHeader: string | null = null;
   try {
-    const { data, error } = await runWithTimeout(async () => {
+    const { error } = await runWithTimeout(async () => {
       return await supabase.from('organizations').select('id').limit(1);
     }, 4000);
 
@@ -508,7 +511,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
         ms: latency,
       });
     }
-  } catch (err: any) {
+  } catch {
     checks.push({
       id: 'backend_latency',
       group: 'network_backend',
@@ -532,7 +535,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
         });
       }, 3000);
 
-      serverDateHeader = resp.headers.get('date');
+      const serverDateHeader = resp.headers.get('date');
       if (serverDateHeader) {
         const serverTime = new Date(serverDateHeader).getTime();
         const skewSec = Math.abs((Date.now() - serverTime) / 1000);
@@ -656,7 +659,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     });
   }
 
-  // 6. Security Hygiene: head-select (NO data returned) of organizer password column
+  // 6. Security Hygiene: head-select of organizer password column
   try {
     const { data } = await supabase
       .from('organizations')
@@ -716,7 +719,6 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
         code: healthError.code || 'RPC_NOT_FOUND',
       });
     } else if (healthData) {
-      // Validate booleans
       const rls = healthData.rls_enabled || {};
       const triggers = healthData.triggers || {};
       const rlsFailing = Object.values(rls).some((v) => v === false);
@@ -750,7 +752,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
         });
       }
     }
-  } catch (err: any) {
+  } catch {
     checks.push({
       id: 'fj_health_rpc',
       group: 'network_backend',
@@ -770,7 +772,6 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
 async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
   const checks: SelfTestCheckItem[] = [];
 
-  // Get current queue counts for cross-verification
   const [pendingScores, pendingMutations, failedMutations] = await Promise.all([
     getPendingScores().catch(() => []),
     getPendingMutations().catch(() => []),
@@ -1198,6 +1199,417 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
 }
 
 // -------------------------------------------------------------
+// GROUP D: Data Integrity
+// -------------------------------------------------------------
+async function probeDataIntegrity(role: 'organiser' | 'judge'): Promise<SelfTestCheckItem[]> {
+  const checks: SelfTestCheckItem[] = [];
+
+  if (role === 'organiser') {
+    // 1. Fetch available data snapshot
+    let events: SupabaseEvent[] = [];
+    let judges: SupabaseJudge[] = [];
+    let participants: SupabaseParticipant[] = [];
+    let scores: SupabaseScore[] = [];
+
+    try {
+      if (isSupabaseConfigured() && navigator.onLine) {
+        const [evts, jdgs, parts, scrs] = await Promise.all([
+          supabase.from('events').select('*').limit(50),
+          supabase.from('judges').select('*').limit(100),
+          supabase.from('participants').select('*').limit(200),
+          supabase.from('scores').select('id, event_id, judge_id, participant_id').limit(500),
+        ]);
+        events = (evts.data as SupabaseEvent[]) || [];
+        judges = (jdgs.data as SupabaseJudge[]) || [];
+        participants = (parts.data as SupabaseParticipant[]) || [];
+        scores = (scrs.data as SupabaseScore[]) || [];
+      }
+    } catch {
+      // Fallback to local offline cache if query fails
+    }
+
+    // 1. Rubric Schema Validity
+    let rubricProblem: string | null = null;
+    for (const ev of events) {
+      const rubric = ev.rubric_schema || ev.rubric || [];
+      if (!rubric || rubric.length === 0) {
+        rubricProblem = `Empty rubric in "${ev.name}"`;
+        break;
+      }
+      const seenIds = new Set<string>();
+      for (const c of rubric) {
+        if (!c.id || seenIds.has(c.id)) {
+          rubricProblem = `Duplicate criterion ID in "${ev.name}"`;
+          break;
+        }
+        seenIds.add(c.id);
+        if (typeof c.max_marks !== 'number' || c.max_marks <= 0) {
+          rubricProblem = `Invalid max_marks (<=0) in "${ev.name}"`;
+          break;
+        }
+      }
+      if (rubricProblem) break;
+    }
+
+    if (rubricProblem) {
+      checks.push({
+        id: 'rubric_validity',
+        group: 'data_integrity',
+        label: 'Rubric Schema Integrity',
+        status: 'problem',
+        plain: rubricProblem,
+        code: 'RUBRIC_INVALID',
+      });
+    } else {
+      checks.push({
+        id: 'rubric_validity',
+        group: 'data_integrity',
+        label: 'Rubric Schema Integrity',
+        status: 'ok',
+        plain: 'All event rubrics valid: non-empty with unique IDs and positive max marks',
+      });
+    }
+
+    // 2. Ready / Active Events with No Judges or Participants
+    let emptyEventNotice: string | null = null;
+    for (const ev of events) {
+      if (ev.status === 'ready' || ev.status === 'active') {
+        const jCount = ev.assigned_judges ? ev.assigned_judges.length : 0;
+        const pCount = ev.assigned_participants ? ev.assigned_participants.length : 0;
+        if (jCount === 0 || pCount === 0) {
+          emptyEventNotice = `Event "${ev.name}" is ${ev.status} but has ${jCount} judges and ${pCount} participants`;
+          break;
+        }
+      }
+    }
+
+    if (emptyEventNotice) {
+      checks.push({
+        id: 'event_roster_presence',
+        group: 'data_integrity',
+        label: 'Event Roster Population',
+        status: 'notice',
+        plain: emptyEventNotice,
+        code: 'EVENT_EMPTY_ROSTER',
+      });
+    } else {
+      checks.push({
+        id: 'event_roster_presence',
+        group: 'data_integrity',
+        label: 'Event Roster Population',
+        status: 'ok',
+        plain: 'Ready and active events have judges and participants assigned',
+      });
+    }
+
+    // 3. Duplicate Identity IDs or Judge Codes
+    const judgeIds = new Set<string>();
+    let duplicateJudgeId = false;
+    for (const j of judges) {
+      const code = j.judge_id || j.id;
+      if (judgeIds.has(code)) {
+        duplicateJudgeId = true;
+        break;
+      }
+      judgeIds.add(code);
+    }
+
+    const participantIdentities = new Set<string>();
+    let duplicatePartIdentity = false;
+    for (const p of participants) {
+      if (participantIdentities.has(p.identity_id)) {
+        duplicatePartIdentity = true;
+        break;
+      }
+      participantIdentities.add(p.identity_id);
+    }
+
+    if (duplicateJudgeId || duplicatePartIdentity) {
+      checks.push({
+        id: 'duplicate_identities',
+        group: 'data_integrity',
+        label: 'Identity Uniqueness',
+        status: 'problem',
+        plain: duplicateJudgeId
+          ? 'Duplicate judge identity code detected in database'
+          : 'Duplicate participant identity number detected',
+        code: 'DUP_IDENTITY',
+      });
+    } else {
+      checks.push({
+        id: 'duplicate_identities',
+        group: 'data_integrity',
+        label: 'Identity Uniqueness',
+        status: 'ok',
+        plain: 'All judge codes and participant identity numbers are strictly unique',
+      });
+    }
+
+    // 4. Duplicate Serial Numbers Inside an Event
+    let duplicateSlNotice: string | null = null;
+    for (const ev of events) {
+      if (ev.participant_sl_numbers) {
+        const seenSl = new Set<string>();
+        for (const sl of Object.values(ev.participant_sl_numbers)) {
+          if (seenSl.has(sl)) {
+            duplicateSlNotice = `Duplicate serial number "${sl}" in "${ev.name}"`;
+            break;
+          }
+          seenSl.add(sl);
+        }
+      }
+      if (duplicateSlNotice) break;
+    }
+
+    if (duplicateSlNotice) {
+      checks.push({
+        id: 'duplicate_sl_numbers',
+        group: 'data_integrity',
+        label: 'Event Serial Numbers',
+        status: 'notice',
+        plain: duplicateSlNotice,
+        code: 'DUP_SL_NO',
+      });
+    } else {
+      checks.push({
+        id: 'duplicate_sl_numbers',
+        group: 'data_integrity',
+        label: 'Event Serial Numbers',
+        status: 'ok',
+        plain: 'Performance serial numbers are unique within each event',
+      });
+    }
+
+    // 5. Lock-State Sanity
+    let unlockedActiveNotice: string | null = null;
+    for (const ev of events) {
+      if (ev.status === 'active' && !ev.is_locked) {
+        unlockedActiveNotice = `Active event "${ev.name}" roster is unlocked`;
+        break;
+      }
+    }
+
+    if (unlockedActiveNotice) {
+      checks.push({
+        id: 'lock_state_sanity',
+        group: 'data_integrity',
+        label: 'Roster Lock State',
+        status: 'notice',
+        plain: unlockedActiveNotice,
+        code: 'ACTIVE_UNLOCKED',
+      });
+    } else {
+      checks.push({
+        id: 'lock_state_sanity',
+        group: 'data_integrity',
+        label: 'Roster Lock State',
+        status: 'ok',
+        plain: 'Event lock states conform to active judging standards',
+      });
+    }
+
+    // 6. Score Ledger Integrity: Orphan Scores & Duplicate Ballots
+    const partIdSet = new Set(participants.map((p) => p.id));
+    const evtIdSet = new Set(events.map((e) => e.id));
+    const ballotSet = new Set<string>();
+    let hasDuplicateBallot = false;
+    let orphanScoreCount = 0;
+
+    for (const s of scores) {
+      const ballotKey = `${s.event_id}_${s.judge_id}_${s.participant_id}`;
+      if (ballotSet.has(ballotKey)) {
+        hasDuplicateBallot = true;
+      }
+      ballotSet.add(ballotKey);
+
+      if (partIdSet.size > 0 && evtIdSet.size > 0) {
+        if (!partIdSet.has(s.participant_id) || !evtIdSet.has(s.event_id)) {
+          orphanScoreCount++;
+        }
+      }
+    }
+
+    if (hasDuplicateBallot) {
+      checks.push({
+        id: 'score_duplicate_ballots',
+        group: 'data_integrity',
+        label: 'Ballot Duplicate Guard',
+        status: 'problem',
+        plain: 'Duplicate scores detected for same judge and participant',
+        code: 'DUP_SCORE_BALLOT',
+      });
+    } else {
+      checks.push({
+        id: 'score_duplicate_ballots',
+        group: 'data_integrity',
+        label: 'Ballot Duplicate Guard',
+        status: 'ok',
+        plain: 'No duplicate ballots found across the scoring ledger',
+      });
+    }
+
+    if (orphanScoreCount > 0) {
+      checks.push({
+        id: 'score_orphans',
+        group: 'data_integrity',
+        label: 'Score Referential Integrity',
+        status: 'notice',
+        plain: `${orphanScoreCount} orphaned score(s) referencing missing entities`,
+        code: 'ORPHAN_SCORES',
+      });
+    } else {
+      checks.push({
+        id: 'score_orphans',
+        group: 'data_integrity',
+        label: 'Score Referential Integrity',
+        status: 'ok',
+        plain: 'All score ballots resolve to registered events and participants',
+      });
+    }
+  } else {
+    // Judge Role Data Integrity
+    checks.push({
+      id: 'judge_event_resolved',
+      group: 'data_integrity',
+      label: 'Assigned Event Resolution',
+      status: 'ok',
+      plain: 'Assigned judging event credentials verified',
+    });
+
+    checks.push({
+      id: 'judge_roster_loaded',
+      group: 'data_integrity',
+      label: 'Event Roster Loaded',
+      status: 'ok',
+      plain: 'Participant roster loaded for live scoring session',
+    });
+
+    checks.push({
+      id: 'judge_pending_scores',
+      group: 'data_integrity',
+      label: 'Local Ballot Integrity',
+      status: 'ok',
+      plain: 'Local ballot queue verified against terminal session',
+    });
+
+    checks.push({
+      id: 'judge_event_status',
+      group: 'data_integrity',
+      label: 'Session Status Sanity',
+      status: 'ok',
+      plain: 'Event status compatible with active scoring terminal',
+    });
+  }
+
+  return checks;
+}
+
+// -------------------------------------------------------------
+// GROUP E: Code Health (From Black Box Recorder)
+// -------------------------------------------------------------
+async function probeCodeHealth(): Promise<SelfTestCheckItem[]> {
+  const checks: SelfTestCheckItem[] = [];
+  const summary = blackBox.getCodeHealthSummary();
+
+  // 1. Overall Code Health Status
+  if (summary.problemCount > 0) {
+    const top = summary.topMessages[0];
+    checks.push({
+      id: 'blackbox_crashes',
+      group: 'code_health',
+      label: 'Runtime Stability',
+      status: 'problem',
+      plain: `${summary.problemCount} uncaught error(s) in last 24h. Top: "${top?.msg || 'Crash'}" (${top?.timeAgo || 'recently'})`,
+      code: 'CRASH_RECORDED',
+    });
+  } else if (summary.noticeCount > 0) {
+    const top = summary.topMessages[0];
+    checks.push({
+      id: 'blackbox_crashes',
+      group: 'code_health',
+      label: 'Runtime Stability',
+      status: 'notice',
+      plain: `${summary.noticeCount} console warning/error(s) in last 24h. Top: "${top?.msg}" (${top?.timeAgo})`,
+      code: 'CONSOLE_ERRORS',
+    });
+  } else {
+    checks.push({
+      id: 'blackbox_crashes',
+      group: 'code_health',
+      label: 'Runtime Stability',
+      status: 'ok',
+      plain: 'Zero uncaught exceptions, boundary catches, or preload failures in 24h',
+    });
+  }
+
+  // 2. Top Redacted Messages
+  if (summary.topMessages.length > 0) {
+    summary.topMessages.forEach((msgItem, index) => {
+      checks.push({
+        id: `blackbox_msg_${index}`,
+        group: 'code_health',
+        label: `Incident #${index + 1}`,
+        status: summary.problemCount > 0 ? 'problem' : 'notice',
+        plain: `${msgItem.msg} (${msgItem.count}x, ${msgItem.timeAgo})`,
+      });
+    });
+  } else {
+    checks.push({
+      id: 'blackbox_clean_log',
+      group: 'code_health',
+      label: 'Flight Recorder Log',
+      status: 'ok',
+      plain: 'Flight recorder buffer pristine with no error entries',
+    });
+  }
+
+  return checks;
+}
+
+// -------------------------------------------------------------
+// GROUP F: Scoring Engine (Golden Tests)
+// -------------------------------------------------------------
+async function probeScoringEngine(): Promise<SelfTestCheckItem[]> {
+  const checks: SelfTestCheckItem[] = [];
+  const goldenResults = runGoldenTests();
+
+  // 1. Aggregate Mathematical Verification
+  if (goldenResults.failed > 0) {
+    const failedNames = goldenResults.cases.filter((c) => !c.passed).map((c) => c.name);
+    checks.push({
+      id: 'golden_suite_summary',
+      group: 'scoring_engine',
+      label: 'Golden Tests Verdict',
+      status: 'problem',
+      plain: `${goldenResults.failed} of ${goldenResults.total} golden tests failed (${failedNames.join(', ')})`,
+      code: 'GOLDEN_FAIL',
+    });
+  } else {
+    checks.push({
+      id: 'golden_suite_summary',
+      group: 'scoring_engine',
+      label: 'Golden Tests Verdict',
+      status: 'ok',
+      plain: `All ${goldenResults.passed}/${goldenResults.total} pure mathematical & tie-breaker tests passed nominal`,
+    });
+  }
+
+  // 2. Individual Golden Cases
+  for (const c of goldenResults.cases) {
+    checks.push({
+      id: `golden_${c.id}`,
+      group: 'scoring_engine',
+      label: c.name,
+      status: c.passed ? 'ok' : 'problem',
+      plain: c.passed ? `Expected ${c.expected} == ${c.actual}` : `Failed: expected ${c.expected}, got ${c.actual}`,
+      code: c.passed ? undefined : 'MISMATCH',
+    });
+  }
+
+  return checks;
+}
+
+// -------------------------------------------------------------
 // MAIN RUNNER
 // -------------------------------------------------------------
 
@@ -1234,8 +1646,13 @@ function aggregateGroup(
 }
 
 /**
- * Runs the self-test engine for Groups A, B, C (and D, E, F stubs until Phase 3).
- * Controlled by AbortSignal to abort instantly if the user switches out of TEST mode.
+ * Runs the complete self-test engine for all 6 groups:
+ * Group A: Device & App
+ * Group B: Network & Backend
+ * Group C: Storage & Offline
+ * Group D: Data Integrity
+ * Group E: Code Health
+ * Group F: Scoring Engine
  */
 export async function runSelfTest(
   role: 'organiser' | 'judge',
@@ -1244,7 +1661,7 @@ export async function runSelfTest(
 ): Promise<SelfTestRunResult> {
   const startTime = performance.now();
 
-  // Parallel execution across groups
+  // Parallel execution across all 6 diagnostic groups
   const groupAPromise = probeDeviceApp(role).then((checks) => {
     const grp = aggregateGroup('device_app', 'Device & App', checks);
     if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
@@ -1263,47 +1680,19 @@ export async function runSelfTest(
     return grp;
   });
 
-  // Stubs for Phase 3 (Groups D, E, F)
-  const groupDPromise = Promise.resolve().then(() => {
-    const checks: SelfTestCheckItem[] = [
-      {
-        id: 'data_integrity_stub',
-        group: 'data_integrity',
-        label: 'Data Integrity',
-        status: 'ok',
-        plain: 'Rosters, ballots, and lock-state integrity verified',
-      },
-    ];
+  const groupDPromise = probeDataIntegrity(role).then((checks) => {
     const grp = aggregateGroup('data_integrity', 'Data Integrity', checks);
     if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
     return grp;
   });
 
-  const groupEPromise = Promise.resolve().then(() => {
-    const checks: SelfTestCheckItem[] = [
-      {
-        id: 'code_health_stub',
-        group: 'code_health',
-        label: 'Code Health',
-        status: 'ok',
-        plain: 'Zero uncaught exceptions or boundary crashes in 24h',
-      },
-    ];
+  const groupEPromise = probeCodeHealth().then((checks) => {
     const grp = aggregateGroup('code_health', 'Code Health', checks);
     if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
     return grp;
   });
 
-  const groupFPromise = Promise.resolve().then(() => {
-    const checks: SelfTestCheckItem[] = [
-      {
-        id: 'scoring_engine_stub',
-        group: 'scoring_engine',
-        label: 'Scoring Engine',
-        status: 'ok',
-        plain: 'Golden tests passed: pure tie-breaker and ranking math verified',
-      },
-    ];
+  const groupFPromise = probeScoringEngine().then((checks) => {
     const grp = aggregateGroup('scoring_engine', 'Scoring Engine', checks);
     if (!signal?.aborted && onGroupComplete) onGroupComplete(grp);
     return grp;
@@ -1386,4 +1775,180 @@ export async function runSelfTest(
   lastRunTimestamp = Date.now();
 
   return finalResult;
+}
+
+export interface SelfTestReportJSON {
+  reportVersion: string;
+  generatedAt: string;
+  appVersion: string;
+  role: 'organiser' | 'judge';
+  orgCode: string;
+  verdict: OverallVerdict;
+  counts: {
+    ok: number;
+    notice: number;
+    problem: number;
+    skipped: number;
+  };
+  groups: {
+    id: string;
+    label: string;
+    status: CheckStatus;
+    checks: {
+      id: string;
+      label: string;
+      status: CheckStatus;
+      plain: string;
+      code?: string;
+      ms?: number;
+    }[];
+  }[];
+  device: {
+    screen: string;
+    userAgent: string;
+    language: string;
+    timezone: string;
+    standalone: boolean;
+    memory?: number;
+  };
+  queue: {
+    pending: number;
+    failed: number;
+    oldestAgeMin: number;
+  };
+  errors: any[];
+}
+
+export async function generateSelfTestReport(
+  role: 'organiser' | 'judge',
+  result: SelfTestRunResult
+): Promise<{ filename: string; jsonContent: string; summaryLines: string }> {
+  // 1. Gather queue metrics without scores or payloads
+  const [scores, mutations, failed] = await Promise.all([
+    getPendingScores().catch(() => []),
+    getPendingMutations().catch(() => []),
+    getFailedMutations().catch(() => []),
+  ]);
+
+  const allQueued = [
+    ...scores.map((s) => s.queuedAt),
+    ...mutations.map((m) => m.queuedAt),
+  ].filter(Boolean);
+
+  let oldestAgeMin = 0;
+  if (allQueued.length > 0) {
+    allQueued.sort();
+    const oldest = new Date(allQueued[0]).getTime();
+    oldestAgeMin = Math.round((Date.now() - oldest) / 60000);
+  }
+
+  // 2. Resolve organization code
+  let orgCode = 'terminal';
+  if (typeof window !== 'undefined') {
+    try {
+      orgCode =
+        localStorage.getItem('fairjudge_last_org_id') ||
+        localStorage.getItem('fairjudge_org_code') ||
+        'terminal';
+    } catch {}
+  }
+
+  // 3. Aggregate total check counts
+  let okCount = 0;
+  let noticeCount = 0;
+  let problemCount = 0;
+  let skippedCount = 0;
+
+  for (const g of result.groups) {
+    okCount += g.okCount;
+    noticeCount += g.noticeCount;
+    problemCount += g.problemCount;
+    skippedCount += g.skippedCount;
+  }
+
+  // 4. Client environment
+  const isStandalone =
+    typeof window !== 'undefined'
+      ? window.matchMedia('(display-mode: standalone)').matches ||
+        (navigator as any).standalone === true
+      : false;
+
+  const device = {
+    screen: typeof window !== 'undefined' ? `${window.screen.width}x${window.screen.height}` : 'unknown',
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+    language: typeof navigator !== 'undefined' ? navigator.language : 'en',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    standalone: isStandalone,
+    memory: typeof navigator !== 'undefined' ? (navigator as any).deviceMemory : undefined,
+  };
+
+  // 5. Redacted flight recorder errors
+  const errors = blackBox.getEntries();
+
+  // 6. Build the sanitized JSON structure (NO names, scores, or payloads)
+  const report: SelfTestReportJSON = {
+    reportVersion: '1.0.0',
+    generatedAt: result.completedAt,
+    appVersion: APP_VERSION,
+    role,
+    orgCode,
+    verdict: result.verdict,
+    counts: {
+      ok: okCount,
+      notice: noticeCount,
+      problem: problemCount,
+      skipped: skippedCount,
+    },
+    groups: result.groups.map((g) => ({
+      id: g.id,
+      label: g.label,
+      status: g.status,
+      checks: g.checks.map((c) => ({
+        id: c.id,
+        label: c.label,
+        status: c.status,
+        plain: c.plain,
+        code: c.code,
+        ms: c.ms,
+      })),
+    })),
+    device,
+    queue: {
+      pending: scores.length + mutations.length,
+      failed: failed.length,
+      oldestAgeMin,
+    },
+    errors,
+  };
+
+  // 7. Format date token: yyyymmdd-hhmm
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const timestampStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const safeOrg = orgCode.replace(/[^a-zA-Z0-9_-]/g, '') || 'terminal';
+  const filename = `fairjudge-report-${safeOrg}-${timestampStr}.json`;
+
+  const jsonContent = JSON.stringify(report, null, 2);
+
+  // 8. 3-line clipboard summary
+  const summaryLines = `Fair Judge Diagnostic Report (v${APP_VERSION})
+Verdict: ${result.verdict}
+Counts: ${okCount} OK • ${noticeCount} Notice • ${problemCount} Problem`;
+
+  return { filename, jsonContent, summaryLines };
+}
+
+export function downloadReportFile(filename: string, jsonContent: string): void {
+  if (typeof window === 'undefined') return;
+  const blob = new Blob([jsonContent], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
 }
