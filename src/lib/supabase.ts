@@ -1030,16 +1030,29 @@ export const dbService = {
       delete dbUpdates.rubric;
 
       try {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('events')
           .update(dbUpdates)
           .eq('id', eventId)
           .select()
           .single();
 
+        // Graceful schema adaptation: If is_archived column is not yet present on backend
+        if (error && (error.code === 'PGRST204' || error.message?.includes('is_archived')) && dbUpdates.is_archived !== undefined) {
+          const { is_archived: _omit, ...restUpdates } = dbUpdates;
+          const retryRes = await supabase
+            .from('events')
+            .update(restUpdates)
+            .eq('id', eventId)
+            .select()
+            .single();
+          data = retryRes.data;
+          error = retryRes.error;
+        }
+
         if (error) throw error;
         if (data) {
-          const synced = normalizeEvent(data);
+          const synced = normalizeEvent({ ...data, is_archived: updated.is_archived });
           const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
           saveCache(
             STORAGE_KEYS.EVENTS,

@@ -23,19 +23,24 @@ import { areRecordsEqual } from './lib/eventBus';
 import { Scale } from 'lucide-react';
 import { requestStoragePersistenceOnce } from './lib/storagePersistence';
 import { scrubCachedPasswords } from './lib/authScrubber';
+import { lazyWithRetry } from './lib/lazyWithRetry';
 
-// Code Splitting: Asynchronously load major route panels to minimize initial JS payload
-const OrganiserDashboard = lazy(() =>
-  import('./components/organiser/OrganiserDashboard').then((m) => ({ default: m.OrganiserDashboard }))
+// Code Splitting: Asynchronously load major route panels with auto-retry resilience
+const OrganiserDashboard = lazyWithRetry(() =>
+  import('./components/organiser/OrganiserDashboard').then((m) => ({ default: m.OrganiserDashboard })),
+  'organiser'
 );
-const ScoringPanel = lazy(() =>
-  import('./components/judge/ScoringPanel').then((m) => ({ default: m.ScoringPanel }))
+const ScoringPanel = lazyWithRetry(() =>
+  import('./components/judge/ScoringPanel').then((m) => ({ default: m.ScoringPanel })),
+  'scoring'
 );
-const JudgeLobby = lazy(() =>
-  import('./components/judge/JudgeLobby').then((m) => ({ default: m.JudgeLobby }))
+const JudgeLobby = lazyWithRetry(() =>
+  import('./components/judge/JudgeLobby').then((m) => ({ default: m.JudgeLobby })),
+  'lobby'
 );
-const PublicLeaderboard = lazy(() =>
-  import('./components/public/PublicLeaderboard').then((m) => ({ default: m.PublicLeaderboard }))
+const PublicLeaderboard = lazyWithRetry(() =>
+  import('./components/public/PublicLeaderboard').then((m) => ({ default: m.PublicLeaderboard })),
+  'public'
 );
 
 export type UserSession = StoredUserSession;

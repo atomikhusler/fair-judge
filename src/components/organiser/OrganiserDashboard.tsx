@@ -23,12 +23,13 @@ import { AccountModal } from './AccountModal';
 import { PullToRefresh } from '../common/PullToRefresh';
 import { TabProgressFallback } from '../common/Skeletons';
 import { triggerHaptic } from '../../lib/haptics';
+import { lazyWithRetry } from '../../lib/lazyWithRetry';
 
-// Code Splitting: Asynchronously load organiser tabs to minimize initial JS bundle
-const LiveTab = React.lazy(() => import('./tabs/LiveTab').then((m) => ({ default: m.LiveTab })));
-const EventsTab = React.lazy(() => import('./tabs/EventsTab').then((m) => ({ default: m.EventsTab })));
-const PeopleTab = React.lazy(() => import('./tabs/PeopleTab').then((m) => ({ default: m.PeopleTab })));
-const InsightsTab = React.lazy(() => import('./tabs/InsightsTab').then((m) => ({ default: m.InsightsTab })));
+// Code Splitting: Asynchronously load organiser tabs with auto-retry resilience
+const LiveTab = lazyWithRetry(() => import('./tabs/LiveTab').then((m) => ({ default: m.LiveTab })), 'live');
+const EventsTab = lazyWithRetry(() => import('./tabs/EventsTab').then((m) => ({ default: m.EventsTab })), 'events');
+const PeopleTab = lazyWithRetry(() => import('./tabs/PeopleTab').then((m) => ({ default: m.PeopleTab })), 'people');
+const InsightsTab = lazyWithRetry(() => import('./tabs/InsightsTab').then((m) => ({ default: m.InsightsTab })), 'insights');
 
 export type OrganiserNavTab = 'live' | 'events' | 'people' | 'insights';
 
