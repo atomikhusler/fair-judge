@@ -100,6 +100,7 @@ export async function parseBackupFile(
 
 export async function previewRestore(
   orgId: string,
+  password: string,
   payload: BackupPayload,
   mode: RestoreMode
 ): Promise<RestoreSummary> {
@@ -109,6 +110,7 @@ export async function previewRestore(
 
   const { data, error } = await supabase.rpc('org_restore', {
     p_org_id: orgId,
+    p_password: password,
     p_mode: mode,
     p_payload: payload,
     p_dry_run: true,
@@ -120,7 +122,14 @@ export async function previewRestore(
 
   const res = data as any;
   if (!res || !res.ok) {
-    throw new Error(`Dry run rejected: ${res?.error || 'Unknown error'}`);
+    const reason = res?.message || res?.error || res?.reason || 'Unknown error';
+    if (res?.error === 'invalid_credentials' || res?.reason === 'invalid_credentials') {
+      throw new Error('Invalid master password. Please verify credentials.');
+    }
+    if (res?.error === 'replace_blocked_locked_events' || res?.reason === 'replace_blocked_locked_events') {
+      throw new Error(res.message || 'Cannot replace competition: locked events present. Use Merge mode instead.');
+    }
+    throw new Error(`Dry run rejected: ${reason}`);
   }
 
   return res.summary as RestoreSummary;
@@ -128,6 +137,7 @@ export async function previewRestore(
 
 export async function applyRestore(
   orgId: string,
+  password: string,
   payload: BackupPayload,
   mode: RestoreMode
 ): Promise<RestoreSummary> {
@@ -137,6 +147,7 @@ export async function applyRestore(
 
   const { data, error } = await supabase.rpc('org_restore', {
     p_org_id: orgId,
+    p_password: password,
     p_mode: mode,
     p_payload: payload,
     p_dry_run: false,
@@ -148,7 +159,14 @@ export async function applyRestore(
 
   const res = data as any;
   if (!res || !res.ok) {
-    throw new Error(`Restore failed: ${res?.error || 'Unknown error'}`);
+    const reason = res?.message || res?.error || res?.reason || 'Unknown error';
+    if (res?.error === 'invalid_credentials' || res?.reason === 'invalid_credentials') {
+      throw new Error('Invalid master password. Please verify credentials.');
+    }
+    if (res?.error === 'replace_blocked_locked_events' || res?.reason === 'replace_blocked_locked_events') {
+      throw new Error(res.message || 'Cannot replace competition: locked events present. Use Merge mode instead.');
+    }
+    throw new Error(`Restore failed: ${reason}`);
   }
 
   return res.summary as RestoreSummary;
@@ -179,12 +197,12 @@ export async function hasSafetySnapshot(orgId: string): Promise<boolean> {
   }
 }
 
-export async function restoreSafetySnapshot(orgId: string): Promise<RestoreSummary> {
+export async function restoreSafetySnapshot(orgId: string, password: string): Promise<RestoreSummary> {
   const snap = await getIndexedDBCache<any>(`${SAFETY_SNAPSHOT_KEY}_${orgId}`, null);
   if (!snap || !snap.data) {
     throw new Error('No safety snapshot found to undo.');
   }
-  return await applyRestore(orgId, snap.data, 'replace');
+  return await applyRestore(orgId, password, snap.data, 'replace');
 }
 
 export * from './format';
