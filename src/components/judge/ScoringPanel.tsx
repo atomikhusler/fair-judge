@@ -713,38 +713,38 @@ export function ScoringPanel({
                   <div className="space-y-2.5">
                     {/* Row 1: 100% Opacity */}
                     <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-100">
-                      <div className="flex items-center space-x-3.5 min-w-0 animate-pulse">
-                        <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                      <div className="flex items-center space-x-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl fj-skel shrink-0" />
                         <div className="space-y-2 min-w-0">
-                          <div className="h-4 w-32 bg-stone-200 dark:bg-zinc-800 rounded-md" />
-                          <div className="h-3 w-20 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                          <div className="h-4 w-32 fj-skel rounded-md" />
+                          <div className="h-3 w-20 fj-skel rounded-md" />
                         </div>
                       </div>
-                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0 animate-pulse" />
+                      <div className="w-8 h-8 rounded-xl fj-skel shrink-0" />
                     </div>
 
                     {/* Row 2: 70% Opacity */}
                     <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-70">
-                      <div className="flex items-center space-x-3.5 min-w-0 animate-pulse">
-                        <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                      <div className="flex items-center space-x-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl fj-skel shrink-0" />
                         <div className="space-y-2 min-w-0">
-                          <div className="h-4 w-28 bg-stone-200 dark:bg-zinc-800 rounded-md" />
-                          <div className="h-3 w-16 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                          <div className="h-4 w-28 fj-skel rounded-md" />
+                          <div className="h-3 w-16 fj-skel rounded-md" />
                         </div>
                       </div>
-                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0 animate-pulse" />
+                      <div className="w-8 h-8 rounded-xl fj-skel shrink-0" />
                     </div>
 
                     {/* Row 3: 40% Opacity */}
                     <div className="p-4 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between opacity-40">
-                      <div className="flex items-center space-x-3.5 min-w-0 animate-pulse">
-                        <div className="w-11 h-11 rounded-2xl bg-stone-200 dark:bg-zinc-800 shrink-0" />
+                      <div className="flex items-center space-x-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl fj-skel shrink-0" />
                         <div className="space-y-2 min-w-0">
-                          <div className="h-4 w-24 bg-stone-200 dark:bg-zinc-800 rounded-md" />
-                          <div className="h-3 w-14 bg-stone-200 dark:bg-zinc-800 rounded-md" />
+                          <div className="h-4 w-24 fj-skel rounded-md" />
+                          <div className="h-3 w-14 fj-skel rounded-md" />
                         </div>
                       </div>
-                      <div className="w-8 h-8 rounded-xl bg-stone-200 dark:bg-zinc-800 shrink-0 animate-pulse" />
+                      <div className="w-8 h-8 rounded-xl fj-skel shrink-0" />
                     </div>
                   </div>
                 </div>

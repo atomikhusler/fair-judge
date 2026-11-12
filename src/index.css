@@ -607,4 +607,102 @@
   }
 }
 
+/* -------------------------------------------------------------
+   Stage A4: Battery-Friendly Value Skeletons & Top Progress Bar
+   ------------------------------------------------------------- */
+
+.fj-skel {
+  background-color: #e4e4e7; /* zinc-200 solid */
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  display: inline-block;
+  vertical-align: middle;
+  animation: fj-skel-in 120ms linear 150ms forwards;
+}
+
+.dark .fj-skel {
+  background-color: #27272a; /* zinc-800 solid */
+}
+
+.fj-skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: fj-skel-sweep 1200ms cubic-bezier(0.32, 0.72, 0, 1) 150ms 1 forwards;
+}
+
+.dark .fj-skel::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+}
+
+@keyframes fj-skel-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fj-skel-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.fj-reveal {
+  animation: fj-reveal 160ms ease-out both;
+}
+
+@keyframes fj-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Minimal 2px Top Progress Line for Tab Suspense Fallback */
+.fj-top-progress {
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+  animation: fj-progress-in 120ms linear 150ms forwards, fj-progress-sweep 1200ms cubic-bezier(0.32, 0.72, 0, 1) 150ms infinite;
+}
+
+@keyframes fj-progress-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fj-progress-sweep {
+  0% {
+    transform: scaleX(0);
+  }
+  50% {
+    transform: scaleX(0.7);
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fj-skel,
+  .fj-reveal,
+  .fj-top-progress {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .fj-skel::after {
+    display: none !important;
+  }
+}
+
+
 

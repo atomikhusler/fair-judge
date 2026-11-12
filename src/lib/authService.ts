@@ -207,10 +207,10 @@ export const authService = {
   },
 
   /**
-   * ARCHITECTURAL DIRECTIVE 2: ORGANISER SIGN-IN LOCKDOWN
-   * Strict SELECT query matching org_id (or email) and password.
-   * If no exact match exists, throws "Invalid Organization ID or Master Password."
-   * NEVER attempts to register or create accounts during sign-in.
+   * ARCHITECTURAL DIRECTIVE 2: ORGANISER SIGN-IN LOCKDOWN (Epic 15.7 Step B2)
+   * Secure database RPC authentication with bcrypt verification and brute-force lockout.
+   * Eliminates all client-side password comparisons and plaintext password exposure.
+   * Organiser sign-in strictly requires an active internet connection.
    */
   async loginOrganiser(identifier: string, password: string): Promise<Organization> {
     const cleanId = identifier.trim();
@@ -220,81 +220,66 @@ export const authService = {
       throw new Error('Invalid Organization ID or Master Password.');
     }
 
-    let foundOrg: Organization | null = null;
-
-    // 1. Online: Strict SELECT query matching identifier AND password
-    if (isSupabaseConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
-      try {
-        let query = supabase.from('organizations').select('*');
-        if (cleanId.includes('@')) {
-          query = query.ilike('email', cleanId);
-        } else {
-          query = query.or(`org_id.ilike."${cleanId}",email.ilike."${cleanId}"`);
-        }
-        const { data, error } = await query.maybeSingle();
-
-        if (!error && data) {
-          // Strict password verification
-          if (data.password === cleanPass) {
-            foundOrg = data as Organization;
-
-            // Cache the verified organization locally (read-only)
-            const currentOrgs = getHotCache<Organization[]>(STORAGE_KEYS.ORGS, []);
-            await setIndexedDBCache(
-              STORAGE_KEYS.ORGS,
-              [foundOrg, ...currentOrgs.filter((o) => o.org_id.toUpperCase() !== foundOrg!.org_id.toUpperCase())],
-              true
-            );
-          } else {
-            // Password mismatch: Halt immediately
-            throw new Error('Invalid Organization ID or Master Password.');
-          }
-        } else if (!error && !data) {
-          // Live Supabase database query executed with zero records: reject immediately
-          throw new Error('Invalid Organization ID or Master Password.');
-        }
-      } catch (err: any) {
-        if (err.message === 'Invalid Organization ID or Master Password.') {
-          throw err;
-        }
-        console.warn('Online organiser query notice, checking offline cache:', err);
-      }
+    if (!isSupabaseConfigured() || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      throw new Error('Organiser sign-in needs an internet connection.');
     }
 
-    // 2. Offline / Cached Fallback (Strict Read-Only)
-    if (!foundOrg) {
-      const orgs = getHotCache<Organization[]>(STORAGE_KEYS.ORGS, []);
-      const lower = cleanId.toLowerCase();
-      const match = orgs.find(
-        (o) => (o.org_id.toLowerCase() === lower || (o.email && o.email.toLowerCase() === lower))
+    try {
+      const { data, error } = await supabase.rpc('org_login', {
+        p_identifier: cleanId,
+        p_password: cleanPass,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const res = data as any;
+      if (!res || !res.ok) {
+        const errCode = res?.error || res?.reason;
+        if (errCode === 'too_many_attempts') {
+          throw new Error('Too many attempts. Try again in 15 minutes.');
+        }
+        throw new Error('Invalid Organization ID or Master Password.');
+      }
+
+      const foundOrg = { ...res.org };
+      delete foundOrg.password;
+
+      // Cache verified organization locally (read-only, no password)
+      const currentOrgs = getHotCache<Organization[]>(STORAGE_KEYS.ORGS, []);
+      await setIndexedDBCache(
+        STORAGE_KEYS.ORGS,
+        [foundOrg, ...currentOrgs.filter((o) => o.org_id.toUpperCase() !== foundOrg.org_id.toUpperCase())],
+        true
       );
 
-      if (match) {
-        if (match.password === cleanPass) {
-          foundOrg = match;
-        } else {
-          throw new Error('Invalid Organization ID or Master Password.');
-        }
+      return foundOrg as Organization;
+    } catch (err: any) {
+      if (
+        err.message === 'Organiser sign-in needs an internet connection.' ||
+        err.message === 'Too many attempts. Try again in 15 minutes.' ||
+        err.message === 'Invalid Organization ID or Master Password.'
+      ) {
+        throw err;
       }
-    }
-
-    if (!foundOrg) {
+      if (err.message?.includes('too_many_attempts')) {
+        throw new Error('Too many attempts. Try again in 15 minutes.');
+      }
       throw new Error('Invalid Organization ID or Master Password.');
     }
-
-    return foundOrg;
   },
 
   /**
-   * ARCHITECTURAL DIRECTIVE 2: ORGANISER REGISTRATION LOCKDOWN
-   * Strict pre-flight SELECT to ensure org_id or email does not already exist.
-   * If collision detected, halts and throws:
-   * "Registration Failed: Organization ID or Email is already in use."
-   * Only then performs a strict INSERT.
+   * ARCHITECTURAL DIRECTIVE 2: ORGANISER REGISTRATION LOCKDOWN (Epic 15.7 Step B2)
+   * Secure database RPC registration with bcrypt password hashing in org_secrets.
    */
   async registerOrganiser(name: string, email?: string, password?: string): Promise<Organization> {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       throw new Error('Registration requires an active internet connection. Please connect to the network to create an organization.');
+    }
+    if (!isSupabaseConfigured()) {
+      throw new Error('Database is not configured.');
     }
 
     const cleanName = name.trim();
@@ -302,101 +287,49 @@ export const authService = {
       throw new Error('Please enter a valid organisation name.');
     }
 
-    const cleanEmail = email?.trim() || undefined;
+    const cleanEmail = email?.trim() || null;
     const cleanPassword = password?.trim() || 'password123';
     const newOrgId = generateOrgId();
-    const newOrgUuid = generateUUID();
 
-    // 1. PRE-FLIGHT SELECT: Ensure org_id and email are completely unique
-    if (isSupabaseConfigured()) {
-      if (cleanEmail) {
-        const { data: emailConflict } = await supabase
-          .from('organizations')
-          .select('id, email')
-          .ilike('email', cleanEmail)
-          .maybeSingle();
+    const { data, error } = await supabase.rpc('org_register', {
+      p_org_id: newOrgId,
+      p_name: cleanName,
+      p_email: cleanEmail,
+      p_password: cleanPassword,
+    });
 
-        if (emailConflict) {
-          throw new Error('Registration Failed: Organization ID or Email is already in use.');
-        }
-      }
-
-      const { data: orgIdConflict } = await supabase
-        .from('organizations')
-        .select('id, org_id')
-        .ilike('org_id', newOrgId)
-        .maybeSingle();
-
-      if (orgIdConflict) {
+    if (error) {
+      if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
         throw new Error('Registration Failed: Organization ID or Email is already in use.');
       }
+      throw new Error(`Registration Failed: ${error.message}`);
     }
 
-    // Also check local cache for conflict
-    const cachedOrgs = getHotCache<Organization[]>(STORAGE_KEYS.ORGS, []);
-    if (cleanEmail && cachedOrgs.some((o) => o.email && o.email.toLowerCase() === cleanEmail.toLowerCase())) {
-      throw new Error('Registration Failed: Organization ID or Email is already in use.');
-    }
-    if (cachedOrgs.some((o) => o.org_id.toUpperCase() === newOrgId.toUpperCase())) {
-      throw new Error('Registration Failed: Organization ID or Email is already in use.');
-    }
-
-    // 2. STRICT INSERT (No upsert)
-    const insertPayload = {
-      id: newOrgUuid,
-      org_id: newOrgId,
-      name: cleanName,
-      email: cleanEmail,
-      password: cleanPassword,
-      verification_status: 'pending' as VerificationStatus,
-      tie_breaker_enabled: false,
-      tie_breaker_method: 'olympic' as TieBreakerMethod,
-      custom_participant_fields: [],
-      blind_judging_enabled: false,
-      auto_advance_enabled: true,
-      grace_period_enabled: false,
-      isolated_jury_enabled: false,
-    };
-
-    if (isSupabaseConfigured()) {
-      const { data, error } = await supabase
-        .from('organizations')
-        .insert([{ ...insertPayload, email: cleanEmail || null }])
-        .select()
-        .single();
-
-      if (error) {
-        if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
-          throw new Error('Registration Failed: Organization ID or Email is already in use.');
-        }
-        throw new Error(`Registration Failed: ${error.message}`);
+    const res = data as any;
+    if (!res || !res.ok) {
+      const errCode = res?.error || res?.reason;
+      if (errCode === 'duplicate') {
+        throw new Error('Registration Failed: Organization ID or Email is already in use.');
       }
-
-      const created: Organization = {
-        ...insertPayload,
-        created_at: data?.created_at || new Date().toISOString(),
-      };
-
-      await setIndexedDBCache(
-        STORAGE_KEYS.ORGS,
-        [created, ...cachedOrgs.filter((o) => o.org_id !== created.org_id)],
-        false
-      );
-
-      return created;
-    } else {
-      const created: Organization = {
-        ...insertPayload,
-        created_at: new Date().toISOString(),
-      };
-
-      await setIndexedDBCache(
-        STORAGE_KEYS.ORGS,
-        [created, ...cachedOrgs.filter((o) => o.org_id !== created.org_id)],
-        false
-      );
-
-      return created;
+      if (errCode === 'weak_password') {
+        throw new Error('Registration Failed: Password must be at least 6 characters.');
+      }
+      if (errCode === 'invalid_input') {
+        throw new Error('Registration Failed: Please check your organization name and password.');
+      }
+      throw new Error(`Registration Failed: ${errCode || 'Unknown error'}`);
     }
+
+    const created: Organization = { ...res.org };
+    delete (created as any).password;
+
+    const cachedOrgs = getHotCache<Organization[]>(STORAGE_KEYS.ORGS, []);
+    await setIndexedDBCache(
+      STORAGE_KEYS.ORGS,
+      [created, ...cachedOrgs.filter((o) => o.org_id !== created.org_id)],
+      false
+    );
+
+    return created;
   },
 };

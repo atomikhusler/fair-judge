@@ -22,7 +22,6 @@ export interface Organization {
   org_id: string; // 7-character system generated code (e.g. "FJ-A4X9")
   name: string;
   email?: string;
-  password?: string; // Master password for organiser login
   verification_status?: VerificationStatus; // 'pending' | 'verified' | 'rejected'
   tie_breaker_enabled?: boolean; // Default false (off by default)
   tie_breaker_method?: TieBreakerMethod; // 'olympic' | 'shared' | 'manual'

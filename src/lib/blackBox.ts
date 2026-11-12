@@ -7,7 +7,7 @@
 
 export interface BlackBoxEntry {
   t: number; // Timestamp
-  type: 'uncaught' | 'unhandledrejection' | 'preload' | 'console_error' | 'boundary';
+  type: 'uncaught' | 'unhandledrejection' | 'preload' | 'console_error' | 'boundary' | 'security';
   msg: string; // <= 200 chars, redacted
   frame: string; // First stack frame or location
   count: number;

@@ -21,6 +21,8 @@ import { initCacheStorage } from './lib/db/indexedDB';
 import { initOfflineSyncListener, clearAllScoreDrafts } from './lib/offlineQueue';
 import { areRecordsEqual } from './lib/eventBus';
 import { Scale } from 'lucide-react';
+import { requestStoragePersistenceOnce } from './lib/storagePersistence';
+import { scrubCachedPasswords } from './lib/authScrubber';
 
 // Code Splitting: Asynchronously load major route panels to minimize initial JS payload
 const OrganiserDashboard = lazy(() =>
@@ -88,6 +90,7 @@ export default function App() {
 
       // Hydrate local cache and database state non-blockingly
       initCacheStorage().catch(() => {});
+      scrubCachedPasswords().catch(() => {});
       unsubSync = initOfflineSyncListener();
     } catch (err) {
       console.warn('Boot sequence error:', err);
@@ -186,6 +189,7 @@ export default function App() {
   // Organiser Login Handler
   const handleOrganiserLogin = (org: Organization) => {
     clearAllScoreDrafts();
+    requestStoragePersistenceOnce();
     const newSession: UserSession = {
       role: 'organiser',
       org,
@@ -202,6 +206,7 @@ export default function App() {
     assignedEvents: SupabaseEvent[]
   ) => {
     clearAllScoreDrafts();
+    requestStoragePersistenceOnce();
     const cleanOrgId = orgId.trim().toUpperCase();
     let orgRecord: Organization | null = null;
     try {

@@ -21,7 +21,7 @@ import { eventBus } from '../../lib/eventBus';
 import { SettingsDrawer } from './SettingsDrawer';
 import { AccountModal } from './AccountModal';
 import { PullToRefresh } from '../common/PullToRefresh';
-import { TabSkeleton } from '../common/Skeletons';
+import { TabProgressFallback } from '../common/Skeletons';
 import { triggerHaptic } from '../../lib/haptics';
 
 // Code Splitting: Asynchronously load organiser tabs to minimize initial JS bundle
@@ -84,6 +84,28 @@ export function OrganiserDashboard({
   useEffect(() => {
     onLogoutRef.current = onLogout;
   }, [onLogout]);
+
+  // Stage A4: Prefetch all lazy tab chunks once after first paint
+  useEffect(() => {
+    const prefetchTabs = () => {
+      import('./tabs/LiveTab');
+      import('./tabs/EventsTab');
+      import('./tabs/PeopleTab');
+      import('./tabs/InsightsTab');
+    };
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const handle = (window as any).requestIdleCallback(prefetchTabs);
+      return () => {
+        if ('cancelIdleCallback' in window) {
+          (window as any).cancelIdleCallback(handle);
+        }
+      };
+    } else {
+      const timer = setTimeout(prefetchTabs, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   // Sync organization status with deduplication and stable callback reference
   const syncOrganizationStatus = useCallback(async () => {
@@ -351,7 +373,7 @@ export function OrganiserDashboard({
           key={activeTab}
           className="w-full h-full flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out will-change-transform"
         >
-          <React.Suspense fallback={<TabSkeleton />}>
+          <React.Suspense fallback={<TabProgressFallback />}>
             {/* Tab 1: Live Control Room */}
             {activeTab === 'live' && (
               <LiveTab

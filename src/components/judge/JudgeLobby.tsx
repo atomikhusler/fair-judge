@@ -240,7 +240,7 @@ export function JudgeLobby({
                       <div>
                         {isActive && (
                           <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-black bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/25 shadow-sm">
-                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.85)] ring-1 ring-amber-500/30" />
                             <span>LIVE NOW</span>
                           </span>
                         )}

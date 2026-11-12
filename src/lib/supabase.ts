@@ -335,9 +335,10 @@ export function subscribeToDatabase(callback: (table: string) => void): () => vo
 // ==========================================
 
 function normalizeOrg(o: any): Organization {
+  const { password: _p, ...rest } = o || {};
   return {
-    ...o,
-    verification_status: (o.verification_status || 'pending') as VerificationStatus,
+    ...rest,
+    verification_status: (rest.verification_status || 'pending') as VerificationStatus,
   };
 }
 
@@ -568,6 +569,9 @@ export const dbService = {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       throw new Error('Registration requires an active internet connection. Please connect to the network to create an organization.');
     }
+    if (!isSupabaseConfigured()) {
+      throw new Error('Database is not configured.');
+    }
 
     const cleanName = name.trim();
     if (!cleanName) {
@@ -577,58 +581,15 @@ export const dbService = {
     const cleanEmail = email?.trim() || null;
     const cleanPassword = password?.trim() || 'password123';
     const newOrgId = generateOrgId();
-    const newOrgUuid = generateUUID();
 
-    const insertPayload = {
-      id: newOrgUuid,
-      org_id: newOrgId,
-      name: cleanName,
-      email: cleanEmail,
-      password: cleanPassword,
-      verification_status: 'pending' as VerificationStatus,
-      tie_breaker_enabled: false,
-      tie_breaker_method: 'olympic' as TieBreakerMethod,
-      custom_participant_fields: [],
-      blind_judging_enabled: false,
-      auto_advance_enabled: true,
-      grace_period_enabled: false,
-      isolated_jury_enabled: false,
-    };
-
-    // 2. Pre-Flight Duplicate Check (Strict Zero-Trust)
-    if (isSupabaseConfigured()) {
-      if (cleanEmail) {
-        const { data: existingEmail } = await supabase
-          .from('organizations')
-          .select('id, email')
-          .ilike('email', cleanEmail)
-          .maybeSingle();
-
-        if (existingEmail) {
-          throw new Error('Registration Failed: Organization ID or Email is already in use.');
-        }
-      }
-
-      const { data: existingOrgId } = await supabase
-        .from('organizations')
-        .select('id, org_id')
-        .ilike('org_id', newOrgId)
-        .maybeSingle();
-
-      if (existingOrgId) {
-        throw new Error('Registration Failed: Organization ID or Email is already in use.');
-      }
-    }
-
-    // 3. The Database Insert: Await direct Supabase insertion (Pure INSERT)
     try {
-      const { data, error } = await supabase
-        .from('organizations')
-        .insert([insertPayload])
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('org_register', {
+        p_org_id: newOrgId,
+        p_name: cleanName,
+        p_email: cleanEmail,
+        p_password: cleanPassword,
+      });
 
-      // 4. Error Handling: Halt registration if database insertion fails
       if (error) {
         if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
           throw new Error('Registration Failed: Organization ID or Email is already in use.');
@@ -637,11 +598,24 @@ export const dbService = {
         throw sanitizeDbError(error);
       }
 
-      const created = data
-        ? normalizeOrg(data)
-        : normalizeOrg({ ...insertPayload, created_at: new Date().toISOString() });
+      const res = data as any;
+      if (!res || !res.ok) {
+        const errCode = res?.error || res?.reason;
+        if (errCode === 'duplicate') {
+          throw new Error('Registration Failed: Organization ID or Email is already in use.');
+        }
+        if (errCode === 'weak_password') {
+          throw new Error('Registration Failed: Password must be at least 6 characters.');
+        }
+        if (errCode === 'invalid_input') {
+          throw new Error('Registration Failed: Please check your organization name and password.');
+        }
+        throw new Error(`Registration Failed: ${errCode || 'Unknown error'}`);
+      }
 
-      // 4. Update cache ONLY AFTER successful cloud insertion
+      const created = normalizeOrg(res.org);
+
+      // Update cache ONLY AFTER successful cloud registration
       const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
       saveCache(
         STORAGE_KEYS.ORGS,
@@ -658,13 +632,15 @@ export const dbService = {
 
   async updateOrganization(orgId: string, updates: Partial<Organization>): Promise<Organization> {
     const cleanOrgId = orgId.trim().toUpperCase();
+    // Strict security: Never update or queue password through standard entity updates
+    const { password: _stripPassword, ...safeUpdates } = updates as any;
     const orgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
     const idx = orgs.findIndex((o) => o.org_id.toUpperCase() === cleanOrgId);
     const existing = idx !== -1 ? orgs[idx] : null;
 
     const updated = normalizeOrg({
       ...(existing || { org_id: cleanOrgId, id: generateUUID(), name: 'Organization' }),
-      ...updates,
+      ...safeUpdates,
     });
 
     // Optimistically save to cache & notify UI
@@ -680,7 +656,7 @@ export const dbService = {
       try {
         const { data, error } = await supabase
           .from('organizations')
-          .update(updates)
+          .update(safeUpdates)
           .ilike('org_id', cleanOrgId)
           .select()
           .single();
@@ -698,7 +674,7 @@ export const dbService = {
         }
       } catch (err: any) {
         console.warn('Offline mode: organization update saved locally, deferring cloud sync:', err?.message || err);
-        await queueMutationLocally('organizations', 'UPDATE', cleanOrgId, updates);
+        await queueMutationLocally('organizations', 'UPDATE', cleanOrgId, safeUpdates);
       }
     }
 

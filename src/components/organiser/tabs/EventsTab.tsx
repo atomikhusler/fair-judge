@@ -38,7 +38,7 @@ import {
   EventStatus,
   RubricCriterion 
 } from '../../../lib/supabaseTypes';
-import { dbService, generateUUID, subscribeToDatabase } from '../../../lib/supabase';
+import { dbService, generateUUID, subscribeToDatabase, supabase } from '../../../lib/supabase';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { useToast } from '../../common/ToastProvider';
 
@@ -578,13 +578,46 @@ export function EventsTab({
         setDeleteConfirmText('');
       }
     } else if (type === 'delete_ended') {
-      // Offline Master Password Validation against cached organization.password
-      const expectedPassword = (organization.password || '').trim();
       const enteredPassword = masterPasswordInput.trim();
+      if (!enteredPassword) {
+        setPasswordError('Master password is required.');
+        return;
+      }
 
-      if (!enteredPassword || (expectedPassword && enteredPassword !== expectedPassword)) {
-        setPasswordError('Authentication Failed: Invalid Master Password.');
-        showToast('Authentication Failed: Invalid Master Password.');
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        showToast('Needs internet to confirm deletion.');
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.rpc('org_verify_password', {
+          p_org_id: organization.org_id,
+          p_password: enteredPassword,
+        });
+
+        if (error) throw error;
+
+        const res = data as any;
+        if (!res || !res.ok) {
+          const errCode = res?.error || res?.reason;
+          if (errCode === 'too_many_attempts') {
+            setPasswordError('Too many attempts. Try again in 15 minutes.');
+            showToast('Too many attempts. Try again in 15 minutes.');
+            return;
+          }
+          setPasswordError('Incorrect master password.');
+          showToast('Incorrect master password.');
+          return;
+        }
+      } catch (authErr: any) {
+        const msg = authErr.message || '';
+        if (msg.includes('too_many_attempts')) {
+          setPasswordError('Too many attempts. Try again in 15 minutes.');
+          showToast('Too many attempts. Try again in 15 minutes.');
+          return;
+        }
+        setPasswordError('Incorrect master password.');
+        showToast('Incorrect master password.');
         return;
       }
 

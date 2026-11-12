@@ -24,7 +24,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
-import { dbService } from '../../lib/supabase';
+import { dbService, supabase } from '../../lib/supabase';
 import { useToast } from '../common/ToastProvider';
 
 interface AccountModalProps {
@@ -57,6 +57,7 @@ export function AccountModal({
 
   // Master Password Update State
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -95,7 +96,7 @@ export function AccountModal({
     navigator.clipboard.writeText(organization.org_id);
     setCopiedOrgId(true);
     showToast('Org ID copied.');
-    setTimeout(() => setCopiedOrgId(false), 2000);
+    setTimeout(() => setCopiedOrgId(false), 1500);
   };
 
   // 1. Save Organization Name
@@ -149,6 +150,14 @@ export function AccountModal({
   // 3. Save Master Password
   const handleSavePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      showToast('Needs internet to update password.');
+      return;
+    }
+    if (!currentPassword) {
+      showToast('Current password is required.');
+      return;
+    }
     if (!newPassword || newPassword.length < 6) {
       showToast('Min 6 characters required.');
       return;
@@ -159,16 +168,40 @@ export function AccountModal({
     }
     setIsSavingPassword(true);
     try {
-      const updated = await dbService.updateOrganization(organization.org_id, {
-        password: newPassword,
+      const { data, error } = await supabase.rpc('org_change_password', {
+        p_org_id: organization.org_id,
+        p_old: currentPassword.trim(),
+        p_new: newPassword.trim(),
       });
-      onUpdateOrganization(updated);
+      if (error) throw error;
+      const res = data as any;
+      if (!res || !res.ok) {
+        const errCode = res?.error || res?.reason;
+        if (errCode === 'too_many_attempts') {
+          showToast('Too many attempts. Try again in 15 minutes.');
+          return;
+        }
+        if (errCode === 'weak_password') {
+          showToast('New password is too short (minimum 6 characters).');
+          return;
+        }
+        showToast('Current password is wrong.');
+        return;
+      }
       showToast('Master password updated.');
       setIsUpdatingPassword(false);
+      setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err: any) {
-      showToast(`Password update failed: ${err.message || 'Error'}`);
+      const msg = err.message || '';
+      if (msg.includes('too_many_attempts')) {
+        showToast('Too many attempts. Try again in 15 minutes.');
+      } else if (msg.includes('invalid') || msg.includes('wrong')) {
+        showToast('Current password is wrong.');
+      } else {
+        showToast(`Password update failed: ${msg || 'Error'}`);
+      }
     } finally {
       setIsSavingPassword(false);
     }
@@ -301,10 +334,11 @@ export function AccountModal({
                         setEditName(organization.name);
                         setIsEditingName(true);
                       }}
-                      className="self-start sm:self-center min-h-[38px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold border border-stone-200 dark:border-zinc-800 transition-all flex items-center space-x-1.5 cursor-pointer shrink-0"
+                      aria-label="Edit organisation name"
+                      title="Edit organisation name"
+                      className="w-8 h-8 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800 flex items-center justify-center transition-all cursor-pointer shrink-0 relative before:content-[''] before:absolute before:-inset-1.5"
                     >
-                      <Pencil className="w-3.5 h-3.5 text-zinc-500" />
-                      <span>Edit Name</span>
+                      <Pencil className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
                     </button>
                   </div>
                 ) : (
@@ -397,10 +431,11 @@ export function AccountModal({
                           setEditEmail(organization.email || '');
                           setIsEditingEmail(true);
                         }}
-                        className="self-start sm:self-center min-h-[38px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold border border-stone-200 dark:border-zinc-800 transition-all flex items-center space-x-1.5 cursor-pointer shrink-0"
+                        aria-label={organization.email ? 'Update contact email' : 'Add contact email'}
+                        title={organization.email ? 'Update contact email' : 'Add contact email'}
+                        className="w-8 h-8 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800 flex items-center justify-center transition-all cursor-pointer shrink-0 relative before:content-[''] before:absolute before:-inset-1.5"
                       >
-                        <Pencil className="w-3.5 h-3.5 text-zinc-500" />
-                        <span>{organization.email ? 'Update Email' : 'Add Email'}</span>
+                        <Mail className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
                       </button>
                     </div>
 
@@ -506,19 +541,14 @@ export function AccountModal({
                   <button
                     type="button"
                     onClick={handleCopyOrgId}
-                    className="min-h-[38px] px-3 rounded-xl bg-stone-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white border border-stone-200 dark:border-zinc-800 flex items-center space-x-1.5 transition-all cursor-pointer font-semibold text-xs"
-                    title="Copy Org ID"
+                    aria-label={copiedOrgId ? 'Copied organisation code' : 'Copy organisation code'}
+                    title={copiedOrgId ? 'Copied' : 'Copy Org ID'}
+                    className="w-8 h-8 rounded-xl bg-stone-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white border border-stone-200 dark:border-zinc-800 flex items-center justify-center transition-all cursor-pointer relative before:content-[''] before:absolute before:-inset-1.5"
                   >
                     {copiedOrgId ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-500" />
-                        <span className="text-emerald-600 dark:text-emerald-400">Copied</span>
-                      </>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
                     ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-zinc-400" />
-                        <span>Copy</span>
-                      </>
+                      <Copy className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
                     )}
                   </button>
                 </div>
@@ -570,6 +600,15 @@ export function AccountModal({
 
                     <input
                       type={showPassword ? 'text' : 'password'}
+                      placeholder="Current master password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      required
+                      className="w-full min-h-[42px] px-3.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                    />
+
+                    <input
+                      type={showPassword ? 'text' : 'password'}
                       placeholder="New password (minimum 6 characters)"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
@@ -588,7 +627,7 @@ export function AccountModal({
 
                     <button
                       type="submit"
-                      disabled={isSavingPassword || !newPassword || newPassword !== confirmPassword}
+                      disabled={isSavingPassword || !currentPassword || !newPassword || newPassword !== confirmPassword}
                       className="w-full min-h-[42px] bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all active:scale-[0.98] cursor-pointer shadow-sm flex items-center justify-center space-x-1.5"
                     >
                       <Lock className="w-3.5 h-3.5" />

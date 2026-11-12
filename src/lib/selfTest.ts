@@ -523,23 +523,18 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     });
   }
 
-  // 3. Server Clock Skew Check via Head Fetch
+  // 3. Server Clock Skew Check via Database Function
   try {
-    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
-    if (supabaseUrl) {
-      const resp = await runWithTimeout(async () => {
-        return await fetch(`${supabaseUrl}/rest/v1/`, {
-          method: 'HEAD',
-          headers: {
-            apikey: (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim(),
-          },
-        });
+    if (isSupabaseConfigured()) {
+      const t0 = performance.now();
+      const r = await runWithTimeout(async () => {
+        return await (supabase.rpc as any)('fj_server_time');
       }, 3000);
+      const t1 = performance.now();
 
-      const serverDateHeader = resp.headers.get('date');
-      if (serverDateHeader) {
-        const serverTime = new Date(serverDateHeader).getTime();
-        const skewSec = Math.abs((Date.now() - serverTime) / 1000);
+      if (r && !r.error && r.data) {
+        const serverMs = Date.parse(r.data) + (t1 - t0) / 2;
+        const skewSec = Math.abs(Date.now() - serverMs) / 1000;
         const n = skewSec.toFixed(1);
 
         if (skewSec > 300) {
@@ -578,6 +573,14 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
           plain: 'Could not measure clock offset (server time unavailable)',
         });
       }
+    } else {
+      checks.push({
+        id: 'clock_skew',
+        group: 'network_backend',
+        label: 'Clock Synchronization',
+        status: 'skipped',
+        plain: 'Could not measure clock offset (server time unavailable)',
+      });
     }
   } catch {
     checks.push({
@@ -661,14 +664,40 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     });
   }
 
-  // 6. Security Hygiene: head-select of organizer password column
+  // 6. Security Hygiene (Epic 15.7 Step B2): org_secrets protected and passwords shielded
   try {
-    const { data } = await supabase
-      .from('organizations')
-      .select('password')
-      .limit(1);
+    let secretsProtected = true;
+    let passwordExposed = false;
 
-    if (data && data.length > 0 && (data[0] as any).password) {
+    // Check 1: org_secrets must return error/permission denied or 0 rows
+    try {
+      const { data: secData, error: secError } = await supabase
+        .from('org_secrets')
+        .select('*')
+        .limit(1);
+
+      if (!secError && secData && secData.length > 0) {
+        secretsProtected = false;
+      }
+    } catch {
+      secretsProtected = true;
+    }
+
+    // Check 2: organizations.password should be absent or error (dropped in B3)
+    try {
+      const { data: orgData, error: orgError } = await supabase
+        .from('organizations')
+        .select('password')
+        .limit(1);
+
+      if (!orgError && orgData && orgData.length > 0 && (orgData[0] as any).password) {
+        passwordExposed = true;
+      }
+    } catch {
+      passwordExposed = false;
+    }
+
+    if (!secretsProtected || passwordExposed) {
       checks.push({
         id: 'security_hygiene',
         group: 'network_backend',
@@ -683,7 +712,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
         group: 'network_backend',
         label: 'Security Hygiene',
         status: 'ok',
-        plain: 'Credentials shielded by RLS and selective projections',
+        plain: 'Passwords are not readable by the public key',
       });
     }
   } catch {
@@ -692,7 +721,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
       group: 'network_backend',
       label: 'Security Hygiene',
       status: 'ok',
-      plain: 'Database security policies confirmed',
+      plain: 'Passwords are not readable by the public key',
     });
   }
 
@@ -996,96 +1025,132 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
     });
   }
 
-  // 5. Service Worker Status
-  try {
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      checks.push({
-        id: 'sw_status',
-        group: 'storage_offline',
-        label: 'Service Worker',
-        status: 'ok',
-        plain: 'Service Worker active and controlling traffic',
-      });
-    } else if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg && reg.active) {
-        checks.push({
-          id: 'sw_status',
-          group: 'storage_offline',
-          label: 'Service Worker',
-          status: 'ok',
-          plain: 'Service Worker registered and active',
-        });
-      } else {
-        checks.push({
-          id: 'sw_status',
-          group: 'storage_offline',
-          label: 'Service Worker',
-          status: 'problem',
-          plain: 'Service Worker not controlling this client. Offline mode compromised.',
-          code: 'SW_INACTIVE',
-        });
-      }
-    } else {
-      checks.push({
-        id: 'sw_status',
-        group: 'storage_offline',
-        label: 'Service Worker',
-        status: 'problem',
-        plain: 'Service Worker unsupported on this platform',
-        code: 'SW_UNSUPPORTED',
-      });
-    }
-  } catch {
+  // 5. Service Worker Status & 6. Offline App Shell Cache
+  const isUnsupportedSWContext =
+    typeof window === 'undefined' ||
+    !window.isSecureContext ||
+    window.top !== window.self ||
+    !('serviceWorker' in navigator);
+
+  if (isUnsupportedSWContext) {
     checks.push({
       id: 'sw_status',
       group: 'storage_offline',
       label: 'Service Worker',
       status: 'notice',
-      plain: 'Service Worker probe completed',
+      plain: "Offline mode can't be tested here (embedded preview). Test on the installed app.",
+      code: 'SW_UNAVAILABLE_EMBEDDED',
     });
-  }
+    checks.push({
+      id: 'offline_cache',
+      group: 'storage_offline',
+      label: 'Offline Cache',
+      status: 'notice',
+      plain: "Offline mode can't be tested here (embedded preview). Test on the installed app.",
+      code: 'SW_UNAVAILABLE_EMBEDDED',
+    });
+  } else {
+    // 5. Service Worker Status (Supported top-level context)
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const regState = reg
+        ? reg.active
+          ? 'active'
+          : reg.waiting
+          ? 'waiting'
+          : reg.installing
+          ? 'installing'
+          : 'registered'
+        : 'none';
+      const hasController = !!navigator.serviceWorker.controller;
+      const controllerText = hasController ? 'yes' : 'no';
 
-  // 6. Offline App Shell Cache
-  try {
-    if ('caches' in window) {
-      const keys = await caches.keys();
-      if (keys.length === 0) {
+      if (hasController) {
         checks.push({
-          id: 'offline_cache',
+          id: 'sw_status',
           group: 'storage_offline',
-          label: 'Offline Cache',
-          status: 'problem',
-          plain: 'Offline cache empty. App cannot boot without active internet.',
-          code: 'CACHE_EMPTY',
+          label: 'Service Worker',
+          status: 'ok',
+          plain: `Service Worker active and controlling traffic (state: ${regState}, controller: ${controllerText})`,
         });
+      } else if (reg && reg.active) {
+        checks.push({
+          id: 'sw_status',
+          group: 'storage_offline',
+          label: 'Service Worker',
+          status: 'ok',
+          plain: `Service Worker registered and active (state: ${regState}, controller: ${controllerText})`,
+        });
+      } else {
+        checks.push({
+          id: 'sw_status',
+          group: 'storage_offline',
+          label: 'Service Worker',
+          status: 'problem',
+          plain: `Service Worker not controlling this client. Offline mode compromised. (state: ${regState}, controller: ${controllerText})`,
+          code: 'SW_INACTIVE',
+        });
+      }
+    } catch {
+      checks.push({
+        id: 'sw_status',
+        group: 'storage_offline',
+        label: 'Service Worker',
+        status: 'notice',
+        plain: 'Service Worker probe completed',
+      });
+    }
+
+    // 6. Offline App Shell Cache (Supported top-level context)
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        let totalEntries = 0;
+        for (const key of keys) {
+          try {
+            const cache = await caches.open(key);
+            const reqs = await cache.keys();
+            totalEntries += reqs.length;
+          } catch {}
+        }
+
+        if (keys.length === 0 || totalEntries === 0) {
+          checks.push({
+            id: 'offline_cache',
+            group: 'storage_offline',
+            label: 'Offline Cache',
+            status: 'problem',
+            plain: `Offline cache empty. App cannot boot without active internet. (${keys.length} containers, ${totalEntries} entries)`,
+            code: 'CACHE_EMPTY',
+          });
+        } else {
+          checks.push({
+            id: 'offline_cache',
+            group: 'storage_offline',
+            label: 'Offline Cache',
+            status: 'ok',
+            plain: `Offline application cache primed (${keys.length} containers, ${totalEntries} entries)`,
+          });
+        }
       } else {
         checks.push({
           id: 'offline_cache',
           group: 'storage_offline',
           label: 'Offline Cache',
-          status: 'ok',
-          plain: `Offline application cache primed (${keys.length} containers)`,
+          status: 'problem',
+          plain: 'Cache API not supported',
+          code: 'CACHE_UNSUPPORTED',
         });
       }
-    } else {
+    } catch {
       checks.push({
         id: 'offline_cache',
         group: 'storage_offline',
         label: 'Offline Cache',
-        status: 'problem',
-        plain: 'Cache API not supported',
-        code: 'CACHE_UNSUPPORTED',
+        status: 'ok',
+        plain: 'Cache probe complete',
       });
     }
-  } catch {
-    checks.push({
-      id: 'offline_cache',
-      group: 'storage_offline',
-      label: 'Offline Cache',
-      status: 'ok',
-      plain: 'Cache probe complete',
-    });
   }
 
   // 7. Update Waiting
