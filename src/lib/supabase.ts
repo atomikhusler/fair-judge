@@ -19,6 +19,7 @@ import {
 } from './db/indexedDB';
 import { eventBus } from './eventBus';
 import { calculateRankings as engineCalculateRankings, calculateRankingsAsync as engineCalculateRankingsAsync } from './tieBreakerEngine';
+import { blackBox } from './blackBox';
 
 // ==========================================
 // SUPABASE CREDENTIALS & DYNAMIC CLIENT INJECTION
@@ -591,11 +592,11 @@ export const dbService = {
       });
 
       if (error) {
+        blackBox.recordError('security', `RPC org_register error: ${error.message}`, 'dbService.createOrganization');
         if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
           throw new Error('Registration Failed: Organization ID or Email is already in use.');
         }
-        console.warn('Supabase organization registration notice:', error?.message || error);
-        throw sanitizeDbError(error);
+        throw new Error('Could not create the organisation. Please try again.');
       }
 
       const res = data as any;
@@ -610,7 +611,8 @@ export const dbService = {
         if (errCode === 'invalid_input') {
           throw new Error('Registration Failed: Please check your organization name and password.');
         }
-        throw new Error(`Registration Failed: ${errCode || 'Unknown error'}`);
+        blackBox.recordError('security', `RPC org_register rejected: ${JSON.stringify(res)}`, 'dbService.createOrganization');
+        throw new Error('Could not create the organisation. Please try again.');
       }
 
       const created = normalizeOrg(res.org);

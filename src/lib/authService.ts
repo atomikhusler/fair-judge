@@ -14,6 +14,7 @@ import {
 } from './supabaseTypes';
 import { getHotCache, setIndexedDBCache } from './db/indexedDB';
 import { STORAGE_KEYS, generateUUID, generateOrgId } from './supabase';
+import { blackBox } from './blackBox';
 
 export interface JudgeAuthParams {
   orgId?: string;
@@ -299,10 +300,11 @@ export const authService = {
     });
 
     if (error) {
+      blackBox.recordError('security', `RPC org_register error: ${error.message}`, 'authService.registerOrganiser');
       if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
         throw new Error('Registration Failed: Organization ID or Email is already in use.');
       }
-      throw new Error(`Registration Failed: ${error.message}`);
+      throw new Error('Could not create the organisation. Please try again.');
     }
 
     const res = data as any;
@@ -317,7 +319,8 @@ export const authService = {
       if (errCode === 'invalid_input') {
         throw new Error('Registration Failed: Please check your organization name and password.');
       }
-      throw new Error(`Registration Failed: ${errCode || 'Unknown error'}`);
+      blackBox.recordError('security', `RPC org_register rejected: ${JSON.stringify(res)}`, 'authService.registerOrganiser');
+      throw new Error('Could not create the organisation. Please try again.');
     }
 
     const created: Organization = { ...res.org };

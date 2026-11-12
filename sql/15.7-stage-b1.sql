@@ -288,7 +288,7 @@ begin
     isolated_jury_enabled,
     created_at
   ) values (
-    extensions.gen_random_uuid()::text,
+    gen_random_uuid(),
     clean_org_id,
     clean_name,
     clean_email,

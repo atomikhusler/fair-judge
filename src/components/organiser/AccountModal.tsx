@@ -21,11 +21,15 @@ import {
   Scale,
   MessageCircle,
   Coffee,
-  ExternalLink
+  ExternalLink,
+  Download,
+  Upload
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
 import { dbService, supabase } from '../../lib/supabase';
 import { useToast } from '../common/ToastProvider';
+import { BackupSheet } from './backup/BackupSheet';
+import { RestoreSheet } from './backup/RestoreSheet';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -69,6 +73,10 @@ export function AccountModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [isProcessingDanger, setIsProcessingDanger] = useState(false);
+
+  // Backup & Restore Sheet state
+  const [showBackupSheet, setShowBackupSheet] = useState(false);
+  const [showRestoreSheet, setShowRestoreSheet] = useState(false);
 
   const verificationStatus = organization.verification_status || 'pending';
 
@@ -657,6 +665,56 @@ export function AccountModal({
           </div>
 
           {/* ======================================================== */}
+          {/* CARD: BACKUP & RESTORE (Epic 15.7 Stage C)                */}
+          {/* ======================================================== */}
+          <div>
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+              Backup &amp; Restore
+            </h4>
+            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
+              {/* Row 1: Create Backup */}
+              <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                    Create Backup
+                  </span>
+                  <span className="text-[11px] text-zinc-500 block">
+                    Export competition data to an encrypted or plain JSON archive
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBackupSheet(true)}
+                  className="self-start sm:self-center min-h-[38px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold border border-stone-200 dark:border-zinc-800 transition-all cursor-pointer flex items-center space-x-1.5 shrink-0"
+                >
+                  <Download className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>Download Backup</span>
+                </button>
+              </div>
+
+              {/* Row 2: Restore Backup */}
+              <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                    Restore Data
+                  </span>
+                  <span className="text-[11px] text-zinc-500 block">
+                    Atomic restore with dry-run impact simulation and locked event immunity
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRestoreSheet(true)}
+                  className="self-start sm:self-center min-h-[38px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold border border-stone-200 dark:border-zinc-800 transition-all cursor-pointer flex items-center space-x-1.5 shrink-0"
+                >
+                  <Upload className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>Restore Backup</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ======================================================== */}
           {/* SECTION: ABOUT & SUPPORT (Directive 3)                   */}
           {/* ======================================================== */}
           <div>
@@ -901,6 +959,23 @@ export function AccountModal({
           </div>
         </div>
       )}
+
+      {/* Backup and Restore Modals */}
+      <BackupSheet
+        isOpen={showBackupSheet}
+        onClose={() => setShowBackupSheet(false)}
+        organization={organization}
+      />
+      <RestoreSheet
+        isOpen={showRestoreSheet}
+        onClose={() => setShowRestoreSheet(false)}
+        organization={organization}
+        onRestoreComplete={() => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('fairjudge_session_change'));
+          }
+        }}
+      />
     </div>
   );
 

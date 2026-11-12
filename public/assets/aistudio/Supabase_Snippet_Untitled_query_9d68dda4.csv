@@ -1,0 +1,41 @@
+table_name,column_name,data_type,is_nullable
+events,id,uuid,NO
+events,org_id,text,NO
+events,name,text,NO
+events,category,text,YES
+events,date,text,YES
+events,status,text,YES
+events,started_at,timestamp with time zone,YES
+events,elapsed_seconds,integer,YES
+events,rubric_schema,jsonb,YES
+events,assigned_judges,ARRAY,YES
+events,assigned_participants,ARRAY,YES
+events,participant_sl_numbers,jsonb,YES
+events,created_at,timestamp with time zone,YES
+events,updated_at,timestamp with time zone,YES
+events,is_locked,boolean,NO
+judges,id,uuid,NO
+judges,org_id,text,NO
+judges,name,text,NO
+judges,judge_id,text,YES
+judges,pin,text,NO
+judges,assigned_events,ARRAY,YES
+judges,created_at,timestamp with time zone,YES
+judges,current_session_token,text,YES
+participants,id,uuid,NO
+participants,org_id,text,NO
+participants,identity_id,text,NO
+participants,sl_no,text,YES
+participants,name,text,NO
+participants,school,text,YES
+participants,class_or_age,text,YES
+participants,mobile_number,text,YES
+participants,custom_values,jsonb,YES
+participants,created_at,timestamp with time zone,YES
+scores,id,uuid,NO
+scores,event_id,uuid,NO
+scores,judge_id,uuid,NO
+scores,participant_id,uuid,NO
+scores,score_payload,jsonb,NO
+scores,total_score,numeric,NO
+scores,created_at,timestamp with time zone,YES
