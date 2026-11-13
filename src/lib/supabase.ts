@@ -213,6 +213,41 @@ export function getStoredSessionToken(): string | null {
   return getStoredSession()?.sessionToken || null;
 }
 
+/**
+ * Executes a Stage D3 token-authenticated write RPC.
+ * If the RPC is not yet deployed in Supabase (PGRST202 / 42883), returns { usedRpc: false }
+ * so callers can fall back seamlessly during migration.
+ */
+export async function callSecuredWriteRpc<T = any>(
+  rpcName: string,
+  params: Record<string, any>
+): Promise<{ usedRpc: boolean; data?: T }> {
+  const token = getStoredSessionToken() || '';
+  const { data, error } = await supabase.rpc(rpcName, {
+    p_token: token,
+    ...params,
+  });
+
+  if (error) {
+    const msg = (error.message || '').toLowerCase();
+    if (error.code === 'PGRST202' || error.code === '42883' || msg.includes(`function public.${rpcName}`)) {
+      return { usedRpc: false };
+    }
+    throw error;
+  }
+
+  const res = data as any;
+  if (!res || !res.ok) {
+    const errCode = res?.error || 'RPC_ERROR';
+    const msg = res?.message || res?.error || 'Database operation rejected.';
+    const err = new Error(msg);
+    (err as any).code = errCode === 'ROSTER_LOCKED' ? 'ROSTER_LOCKED' : errCode;
+    throw err;
+  }
+
+  return { usedRpc: true, data: res.data as T };
+}
+
 export function setStoredSession(session: StoredUserSession | null): void {
   try {
     if (!session) {
@@ -594,16 +629,26 @@ export const dbService = {
 
     if (isSupabaseConfigured()) {
       try {
-        const { data, error } = await supabase
-          .from('organizations')
-          .update(safeUpdates)
-          .ilike('org_id', cleanOrgId)
-          .select()
-          .single();
+        const rpcRes = await callSecuredWriteRpc<Organization>('org_update', {
+          p_org_id: cleanOrgId,
+          p_updates: safeUpdates,
+        });
 
-        if (error) throw error;
-        if (data) {
-          const synced = normalizeOrg(data);
+        let syncedRow = rpcRes.usedRpc ? rpcRes.data : null;
+        if (!rpcRes.usedRpc) {
+          const { data, error } = await supabase
+            .from('organizations')
+            .update(safeUpdates)
+            .ilike('org_id', cleanOrgId)
+            .select()
+            .single();
+
+          if (error) throw error;
+          syncedRow = data;
+        }
+
+        if (syncedRow) {
+          const synced = normalizeOrg(syncedRow);
           const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
           saveCache(
             STORAGE_KEYS.ORGS,
@@ -613,6 +658,7 @@ export const dbService = {
           return synced;
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: organization update saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('organizations', 'UPDATE', cleanOrgId, safeUpdates);
       }
@@ -625,44 +671,47 @@ export const dbService = {
     const cleanOrgId = orgId.toUpperCase().trim();
 
     if (isSupabaseConfigured()) {
-      // Delete events first, then participants and judges, sequentially (no Promise.all)
-      const { error: evtsErr } = await supabase.from('events').delete().ilike('org_id', cleanOrgId);
-      if (evtsErr) {
-        const isLocked =
-          evtsErr.message?.includes('ROSTER_LOCKED') ||
-          (evtsErr.details && String(evtsErr.details).includes('ROSTER_LOCKED'));
-        if (isLocked) {
-          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-          (lockedErr as any).code = 'ROSTER_LOCKED';
-          throw lockedErr;
+      const rpcRes = await callSecuredWriteRpc('org_reset_data', { p_org_id: cleanOrgId });
+      if (!rpcRes.usedRpc) {
+        // Delete events first, then participants and judges, sequentially (no Promise.all)
+        const { error: evtsErr } = await supabase.from('events').delete().ilike('org_id', cleanOrgId);
+        if (evtsErr) {
+          const isLocked =
+            evtsErr.message?.includes('ROSTER_LOCKED') ||
+            (evtsErr.details && String(evtsErr.details).includes('ROSTER_LOCKED'));
+          if (isLocked) {
+            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+            (lockedErr as any).code = 'ROSTER_LOCKED';
+            throw lockedErr;
+          }
+          throw evtsErr;
         }
-        throw evtsErr;
-      }
 
-      const { error: partsErr } = await supabase.from('participants').delete().ilike('org_id', cleanOrgId);
-      if (partsErr) {
-        const isLocked =
-          partsErr.message?.includes('ROSTER_LOCKED') ||
-          (partsErr.details && String(partsErr.details).includes('ROSTER_LOCKED'));
-        if (isLocked) {
-          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-          (lockedErr as any).code = 'ROSTER_LOCKED';
-          throw lockedErr;
+        const { error: partsErr } = await supabase.from('participants').delete().ilike('org_id', cleanOrgId);
+        if (partsErr) {
+          const isLocked =
+            partsErr.message?.includes('ROSTER_LOCKED') ||
+            (partsErr.details && String(partsErr.details).includes('ROSTER_LOCKED'));
+          if (isLocked) {
+            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+            (lockedErr as any).code = 'ROSTER_LOCKED';
+            throw lockedErr;
+          }
+          throw partsErr;
         }
-        throw partsErr;
-      }
 
-      const { error: jdgsErr } = await supabase.from('judges').delete().ilike('org_id', cleanOrgId);
-      if (jdgsErr) {
-        const isLocked =
-          jdgsErr.message?.includes('ROSTER_LOCKED') ||
-          (jdgsErr.details && String(jdgsErr.details).includes('ROSTER_LOCKED'));
-        if (isLocked) {
-          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-          (lockedErr as any).code = 'ROSTER_LOCKED';
-          throw lockedErr;
+        const { error: jdgsErr } = await supabase.from('judges').delete().ilike('org_id', cleanOrgId);
+        if (jdgsErr) {
+          const isLocked =
+            jdgsErr.message?.includes('ROSTER_LOCKED') ||
+            (jdgsErr.details && String(jdgsErr.details).includes('ROSTER_LOCKED'));
+          if (isLocked) {
+            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+            (lockedErr as any).code = 'ROSTER_LOCKED';
+            throw lockedErr;
+          }
+          throw jdgsErr;
         }
-        throw jdgsErr;
       }
     }
 
@@ -705,24 +754,30 @@ export const dbService = {
   async deleteOrganization(orgId: string): Promise<void> {
     const cleanOrgId = orgId.toUpperCase().trim();
 
-    await this.resetOrganizationData(cleanOrgId);
-
     if (isSupabaseConfigured()) {
-      const { error } = await supabase
-        .from('organizations')
-        .delete()
-        .ilike('org_id', cleanOrgId);
-      if (error) {
-        const isLocked =
-          error.message?.includes('ROSTER_LOCKED') ||
-          (error.details && String(error.details).includes('ROSTER_LOCKED'));
-        if (isLocked) {
-          const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-          (lockedErr as any).code = 'ROSTER_LOCKED';
-          throw lockedErr;
+      const rpcRes = await callSecuredWriteRpc('org_delete', { p_org_id: cleanOrgId });
+      if (!rpcRes.usedRpc) {
+        await this.resetOrganizationData(cleanOrgId);
+        const { error } = await supabase
+          .from('organizations')
+          .delete()
+          .ilike('org_id', cleanOrgId);
+        if (error) {
+          const isLocked =
+            error.message?.includes('ROSTER_LOCKED') ||
+            (error.details && String(error.details).includes('ROSTER_LOCKED'));
+          if (isLocked) {
+            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
+            (lockedErr as any).code = 'ROSTER_LOCKED';
+            throw lockedErr;
+          }
+          throw error;
         }
-        throw error;
+      } else {
+        await this.resetOrganizationData(cleanOrgId).catch(() => {});
       }
+    } else {
+      await this.resetOrganizationData(cleanOrgId);
     }
 
     const orgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
@@ -886,15 +941,24 @@ export const dbService = {
       };
 
       try {
-        const { data, error } = await supabase
-          .from('events')
-          .insert([payload])
-          .select()
-          .single();
+        const rpcRes = await callSecuredWriteRpc<SupabaseEvent>('event_upsert', {
+          p_record: payload,
+        });
 
-        if (error) throw error;
-        if (data) {
-          const created = normalizeEvent(data);
+        let createdRow = rpcRes.usedRpc ? rpcRes.data : null;
+        if (!rpcRes.usedRpc) {
+          const { data, error } = await supabase
+            .from('events')
+            .insert([payload])
+            .select()
+            .single();
+
+          if (error) throw error;
+          createdRow = data;
+        }
+
+        if (createdRow) {
+          const created = normalizeEvent(createdRow);
           const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
           saveCache(
             STORAGE_KEYS.EVENTS,
@@ -904,6 +968,7 @@ export const dbService = {
           notifyCloudSync('Event');
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: event saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('events', 'INSERT', newEvent.id, payload);
         notifyOfflineSaved('Event');
@@ -968,29 +1033,39 @@ export const dbService = {
       delete dbUpdates.rubric;
 
       try {
-        let { data, error } = await supabase
-          .from('events')
-          .update(dbUpdates)
-          .eq('id', eventId)
-          .select()
-          .single();
+        const rpcRes = await callSecuredWriteRpc<SupabaseEvent>('event_update', {
+          p_event_id: eventId,
+          p_updates: dbUpdates,
+        });
 
-        // Graceful schema adaptation: If is_archived column is not yet present on backend
-        if (error && (error.code === 'PGRST204' || error.message?.includes('is_archived')) && dbUpdates.is_archived !== undefined) {
-          const { is_archived: _omit, ...restUpdates } = dbUpdates;
-          const retryRes = await supabase
+        let syncedRow = rpcRes.usedRpc ? rpcRes.data : null;
+        if (!rpcRes.usedRpc) {
+          let { data, error } = await supabase
             .from('events')
-            .update(restUpdates)
+            .update(dbUpdates)
             .eq('id', eventId)
             .select()
             .single();
-          data = retryRes.data;
-          error = retryRes.error;
+
+          // Graceful schema adaptation: If is_archived column is not yet present on backend
+          if (error && (error.code === 'PGRST204' || error.message?.includes('is_archived')) && dbUpdates.is_archived !== undefined) {
+            const { is_archived: _omit, ...restUpdates } = dbUpdates;
+            const retryRes = await supabase
+              .from('events')
+              .update(restUpdates)
+              .eq('id', eventId)
+              .select()
+              .single();
+            data = retryRes.data;
+            error = retryRes.error;
+          }
+
+          if (error) throw error;
+          syncedRow = data;
         }
 
-        if (error) throw error;
-        if (data) {
-          const synced = normalizeEvent({ ...data, is_archived: updated.is_archived });
+        if (syncedRow) {
+          const synced = normalizeEvent({ ...syncedRow, is_archived: updated.is_archived });
           const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
           saveCache(
             STORAGE_KEYS.EVENTS,
@@ -1079,10 +1154,14 @@ export const dbService = {
 
     if (isSupabaseConfigured()) {
       try {
-        const { error } = await supabase.from('events').delete().eq('id', eventId);
-        if (error) throw error;
+        const rpcRes = await callSecuredWriteRpc('event_delete', { p_event_id: eventId });
+        if (!rpcRes.usedRpc) {
+          const { error } = await supabase.from('events').delete().eq('id', eventId);
+          if (error) throw error;
+        }
         notifyCloudSync('Event');
       } catch (err: any) {
+        if (err?.code === 'ROSTER_LOCKED' || err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: event deletion saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('events', 'DELETE', eventId, null);
         notifyOfflineSaved('Event');
@@ -1206,15 +1285,21 @@ export const dbService = {
       };
 
       try {
-        const { data, error } = await supabase
-          .from('judges')
-          .insert([payload])
-          .select()
-          .single();
+        const rpcRes = await callSecuredWriteRpc<SupabaseJudge>('judge_upsert', { p_record: payload });
+        let createdRow = rpcRes.usedRpc ? rpcRes.data : null;
+        if (!rpcRes.usedRpc) {
+          const { data, error } = await supabase
+            .from('judges')
+            .insert([payload])
+            .select()
+            .single();
 
-        if (error) throw error;
-        if (data) {
-          const synced = normalizeJudge(data);
+          if (error) throw error;
+          createdRow = data;
+        }
+
+        if (createdRow) {
+          const synced = normalizeJudge(createdRow);
           const currentList = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
           saveCache(
             STORAGE_KEYS.JUDGES,
@@ -1223,6 +1308,7 @@ export const dbService = {
           );
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: judge saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('judges', 'INSERT', newJudge.id, payload);
       }
@@ -1261,16 +1347,25 @@ export const dbService = {
       delete dbUpdates.judge_pin;
 
       try {
-        const { data, error } = await supabase
-          .from('judges')
-          .update(dbUpdates)
-          .eq('id', judgeId)
-          .select()
-          .single();
+        const rpcRes = await callSecuredWriteRpc<SupabaseJudge>('judge_update', {
+          p_judge_id: judgeId,
+          p_updates: dbUpdates,
+        });
+        let syncedRow = rpcRes.usedRpc ? rpcRes.data : null;
+        if (!rpcRes.usedRpc) {
+          const { data, error } = await supabase
+            .from('judges')
+            .update(dbUpdates)
+            .eq('id', judgeId)
+            .select()
+            .single();
 
-        if (error) throw error;
-        if (data) {
-          const synced = normalizeJudge(data);
+          if (error) throw error;
+          syncedRow = data;
+        }
+
+        if (syncedRow) {
+          const synced = normalizeJudge(syncedRow);
           const currentList = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
           saveCache(
             STORAGE_KEYS.JUDGES,
@@ -1279,6 +1374,7 @@ export const dbService = {
           );
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: judge update saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('judges', 'UPDATE', judgeId, dbUpdates);
       }
@@ -1309,9 +1405,13 @@ export const dbService = {
 
     if (isSupabaseConfigured()) {
       try {
-        const { error } = await supabase.from('judges').delete().eq('id', judgeId);
-        if (error) throw error;
+        const rpcRes = await callSecuredWriteRpc('judge_delete', { p_judge_id: judgeId });
+        if (!rpcRes.usedRpc) {
+          const { error } = await supabase.from('judges').delete().eq('id', judgeId);
+          if (error) throw error;
+        }
       } catch (err: any) {
+        if (err?.code === 'ROSTER_LOCKED' || err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: judge deletion saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('judges', 'DELETE', judgeId, null);
       }
@@ -1500,22 +1600,31 @@ export const dbService = {
       };
 
       try {
-        const { data: created, error } = await supabase
-          .from('participants')
-          .insert([payload])
-          .select()
-          .single();
+        const rpcRes = await callSecuredWriteRpc<SupabaseParticipant[]>('participant_upsert_batch', {
+          p_records: [payload],
+        });
+        let createdRow = rpcRes.usedRpc && Array.isArray(rpcRes.data) ? rpcRes.data[0] : null;
+        if (!rpcRes.usedRpc) {
+          const { data: created, error } = await supabase
+            .from('participants')
+            .insert([payload])
+            .select()
+            .single();
 
-        if (error) throw error;
-        if (created) {
+          if (error) throw error;
+          createdRow = created;
+        }
+
+        if (createdRow) {
           const currentList = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
           saveCache(
             STORAGE_KEYS.PARTICIPANTS,
-            currentList.map((p) => (p.id === created.id ? created : p)),
+            currentList.map((p) => (p.id === createdRow!.id ? createdRow! : p)),
             true
           );
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: participant saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'INSERT', newParticipant.id, payload);
       }
@@ -1584,22 +1693,31 @@ export const dbService = {
       }));
 
       try {
-        const { data, error } = await supabase
-          .from('participants')
-          .insert(payloads)
-          .select();
+        const rpcRes = await callSecuredWriteRpc<SupabaseParticipant[]>('participant_upsert_batch', {
+          p_records: payloads,
+        });
+        let createdRows = rpcRes.usedRpc ? rpcRes.data : null;
+        if (!rpcRes.usedRpc) {
+          const { data, error } = await supabase
+            .from('participants')
+            .insert(payloads)
+            .select();
 
-        if (error) throw error;
-        if (data) {
+          if (error) throw error;
+          createdRows = data;
+        }
+
+        if (createdRows) {
           const currentList = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
-          const dataMap = new Map(data.map((d: any) => [d.id, d]));
+          const dataMap = new Map(createdRows.map((d: any) => [d.id, d]));
           saveCache(
             STORAGE_KEYS.PARTICIPANTS,
-            currentList.map((p) => (dataMap.has(p.id) ? dataMap.get(p.id) : p)),
+            currentList.map((p) => (dataMap.has(p.id) ? dataMap.get(p.id)! : p)),
             true
           );
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: bulk participants saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'INSERT', `bulk_${Date.now()}`, payloads);
       }
@@ -1638,23 +1756,33 @@ export const dbService = {
     // 2. BACKGROUND CLOUD SYNC
     if (isSupabaseConfigured()) {
       try {
-        const { data, error } = await supabase
-          .from('participants')
-          .update(safeUpdates)
-          .eq('id', participantId)
-          .select()
-          .single();
+        const rpcRes = await callSecuredWriteRpc<SupabaseParticipant>('participant_update', {
+          p_participant_id: participantId,
+          p_updates: safeUpdates,
+        });
+        let updatedRow = rpcRes.usedRpc ? rpcRes.data : null;
+        if (!rpcRes.usedRpc) {
+          const { data, error } = await supabase
+            .from('participants')
+            .update(safeUpdates)
+            .eq('id', participantId)
+            .select()
+            .single();
 
-        if (error) throw error;
-        if (data) {
+          if (error) throw error;
+          updatedRow = data;
+        }
+
+        if (updatedRow) {
           const currentList = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
           saveCache(
             STORAGE_KEYS.PARTICIPANTS,
-            currentList.map((p) => (p.id === participantId ? data : p)),
+            currentList.map((p) => (p.id === participantId ? updatedRow! : p)),
             true
           );
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: participant update saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'UPDATE', participantId, safeUpdates);
       }
@@ -1764,9 +1892,13 @@ export const dbService = {
 
     if (isSupabaseConfigured()) {
       try {
-        const { error } = await supabase.from('participants').delete().eq('id', participantId);
-        if (error) throw error;
+        const rpcRes = await callSecuredWriteRpc('participant_delete', { p_participant_id: participantId });
+        if (!rpcRes.usedRpc) {
+          const { error } = await supabase.from('participants').delete().eq('id', participantId);
+          if (error) throw error;
+        }
       } catch (err: any) {
+        if (err?.code === 'ROSTER_LOCKED' || err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
         console.warn('Offline mode: participant deletion saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'DELETE', participantId, null);
       }
@@ -1968,7 +2100,36 @@ export const dbService = {
     // 5. BACKGROUND CLOUD SYNC
     if (isSupabaseConfigured()) {
       try {
-        if (existing && isWithinGrace) {
+        const scorePayload = {
+          id: existing && isWithinGrace ? existing.id : optimisticScore.id,
+          event_id: scoreData.event_id,
+          judge_id: scoreData.judge_id,
+          participant_id: scoreData.participant_id,
+          total_score: scoreData.total_score,
+          score_payload: payloadJson,
+        };
+
+        const rpcRes = await callSecuredWriteRpc<SupabaseScore[]>('score_upsert_batch', {
+          p_records: [scorePayload],
+        });
+
+        if (rpcRes.usedRpc) {
+          const syncedRow = Array.isArray(rpcRes.data) ? rpcRes.data[0] : null;
+          if (syncedRow) {
+            const synced = normalizeScore(syncedRow);
+            const currentScores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+            const existsInCache = currentScores.some((s) => s.id === synced.id);
+            saveCache(
+              STORAGE_KEYS.SCORES,
+              existsInCache
+                ? currentScores.map((s) => (s.id === synced.id ? synced : s))
+                : [...currentScores, synced],
+              true
+            );
+            notifyCloudSync('Score ballot');
+            return synced;
+          }
+        } else if (existing && isWithinGrace) {
           const { data, error } = await supabase
             .from('scores')
             .update({
@@ -2020,6 +2181,7 @@ export const dbService = {
           }
         }
       } catch (err: any) {
+        if (err?.message?.includes('RLS Permission Denied')) throw err;
         console.warn('Offline mode: score ballot saved locally, deferring cloud sync:', err?.message || err);
         await queueScoreLocally(optimisticScore);
         notifyOfflineSaved('Score ballot');
@@ -2040,8 +2202,11 @@ export const dbService = {
     );
     if (isSupabaseConfigured() && navigator.onLine) {
       try {
-        const { error } = await supabase.from('scores').delete().eq('id', scoreId);
-        if (error) throw error;
+        const rpcRes = await callSecuredWriteRpc('score_delete', { p_score_id: scoreId });
+        if (!rpcRes.usedRpc) {
+          const { error } = await supabase.from('scores').delete().eq('id', scoreId);
+          if (error) throw error;
+        }
         notifyCloudSync('Score ballot removed');
         return true;
       } catch (err: any) {

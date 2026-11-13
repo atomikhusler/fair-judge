@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, callSecuredWriteRpc } from './supabase';
 import { APP_VERSION } from '../config/version';
 import { stampLocal, downloadJson } from './downloadUtils';
 
@@ -228,45 +228,90 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
     try {
       if (item.table === 'events') {
         if (item.operation === 'INSERT') {
-          const { error } = await supabase.from('events').upsert([item.payload]);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('event_upsert', { p_record: item.payload });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('events').upsert([item.payload]);
+            if (error) throw error;
+          }
         } else if (item.operation === 'UPDATE') {
-          const { error } = await supabase.from('events').update(item.payload).eq('id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('event_update', {
+            p_event_id: item.entityId,
+            p_updates: item.payload,
+          });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('events').update(item.payload).eq('id', item.entityId);
+            if (error) throw error;
+          }
         } else if (item.operation === 'DELETE') {
-          const { error } = await supabase.from('events').delete().eq('id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('event_delete', { p_event_id: item.entityId });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('events').delete().eq('id', item.entityId);
+            if (error) throw error;
+          }
         }
       } else if (item.table === 'participants') {
         if (item.operation === 'INSERT') {
           const records = Array.isArray(item.payload) ? item.payload : [item.payload];
-          const { error } = await supabase.from('participants').upsert(records);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('participant_upsert_batch', { p_records: records });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('participants').upsert(records);
+            if (error) throw error;
+          }
         } else if (item.operation === 'UPDATE') {
-          const { error } = await supabase.from('participants').update(item.payload).eq('id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('participant_update', {
+            p_participant_id: item.entityId,
+            p_updates: item.payload,
+          });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('participants').update(item.payload).eq('id', item.entityId);
+            if (error) throw error;
+          }
         } else if (item.operation === 'DELETE') {
-          const { error } = await supabase.from('participants').delete().eq('id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('participant_delete', { p_participant_id: item.entityId });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('participants').delete().eq('id', item.entityId);
+            if (error) throw error;
+          }
         }
       } else if (item.table === 'judges') {
         if (item.operation === 'INSERT') {
-          const { error } = await supabase.from('judges').upsert([item.payload]);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('judge_upsert', { p_record: item.payload });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('judges').upsert([item.payload]);
+            if (error) throw error;
+          }
         } else if (item.operation === 'UPDATE') {
-          const { error } = await supabase.from('judges').update(item.payload).eq('id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('judge_update', {
+            p_judge_id: item.entityId,
+            p_updates: item.payload,
+          });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('judges').update(item.payload).eq('id', item.entityId);
+            if (error) throw error;
+          }
         } else if (item.operation === 'DELETE') {
-          const { error } = await supabase.from('judges').delete().eq('id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('judge_delete', { p_judge_id: item.entityId });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('judges').delete().eq('id', item.entityId);
+            if (error) throw error;
+          }
         }
       } else if (item.table === 'organizations') {
         if (item.operation === 'UPDATE') {
-          const { error } = await supabase.from('organizations').update(item.payload).ilike('org_id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('org_update', {
+            p_org_id: item.entityId,
+            p_updates: item.payload,
+          });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('organizations').update(item.payload).ilike('org_id', item.entityId);
+            if (error) throw error;
+          }
         } else if (item.operation === 'DELETE') {
-          const { error } = await supabase.from('organizations').delete().ilike('org_id', item.entityId);
-          if (error) throw error;
+          const rpcRes = await callSecuredWriteRpc('org_delete', { p_org_id: item.entityId });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('organizations').delete().ilike('org_id', item.entityId);
+            if (error) throw error;
+          }
         }
       }
 
@@ -554,11 +599,13 @@ export async function flushOfflineQueueToSupabase(): Promise<{
     }));
 
     try {
-      // Single batched network call
-      const { error } = await supabase.from('scores').upsert(batchedPayload);
-
-      if (error) {
-        throw error;
+      // Single batched network call via token-authenticated RPC (fallback if pre-D3)
+      const rpcRes = await callSecuredWriteRpc('score_upsert_batch', { p_records: batchedPayload });
+      if (!rpcRes.usedRpc) {
+        const { error } = await supabase.from('scores').upsert(batchedPayload);
+        if (error) {
+          throw error;
+        }
       }
 
       // Success: Clean up all synced items from IndexedDB
@@ -576,29 +623,36 @@ export async function flushOfflineQueueToSupabase(): Promise<{
             submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
           };
 
-          const { error } = await supabase.from('scores').upsert([
-            {
-              id: item.id,
-              event_id: item.event_id,
-              judge_id: item.judge_id,
-              participant_id: item.participant_id,
-              total_score: item.total_score,
-              score_payload: payloadJson,
-            },
-          ]);
+          const singleRecord = {
+            id: item.id,
+            event_id: item.event_id,
+            judge_id: item.judge_id,
+            participant_id: item.participant_id,
+            total_score: item.total_score,
+            score_payload: payloadJson,
+          };
 
-          if (error) {
-            if (error.message && error.message.includes('RLS Permission Denied')) {
-              await removePendingScore(item.id);
-              scoreSynced++;
-              continue;
+          const rpcRes = await callSecuredWriteRpc('score_upsert_batch', { p_records: [singleRecord] });
+          if (!rpcRes.usedRpc) {
+            const { error } = await supabase.from('scores').upsert([singleRecord]);
+            if (error) {
+              if (error.message && error.message.includes('RLS Permission Denied')) {
+                await removePendingScore(item.id);
+                scoreSynced++;
+                continue;
+              }
+              throw error;
             }
-            throw error;
           }
 
           await removePendingScore(item.id);
           scoreSynced++;
         } catch (err: any) {
+          if (err?.message?.includes('RLS Permission Denied')) {
+            await removePendingScore(item.id);
+            scoreSynced++;
+            continue;
+          }
           console.warn(`Retryable error syncing offline score ${item.id}:`, err?.message || err);
           scoreFailed++;
         }
