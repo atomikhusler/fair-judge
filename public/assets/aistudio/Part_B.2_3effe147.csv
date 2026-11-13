@@ -1,0 +1,27 @@
+kind,name,detail
+constraint,events,events_org_id_fkey FOREIGN KEY (org_id) REFERENCES organizations(org_id) ON DELETE CASCADE
+constraint,events,events_pkey PRIMARY KEY (id)
+constraint,judges,judges_org_id_fkey FOREIGN KEY (org_id) REFERENCES organizations(org_id) ON DELETE CASCADE
+constraint,judges,judges_pkey PRIMARY KEY (id)
+constraint,org_login_throttle,org_login_throttle_pkey PRIMARY KEY (key)
+constraint,org_secrets,org_secrets_org_id_fkey FOREIGN KEY (org_id) REFERENCES organizations(org_id) ON DELETE CASCADE
+constraint,org_secrets,org_secrets_pkey PRIMARY KEY (org_id)
+constraint,organizations,organizations_org_id_key UNIQUE (org_id)
+constraint,organizations,organizations_pkey PRIMARY KEY (id)
+constraint,participants,participants_identity_id_key UNIQUE (identity_id)
+constraint,participants,participants_org_id_fkey FOREIGN KEY (org_id) REFERENCES organizations(org_id) ON DELETE CASCADE
+constraint,participants,participants_pkey PRIMARY KEY (id)
+constraint,scores,scores_event_id_fkey FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+constraint,scores,scores_judge_id_fkey FOREIGN KEY (judge_id) REFERENCES judges(id) ON DELETE CASCADE
+constraint,scores,scores_participant_id_fkey FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE
+constraint,scores,scores_pkey PRIMARY KEY (id)
+rls_on,events,true
+rls_on,judges,true
+rls_on,org_login_throttle,true
+rls_on,org_secrets,true
+rls_on,organizations,true
+rls_on,participants,true
+rls_on,scores,true
+trigger,events,trg_enforce_event_roster_lock | BEFORE UPDATE
+trigger,judges,trg_prevent_locked_judge_delete | BEFORE DELETE
+trigger,participants,trg_prevent_locked_participant_delete | BEFORE DELETE

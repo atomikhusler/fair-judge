@@ -1,0 +1,9 @@
+tablename,policyname,cmd,roles,using_rule,check_rule
+events,Enable read/write for events,ALL,public,true,true
+judges,Enable read/write for judges,ALL,public,true,true
+organizations,Allow authenticated admin full access,ALL,authenticated,true,true
+organizations,Enable read/write for organizations,ALL,public,true,true
+participants,Enable read/write for participants,ALL,public,true,true
+scores,Enable insert for scores,INSERT,public,,true
+scores,Enable read for scores,SELECT,public,true,
+scores,Enable update for scores,UPDATE,public,true,true

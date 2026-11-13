@@ -1,0 +1,62 @@
+table_name,column_name,data_type,is_nullable,column_default
+events,id,uuid,NO,gen_random_uuid()
+events,org_id,text,NO,null
+events,name,text,NO,null
+events,category,text,YES,null
+events,date,text,YES,null
+events,status,text,YES,'draft'::text
+events,started_at,timestamp with time zone,YES,null
+events,elapsed_seconds,integer,YES,0
+events,rubric_schema,jsonb,YES,'[]'::jsonb
+events,assigned_judges,ARRAY,YES,'{}'::text[]
+events,assigned_participants,ARRAY,YES,'{}'::text[]
+events,participant_sl_numbers,jsonb,YES,'{}'::jsonb
+events,created_at,timestamp with time zone,YES,now()
+events,updated_at,timestamp with time zone,YES,now()
+events,is_locked,boolean,NO,false
+events,is_archived,boolean,NO,false
+judges,id,uuid,NO,gen_random_uuid()
+judges,org_id,text,NO,null
+judges,name,text,NO,null
+judges,judge_id,text,YES,null
+judges,pin,text,NO,null
+judges,assigned_events,ARRAY,YES,'{}'::text[]
+judges,created_at,timestamp with time zone,YES,now()
+judges,current_session_token,text,YES,null
+org_login_throttle,key,text,NO,null
+org_login_throttle,fails,integer,NO,0
+org_login_throttle,first_fail_at,timestamp with time zone,YES,null
+org_login_throttle,locked_until,timestamp with time zone,YES,null
+org_secrets,org_id,text,NO,null
+org_secrets,password_hash,text,NO,null
+org_secrets,updated_at,timestamp with time zone,NO,now()
+organizations,id,uuid,NO,gen_random_uuid()
+organizations,org_id,text,NO,null
+organizations,name,text,NO,null
+organizations,email,text,YES,null
+organizations,tie_breaker_enabled,boolean,YES,false
+organizations,tie_breaker_method,text,YES,'olympic'::text
+organizations,custom_participant_fields,jsonb,YES,'[]'::jsonb
+organizations,blind_judging_enabled,boolean,YES,false
+organizations,auto_advance_enabled,boolean,YES,true
+organizations,grace_period_enabled,boolean,YES,false
+organizations,isolated_jury_enabled,boolean,YES,false
+organizations,created_at,timestamp with time zone,YES,now()
+organizations,verification_status,text,YES,'pending'::text
+participants,id,uuid,NO,gen_random_uuid()
+participants,org_id,text,NO,null
+participants,identity_id,text,NO,null
+participants,sl_no,text,YES,null
+participants,name,text,NO,null
+participants,school,text,YES,null
+participants,class_or_age,text,YES,null
+participants,mobile_number,text,YES,null
+participants,custom_values,jsonb,YES,'{}'::jsonb
+participants,created_at,timestamp with time zone,YES,now()
+scores,id,uuid,NO,gen_random_uuid()
+scores,event_id,uuid,NO,null
+scores,judge_id,uuid,NO,null
+scores,participant_id,uuid,NO,null
+scores,score_payload,jsonb,NO,null
+scores,total_score,numeric,NO,null
+scores,created_at,timestamp with time zone,YES,now()

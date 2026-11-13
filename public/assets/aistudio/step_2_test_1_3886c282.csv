@@ -1,0 +1,8 @@
+kind,target,detail
+grant,organizations,"anon: DELETE, SELECT, UPDATE"
+grant,organizations,"authenticated: DELETE, SELECT, UPDATE"
+grant,scores,"anon: INSERT, SELECT, UPDATE"
+grant,scores,"authenticated: INSERT, SELECT, UPDATE"
+policy,organizations,organizations_delete (DELETE)
+policy,organizations,organizations_select (SELECT)
+policy,organizations,organizations_update (UPDATE)

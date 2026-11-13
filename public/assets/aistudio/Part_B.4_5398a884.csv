@@ -1,0 +1,11 @@
+table_name,grantee,privileges
+events,anon,"DELETE, INSERT, SELECT, UPDATE"
+events,authenticated,"DELETE, INSERT, SELECT, UPDATE"
+judges,anon,"DELETE, INSERT, SELECT, UPDATE"
+judges,authenticated,"DELETE, INSERT, SELECT, UPDATE"
+organizations,anon,"DELETE, INSERT, SELECT, UPDATE"
+organizations,authenticated,"DELETE, INSERT, SELECT, UPDATE"
+participants,anon,"DELETE, INSERT, SELECT, UPDATE"
+participants,authenticated,"DELETE, INSERT, SELECT, UPDATE"
+scores,anon,"DELETE, INSERT, SELECT, UPDATE"
+scores,authenticated,"DELETE, INSERT, SELECT, UPDATE"

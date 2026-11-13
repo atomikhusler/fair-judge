@@ -1,0 +1,13 @@
+routine_name,can_run
+_fj_verify_org,"postgres, service_role"
+enforce_event_roster_lock,"PUBLIC, anon, authenticated, postgres, service_role"
+fj_health,"anon, authenticated, postgres, service_role"
+fj_server_time,"anon, authenticated, postgres, service_role"
+org_change_password,"anon, authenticated, postgres, service_role"
+org_login,"anon, authenticated, postgres, service_role"
+org_register,"anon, authenticated, postgres, service_role"
+org_restore,"anon, authenticated, postgres, service_role"
+org_verify_password,"anon, authenticated, postgres, service_role"
+prevent_locked_judge_delete,"PUBLIC, anon, authenticated, postgres, service_role"
+prevent_locked_participant_delete,"PUBLIC, anon, authenticated, postgres, service_role"
+rls_auto_enable,"PUBLIC, anon, authenticated, postgres, service_role"
