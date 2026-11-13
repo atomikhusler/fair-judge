@@ -24,12 +24,9 @@ import { PullToRefresh } from '../common/PullToRefresh';
 import { TabProgressFallback } from '../common/Skeletons';
 import { triggerHaptic } from '../../lib/haptics';
 import { lazyWithRetry } from '../../lib/lazyWithRetry';
-import {
-  PlatformAnnouncement,
-  fetchActiveAnnouncements,
-  dismissNotice,
-} from '../../lib/announcements';
+import { useAnnouncements } from '../../lib/announcements';
 import { AnnouncementBanner } from '../common/AnnouncementBanner';
+import { NotificationBell } from '../common/NotificationBell';
 import { OrgBlockedScreen } from '../common/OrgBlockedScreen';
 import { showToast } from '../common/ToastProvider';
 import { getOrgEnforcementMessage } from '../../lib/orgEnforcement';
@@ -86,7 +83,14 @@ export function OrganiserDashboard({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(mustChangePassword);
   const [isBannerDismissed, setIsBannerDismissed] = useState(false);
-  const [announcements, setAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const {
+    bannerNotices,
+    inboxNotices,
+    unreadCount,
+    dismissBanner,
+    markInboxAsRead,
+    refreshAnnouncements,
+  } = useAnnouncements('organiser', organization.org_id);
   const [blockedMode, setBlockedMode] = useState<'suspended' | 'deleted' | null>(null);
 
   const verificationStatus = organization.verification_status || 'pending';
@@ -162,15 +166,6 @@ export function OrganiserDashboard({
     }
   }, []);
 
-  const loadAnnouncements = useCallback(async () => {
-    const items = await fetchActiveAnnouncements('organiser', orgIdRef.current);
-    setAnnouncements(items);
-  }, []);
-
-  useEffect(() => {
-    void loadAnnouncements();
-  }, [loadAnnouncements, organization.org_id]);
-
   // Open AccountModal automatically when forced temporary password change is required
   useEffect(() => {
     if (mustChangePassword) {
@@ -228,7 +223,7 @@ export function OrganiserDashboard({
     await flushOfflineQueueToSupabase();
     await Promise.all([
       syncOrganizationStatus(),
-      loadAnnouncements(),
+      refreshAnnouncements(),
       dbService.getEvents(organization.org_id, true),
       dbService.getParticipants(organization.org_id, true),
       dbService.getJudges(organization.org_id, true),
@@ -272,7 +267,7 @@ export function OrganiserDashboard({
         <button
           type="button"
           onClick={() => setIsDrawerOpen(true)}
-          className="w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all duration-200 active:scale-[0.96] flex items-center justify-center cursor-pointer"
+          className="w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer"
           aria-label="Open Navigation Drawer"
         >
           <Menu className="w-5 h-5 stroke-[2.2]" />
@@ -303,30 +298,37 @@ export function OrganiserDashboard({
           </div>
         </div>
 
-        {/* Right: Account Modal Icon */}
-        <button
-          type="button"
-          onClick={() => setIsAccountModalOpen(true)}
-          className="relative w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all duration-200 active:scale-[0.96] flex items-center justify-center cursor-pointer"
-          aria-label="Open Account Settings"
-        >
-          <CircleUser className="w-5 h-5 stroke-[2.2]" />
-          {verificationStatus !== 'verified' && (
-            <span
-              className={`absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
-                verificationStatus === 'rejected' ? 'bg-red-500 animate-ping' : 'bg-amber-500'
-              }`}
-            />
-          )}
-        </button>
+        {/* Right: Notification Bell & Account Modal */}
+        <div className="flex items-center gap-1 shrink-0">
+          <NotificationBell
+            notices={inboxNotices}
+            unreadCount={unreadCount}
+            onMarkRead={markInboxAsRead}
+            accent="emerald"
+            buttonClassName="relative w-11 h-11 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer"
+          />
+
+          <button
+            type="button"
+            onClick={() => setIsAccountModalOpen(true)}
+            className="relative w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer"
+            aria-label="Open Account Settings"
+          >
+            <CircleUser className="w-5 h-5 stroke-[2.2]" />
+            {verificationStatus !== 'verified' && (
+              <span
+                className={`absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
+                  verificationStatus === 'rejected' ? 'bg-red-500' : 'bg-amber-500'
+                }`}
+              />
+            )}
+          </button>
+        </div>
       </header>
 
       <AnnouncementBanner
-        notices={announcements}
-        onDismiss={(id) => {
-          dismissNotice(id);
-          setAnnouncements((prev) => prev.filter((n) => n.id !== id));
-        }}
+        notices={bannerNotices}
+        onDismiss={dismissBanner}
       />
 
       {/* ======================================================== */}
@@ -415,17 +417,15 @@ export function OrganiserDashboard({
       )}
 
       {/* ======================================================== */}
-      {/* 2. THE HAMBURGER MENU (Strictly Unmounted When Closed)  */}
+      {/* 2. THE HAMBURGER MENU (Self-unmounts after exit anim)    */}
       {/* ======================================================== */}
-      {isDrawerOpen ? (
-        <SettingsDrawer
-          isOpen={isDrawerOpen}
-          onClose={() => setIsDrawerOpen(false)}
-          organization={organization}
-          onUpdateOrganization={handleUpdateOrganization}
-          onOpenPublicView={onOpenPublicView}
-        />
-      ) : null}
+      <SettingsDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        organization={organization}
+        onUpdateOrganization={handleUpdateOrganization}
+        onOpenPublicView={onOpenPublicView}
+      />
 
       {/* ======================================================== */}
       {/* 3. THE ACCOUNT MODAL (Identity & Security)              */}

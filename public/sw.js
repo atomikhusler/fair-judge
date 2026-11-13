@@ -1,5 +1,5 @@
 // Fair Judge PWA Service Worker (Cache-First Shell & Offline Resilience)
-const CACHE_NAME = 'fairjudge-shell-v1';
+const CACHE_NAME = 'fairjudge-shell-v2';
 
 const STATIC_PRECACHE_ASSETS = [
   '/',
@@ -42,8 +42,9 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event: Cache-First for static assets, Network-First for navigation, bypass Firebase API calls
+// Fetch Event: Network-First for navigation/HTML shell, Cache-First for immutable assets
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
   // Bypass Google APIs, Firebase, Supabase, internal APIs, and Vite dev server paths/modules
@@ -62,12 +63,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle SPA Navigation requests: Network-First falling back to cached index.html
-  if (event.request.mode === 'navigate') {
+  // Handle SPA Navigation and index.html requests: Network-First falling back to cached shell
+  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match('/index.html') || caches.match('/');
-      })
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match('/index.html') || caches.match('/');
+        })
     );
     return;
   }
@@ -75,23 +86,39 @@ self.addEventListener('fetch', (event) => {
   // Handle Static UI Assets (JS, CSS, Images, Fonts, Icons)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
+      const isScriptOrStyle = /\.(js|mjs|css)$/i.test(url.pathname);
       if (cachedResponse) {
-        // Fetch fresh copy in background (Stale-While-Revalidate)
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse.clone());
-              });
-            }
-          })
-          .catch(() => {});
-        return cachedResponse;
+        const cachedContentType = cachedResponse.headers.get('content-type') || '';
+        const isInvalidMime = isScriptOrStyle && cachedContentType.includes('text/html');
+        if (!isInvalidMime) {
+          // Fetch fresh copy in background (Stale-While-Revalidate)
+          fetch(event.request)
+            .then((networkResponse) => {
+              const netType = networkResponse?.headers?.get('content-type') || '';
+              if (
+                networkResponse &&
+                networkResponse.status === 200 &&
+                !(isScriptOrStyle && netType.includes('text/html'))
+              ) {
+                caches.open(CACHE_NAME).then((cache) => {
+                  cache.put(event.request, networkResponse.clone());
+                });
+              }
+            })
+            .catch(() => {});
+          return cachedResponse;
+        }
       }
 
-      // Not in cache: fetch from network and store copy if successful
+      // Not in cache (or invalid cached HTML fallback): fetch from network and store valid copy
       return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+        const netType = networkResponse?.headers?.get('content-type') || '';
+        if (
+          !networkResponse ||
+          networkResponse.status !== 200 ||
+          networkResponse.type !== 'basic' ||
+          (isScriptOrStyle && netType.includes('text/html'))
+        ) {
           return networkResponse;
         }
 

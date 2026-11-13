@@ -31,6 +31,7 @@ let dbPromise: Promise<IDBPDatabase<FairJudgeCacheDB>> | null = null;
 
 // In-Memory Hot Mirror for instant synchronous read access without blocking or flicker
 const hotMemoryCache: Map<string, CacheEntry> = new Map();
+const cacheTimestamps: Map<string, number> = new Map();
 let isInitialized = false;
 
 /**
@@ -118,12 +119,19 @@ export function getHotCache<T>(key: string, defaultVal: T): T {
 }
 
 /**
+ * Marks a logical cache key (e.g. per-org cacheKey) as freshly verified
+ */
+export function touchCacheTimestamp(key: string): void {
+  cacheTimestamps.set(key, Date.now());
+}
+
+/**
  * Check if the cached key is still fresh (younger than 5 minutes)
  */
 export function isCacheFresh(key: string): boolean {
-  const entry = hotMemoryCache.get(key);
-  if (!entry || !entry.timestamp) return false;
-  return Date.now() - entry.timestamp < CACHE_TTL_MS;
+  const ts = cacheTimestamps.get(key) ?? hotMemoryCache.get(key)?.timestamp ?? 0;
+  if (!ts) return false;
+  return Date.now() - ts < CACHE_TTL_MS;
 }
 
 /**
@@ -203,6 +211,12 @@ export async function getIndexedDBCache<T>(key: string, defaultVal: T): Promise<
  */
 export async function invalidateCache(key?: string): Promise<void> {
   if (key) {
+    cacheTimestamps.delete(key);
+    for (const trackedKey of cacheTimestamps.keys()) {
+      if (trackedKey.startsWith(`${key}_`)) {
+        cacheTimestamps.delete(trackedKey);
+      }
+    }
     const entry = hotMemoryCache.get(key);
     if (entry) {
       entry.timestamp = 0;
@@ -217,6 +231,7 @@ export async function invalidateCache(key?: string): Promise<void> {
       }
     } catch {}
   } else {
+    cacheTimestamps.clear();
     hotMemoryCache.forEach((entry, k) => {
       entry.timestamp = 0;
       hotMemoryCache.set(k, entry);

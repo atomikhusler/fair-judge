@@ -30,6 +30,9 @@ import {
 } from '../../lib/supabaseTypes';
 import { PullToRefresh } from '../common/PullToRefresh';
 import { showToast } from '../common/ToastProvider';
+import { useAnnouncements } from '../../lib/announcements';
+import { AnnouncementBanner } from '../common/AnnouncementBanner';
+import { NotificationBell } from '../common/NotificationBell';
 
 export interface ScoringPanelProps {
   orgId: string;
@@ -77,6 +80,14 @@ export function ScoringPanel({
   const [, setPendingQueueCount] = useState(0);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | 'none'>('none');
+  const {
+    bannerNotices,
+    inboxNotices,
+    unreadCount,
+    dismissBanner,
+    markInboxAsRead,
+    refreshAnnouncements,
+  } = useAnnouncements('judge', orgId || event.org_id);
 
   // Screen WakeLock API: prevent screen dimming during active evaluation
   const wakeLockRef = useRef<any>(null);
@@ -167,7 +178,7 @@ export function ScoringPanel({
     } catch (err) {
       console.warn('Pull-to-refresh queue flush note:', err);
     }
-    await loadData();
+    await Promise.all([loadData(), refreshAnnouncements()]);
   };
 
   // Dedicated Organization settings synchronization for Jury Terminal rules
@@ -619,11 +630,11 @@ export function ScoringPanel({
       <div className="h-[100dvh] overflow-hidden w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col max-w-lg mx-auto relative select-none transition-colors duration-200">
         
         {/* Permanently Pinned Top Header (shrink-0 inside h-[100dvh] overflow-hidden) */}
-        <header className="shrink-0 z-50 w-full bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 py-3 shadow-xs">
-          <div className="flex items-center justify-between gap-3">
+        <header className="shrink-0 z-50 w-full bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800/80 px-4 py-3 shadow-xs">
+          <div className="flex items-center justify-between gap-2">
             <button
               onClick={onBackToLobby}
-              className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-5 min-h-[48px] rounded-xl shadow-md active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer shrink-0"
+              className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-5 min-h-[48px] rounded-xl shadow-md active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center gap-2 cursor-pointer shrink-0"
               title="Return to My Events"
             >
               <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
@@ -640,13 +651,20 @@ export function ScoringPanel({
                 <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-amber-500' : 'bg-amber-400'}`} />
                 <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
               </div>
+              <NotificationBell
+                notices={inboxNotices}
+                unreadCount={unreadCount}
+                onMarkRead={markInboxAsRead}
+                accent="amber"
+                buttonClassName="relative w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform cursor-pointer shadow-xs"
+              />
             </div>
           </div>
 
           <div className="border-t border-stone-200/80 dark:border-zinc-800/80 pt-2.5 mt-2.5 flex items-start justify-between">
             <div className="min-w-0 flex-1 mr-3">
               <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 dark:text-amber-400 font-extrabold flex items-center space-x-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                 <span>{event.category || 'Official Competition'}</span>
               </span>
               <h1 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white mt-0.5 truncate">
@@ -664,6 +682,11 @@ export function ScoringPanel({
             )}
           </div>
         </header>
+
+        <AnnouncementBanner
+          notices={bannerNotices}
+          onDismiss={dismissBanner}
+        />
 
         {/* Scrollable Content Area */}
         <PullToRefresh onRefresh={handlePullRefresh} accentColor="amber" className="flex-1 overflow-hidden flex flex-col">
@@ -900,7 +923,7 @@ export function ScoringPanel({
       {/* ============================================================ */}
       {/* PART 5.1: THE PINNED TOP HEADER + COMPETITOR BANNER          */}
       {/* ============================================================ */}
-      <header className="shrink-0 z-50 w-full bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 h-16 flex justify-between items-center shadow-xs">
+      <header className="shrink-0 z-50 w-full bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800/80 px-4 h-16 flex justify-between items-center shadow-xs">
         {/* Left: [ ← Back ] Heavy Contrast Secondary Button */}
         <button
           onClick={() => setViewMode('list')}
@@ -956,7 +979,7 @@ export function ScoringPanel({
           (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : String(currentIndex + 1).padStart(2, '0'));
 
         return (
-        <div className="shrink-0 z-40 px-4 pt-3 pb-2 bg-stone-100/90 dark:bg-zinc-900/90 backdrop-blur-md border-b border-stone-200/60 dark:border-zinc-800/40">
+        <div className="shrink-0 z-40 px-4 pt-3 pb-2 bg-stone-100 dark:bg-zinc-900 border-b border-stone-200/60 dark:border-zinc-800/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 min-w-0 flex-1">
               <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-amber-500 dark:text-amber-400 shrink-0 shadow-sm">

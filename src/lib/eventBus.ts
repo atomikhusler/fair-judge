@@ -34,6 +34,7 @@ export interface EventBusMap {
   mutation_queued: { table: string; operation: string; entityId: string };
   trigger_pull_refresh: { force: boolean };
   org_enforcement: { code: OrgBlockCode; reason?: string };
+  session_expired: { role: 'organiser' | 'judge'; reason: 'missing' | 'expired' };
 }
 
 class EventBus {

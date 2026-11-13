@@ -14,10 +14,11 @@ import {
   getHotCache, 
   setIndexedDBCache, 
   isCacheFresh, 
+  touchCacheTimestamp,
   invalidateCache as invalidateIDBCache,
   hasCachedKey
 } from './db/indexedDB';
-import { eventBus } from './eventBus';
+import { eventBus, areRecordsEqual } from './eventBus';
 import { calculateRankings as engineCalculateRankings, calculateRankingsAsync as engineCalculateRankingsAsync } from './tieBreakerEngine';
 import { blackBox } from './blackBox';
 import { parseOrgEnforcementError } from './orgEnforcement';
@@ -214,16 +215,47 @@ export function getStoredSessionToken(): string | null {
   return getStoredSession()?.sessionToken || null;
 }
 
+function isAuthRequiredSessionRole(): 'organiser' | 'judge' {
+  return getStoredSession()?.role === 'judge' ? 'judge' : 'organiser';
+}
+
+function isOnlineNavigator(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+function isServerRejectionError(err: any): boolean {
+  return Boolean(
+    err?.code === 'unauthorized' ||
+    err?.code === 'forbidden' ||
+    err?.code === 'ROSTER_LOCKED' ||
+    err?.code === 'rpc_unavailable' ||
+    err?.code === 'not_found' ||
+    err?.message?.includes('ROSTER_LOCKED') ||
+    err?.message?.includes('RLS Permission Denied') ||
+    parseOrgEnforcementError(err)
+  );
+}
+
 /**
- * Executes a Stage D3 token-authenticated write RPC.
- * If the RPC is not yet deployed in Supabase (PGRST202 / 42883), returns { usedRpc: false }
- * so callers can fall back seamlessly during migration.
+ * Executes a Stage D3 / 15.10 token-authenticated write RPC exclusively.
+ * Never falls back to direct table writes.
+ * Emits `session_expired` when online with a missing/expired token.
  */
 export async function callSecuredWriteRpc<T = any>(
   rpcName: string,
   params: Record<string, any>
-): Promise<{ usedRpc: boolean; data?: T }> {
+): Promise<{ data?: T }> {
   const token = getStoredSessionToken() || '';
+  if (!token) {
+    eventBus.emit('session_expired', {
+      role: isAuthRequiredSessionRole(),
+      reason: 'missing',
+    });
+    const authErr = new Error('Session token missing. Please verify your credentials to continue.');
+    (authErr as any).code = 'unauthorized';
+    throw authErr;
+  }
+
   const { data, error } = await supabase.rpc(rpcName, {
     p_token: token,
     ...params,
@@ -232,7 +264,9 @@ export async function callSecuredWriteRpc<T = any>(
   if (error) {
     const msg = (error.message || '').toLowerCase();
     if (error.code === 'PGRST202' || error.code === '42883' || msg.includes(`function public.${rpcName}`)) {
-      return { usedRpc: false };
+      const rpcErr = new Error('Database security RPCs are not deployed. Please run sql/15.10-stage1-security-lock.sql.');
+      (rpcErr as any).code = 'rpc_unavailable';
+      throw rpcErr;
     }
     throw error;
   }
@@ -241,12 +275,18 @@ export async function callSecuredWriteRpc<T = any>(
   if (!res || !res.ok) {
     const errCode = res?.error || 'RPC_ERROR';
     const msg = res?.message || res?.error || 'Database operation rejected.';
+    if (errCode === 'unauthorized') {
+      eventBus.emit('session_expired', {
+        role: isAuthRequiredSessionRole(),
+        reason: 'expired',
+      });
+    }
     const err = new Error(msg);
     (err as any).code = errCode === 'ROSTER_LOCKED' ? 'ROSTER_LOCKED' : errCode;
     throw err;
   }
 
-  return { usedRpc: true, data: res.data as T };
+  return { data: res.data as T };
 }
 
 export function setStoredSession(session: StoredUserSession | null): void {
@@ -272,7 +312,7 @@ export function isCacheValid(key: string): boolean {
 }
 
 export function updateCacheTimestamp(key: string): void {
-  // Handled automatically by setIndexedDBCache
+  touchCacheTimestamp(key);
 }
 
 export function invalidateCache(key?: string): void {
@@ -559,24 +599,29 @@ export const dbService = {
           .ilike('org_id', cleanOrgId)
           .maybeSingle();
 
-        if (!error && data) {
-          const normalized = normalizeOrg(data);
-          saveCache(
-            STORAGE_KEYS.ORGS,
-            [normalized, ...orgs.filter((o) => o.org_id.toUpperCase() !== cleanOrgId)],
-            true // SILENT
-          );
-          updateCacheTimestamp(cacheKey);
-          return normalized;
+        if (!error) {
+          if (data) {
+            const normalized = normalizeOrg(data);
+            saveCache(
+              STORAGE_KEYS.ORGS,
+              [normalized, ...orgs.filter((o) => o.org_id.toUpperCase() !== cleanOrgId)],
+              true // SILENT
+            );
+            updateCacheTimestamp(cacheKey);
+            return normalized;
+          }
+          // Server explicitly confirmed org does not exist
+          return null;
         }
-        if (error) console.warn('Supabase getOrganizationByOrgId fallback:', error.message || error);
+        console.warn('Supabase getOrganizationByOrgId fallback:', error.message || error);
       } catch (err: any) {
         console.warn('Supabase getOrganizationByOrgId network fallback:', err?.message || err);
       }
+    } else if (found) {
+      updateCacheTimestamp(cacheKey);
     }
 
     if (found) {
-      updateCacheTimestamp(cacheKey);
       return normalizeOrg(found);
     }
     return null;
@@ -619,6 +664,8 @@ export const dbService = {
       ...safeUpdates,
     });
 
+    const orgsSnapshot = [...orgs];
+
     // Optimistically save to cache & notify UI
     if (idx !== -1) {
       orgs[idx] = updated;
@@ -628,26 +675,14 @@ export const dbService = {
     saveCache(STORAGE_KEYS.ORGS, orgs, false);
     invalidateCache(`${STORAGE_KEYS.ORGS}_${cleanOrgId}`);
 
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<Organization>('org_update', {
           p_org_id: cleanOrgId,
           p_updates: safeUpdates,
         });
 
-        let syncedRow = rpcRes.usedRpc ? rpcRes.data : null;
-        if (!rpcRes.usedRpc) {
-          const { data, error } = await supabase
-            .from('organizations')
-            .update(safeUpdates)
-            .ilike('org_id', cleanOrgId)
-            .select()
-            .single();
-
-          if (error) throw error;
-          syncedRow = data;
-        }
-
+        const syncedRow = rpcRes.data;
         if (syncedRow) {
           const synced = normalizeOrg(syncedRow);
           const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
@@ -659,10 +694,15 @@ export const dbService = {
           return synced;
         }
       } catch (err: any) {
-        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.ORGS, orgsSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: organization update saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('organizations', 'UPDATE', cleanOrgId, safeUpdates);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('organizations', 'UPDATE', cleanOrgId, safeUpdates);
     }
 
     return updated;
@@ -672,48 +712,7 @@ export const dbService = {
     const cleanOrgId = orgId.toUpperCase().trim();
 
     if (isSupabaseConfigured()) {
-      const rpcRes = await callSecuredWriteRpc('org_reset_data', { p_org_id: cleanOrgId });
-      if (!rpcRes.usedRpc) {
-        // Delete events first, then participants and judges, sequentially (no Promise.all)
-        const { error: evtsErr } = await supabase.from('events').delete().ilike('org_id', cleanOrgId);
-        if (evtsErr) {
-          const isLocked =
-            evtsErr.message?.includes('ROSTER_LOCKED') ||
-            (evtsErr.details && String(evtsErr.details).includes('ROSTER_LOCKED'));
-          if (isLocked) {
-            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-            (lockedErr as any).code = 'ROSTER_LOCKED';
-            throw lockedErr;
-          }
-          throw evtsErr;
-        }
-
-        const { error: partsErr } = await supabase.from('participants').delete().ilike('org_id', cleanOrgId);
-        if (partsErr) {
-          const isLocked =
-            partsErr.message?.includes('ROSTER_LOCKED') ||
-            (partsErr.details && String(partsErr.details).includes('ROSTER_LOCKED'));
-          if (isLocked) {
-            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-            (lockedErr as any).code = 'ROSTER_LOCKED';
-            throw lockedErr;
-          }
-          throw partsErr;
-        }
-
-        const { error: jdgsErr } = await supabase.from('judges').delete().ilike('org_id', cleanOrgId);
-        if (jdgsErr) {
-          const isLocked =
-            jdgsErr.message?.includes('ROSTER_LOCKED') ||
-            (jdgsErr.details && String(jdgsErr.details).includes('ROSTER_LOCKED'));
-          if (isLocked) {
-            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-            (lockedErr as any).code = 'ROSTER_LOCKED';
-            throw lockedErr;
-          }
-          throw jdgsErr;
-        }
-      }
+      await callSecuredWriteRpc('org_reset_data', { p_org_id: cleanOrgId });
     }
 
     // Clear local cache for this org
@@ -756,27 +755,21 @@ export const dbService = {
     const cleanOrgId = orgId.toUpperCase().trim();
 
     if (isSupabaseConfigured()) {
-      const rpcRes = await callSecuredWriteRpc('org_delete', { p_org_id: cleanOrgId });
-      if (!rpcRes.usedRpc) {
-        await this.resetOrganizationData(cleanOrgId);
-        const { error } = await supabase
-          .from('organizations')
-          .delete()
-          .ilike('org_id', cleanOrgId);
-        if (error) {
-          const isLocked =
-            error.message?.includes('ROSTER_LOCKED') ||
-            (error.details && String(error.details).includes('ROSTER_LOCKED'));
-          if (isLocked) {
-            const lockedErr = new Error('ROSTER_LOCKED: Unlock your events first.');
-            (lockedErr as any).code = 'ROSTER_LOCKED';
-            throw lockedErr;
-          }
-          throw error;
-        }
-      } else {
-        await this.resetOrganizationData(cleanOrgId).catch(() => {});
-      }
+      await callSecuredWriteRpc('org_delete', { p_org_id: cleanOrgId });
+      // Clear local cache after confirmed RPC deletion (never re-call org_reset_data RPC on org_delete)
+      const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+      const orgEventIds = new Set(
+        events.filter((e) => e.org_id.toUpperCase().trim() === cleanOrgId).map((e) => e.id)
+      );
+      saveCache(STORAGE_KEYS.EVENTS, events.filter((e) => e.org_id.toUpperCase().trim() !== cleanOrgId), false);
+      const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+      saveCache(STORAGE_KEYS.SCORES, scores.filter((s) => !orgEventIds.has(s.event_id)), false);
+      const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+      saveCache(STORAGE_KEYS.PARTICIPANTS, participants.filter((p) => p.org_id.toUpperCase().trim() !== cleanOrgId), false);
+      const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+      saveCache(STORAGE_KEYS.JUDGES, judges.filter((j) => j.org_id.toUpperCase().trim() !== cleanOrgId), false);
+      invalidateCache();
+      clearAllScoreDrafts();
     } else {
       await this.resetOrganizationData(cleanOrgId);
     }
@@ -854,8 +847,12 @@ export const dbService = {
 
         if (!error && data) {
           const normalized = data.map(normalizeEvent);
-          // SILENT: Update cache without triggering feedback loops!
-          saveCache(STORAGE_KEYS.EVENTS, normalized, true);
+          const allCachedEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+          const otherOrgEvents = allCachedEvents.filter(
+            (e) => (e.org_id || '').trim().toUpperCase() !== cleanOrgId
+          );
+          const changed = !areRecordsEqual(cachedEvents, normalized);
+          saveCache(STORAGE_KEYS.EVENTS, [...normalized, ...otherOrgEvents], !changed);
           updateCacheTimestamp(cacheKey);
           return normalized;
         }
@@ -863,9 +860,10 @@ export const dbService = {
       } catch (err: any) {
         console.warn('Supabase getEvents network fallback:', err?.message || err);
       }
+    } else {
+      updateCacheTimestamp(cacheKey);
     }
 
-    updateCacheTimestamp(cacheKey);
     return cachedEvents;
   },
 
@@ -922,42 +920,31 @@ export const dbService = {
     });
 
     // 1. OPTIMISTIC WRITE: Update local cache immediately & notify UI
-    const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
-    saveCache(STORAGE_KEYS.EVENTS, [newEvent, ...events.filter((e) => e.id !== newId)], false);
+    const eventsSnapshot = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+    saveCache(STORAGE_KEYS.EVENTS, [newEvent, ...eventsSnapshot.filter((e) => e.id !== newId)], false);
     invalidateCache(`${STORAGE_KEYS.EVENTS}_${cleanOrgId}`);
 
-    // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
-      const payload = {
-        id: newEvent.id,
-        org_id: newEvent.org_id,
-        name: newEvent.name,
-        category: newEvent.category,
-        date: newEvent.date,
-        status: newEvent.status,
-        rubric_schema: newEvent.rubric_schema,
-        assigned_judges: newEvent.assigned_judges,
-        assigned_participants: newEvent.assigned_participants,
-        participant_sl_numbers: newEvent.participant_sl_numbers,
-      };
+    const payload = {
+      id: newEvent.id,
+      org_id: newEvent.org_id,
+      name: newEvent.name,
+      category: newEvent.category,
+      date: newEvent.date,
+      status: newEvent.status,
+      rubric_schema: newEvent.rubric_schema,
+      assigned_judges: newEvent.assigned_judges,
+      assigned_participants: newEvent.assigned_participants,
+      participant_sl_numbers: newEvent.participant_sl_numbers,
+    };
 
+    // 2. BACKGROUND CLOUD SYNC
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<SupabaseEvent>('event_upsert', {
           p_record: payload,
         });
 
-        let createdRow = rpcRes.usedRpc ? rpcRes.data : null;
-        if (!rpcRes.usedRpc) {
-          const { data, error } = await supabase
-            .from('events')
-            .insert([payload])
-            .select()
-            .single();
-
-          if (error) throw error;
-          createdRow = data;
-        }
-
+        const createdRow = rpcRes.data;
         if (createdRow) {
           const created = normalizeEvent(createdRow);
           const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
@@ -969,11 +956,17 @@ export const dbService = {
           notifyCloudSync('Event');
         }
       } catch (err: any) {
-        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.EVENTS, eventsSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: event saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('events', 'INSERT', newEvent.id, payload);
         notifyOfflineSaved('Event');
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('events', 'INSERT', newEvent.id, payload);
+      notifyOfflineSaved('Event');
     } else {
       notifyOfflineSaved('Event');
     }
@@ -1023,48 +1016,23 @@ export const dbService = {
     }
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
-      const dbUpdates: Record<string, any> = {
-        ...updates,
-        updated_at: updated.updated_at,
-      };
-      if (dbUpdates.rubric && !dbUpdates.rubric_schema) {
-        dbUpdates.rubric_schema = dbUpdates.rubric;
-      }
-      delete dbUpdates.rubric;
+    const dbUpdates: Record<string, any> = {
+      ...updates,
+      updated_at: updated.updated_at,
+    };
+    if (dbUpdates.rubric && !dbUpdates.rubric_schema) {
+      dbUpdates.rubric_schema = dbUpdates.rubric;
+    }
+    delete dbUpdates.rubric;
 
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<SupabaseEvent>('event_update', {
           p_event_id: eventId,
           p_updates: dbUpdates,
         });
 
-        let syncedRow = rpcRes.usedRpc ? rpcRes.data : null;
-        if (!rpcRes.usedRpc) {
-          let { data, error } = await supabase
-            .from('events')
-            .update(dbUpdates)
-            .eq('id', eventId)
-            .select()
-            .single();
-
-          // Graceful schema adaptation: If is_archived column is not yet present on backend
-          if (error && (error.code === 'PGRST204' || error.message?.includes('is_archived')) && dbUpdates.is_archived !== undefined) {
-            const { is_archived: _omit, ...restUpdates } = dbUpdates;
-            const retryRes = await supabase
-              .from('events')
-              .update(restUpdates)
-              .eq('id', eventId)
-              .select()
-              .single();
-            data = retryRes.data;
-            error = retryRes.error;
-          }
-
-          if (error) throw error;
-          syncedRow = data;
-        }
-
+        const syncedRow = rpcRes.data;
         if (syncedRow) {
           const synced = normalizeEvent({ ...syncedRow, is_archived: updated.is_archived });
           const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
@@ -1085,10 +1053,9 @@ export const dbService = {
           err?.message?.includes('ROSTER_LOCKED') ||
           (err?.details && String(err.details).includes('ROSTER_LOCKED'))
         );
-        const isServerReturned = Boolean(err?.code || isRosterLocked || orgBlock);
 
-        // If ROSTER_LOCKED or any server-returned error: roll cache back, refetch events and rethrow
-        if (isServerReturned) {
+        // If ROSTER_LOCKED, unauthorized, or any server-returned error: roll cache back and rethrow
+        if (isServerRejectionError(err) || Boolean(err?.code) || isRosterLocked) {
           const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
           if (existing) {
             const rollbackList = currentEvents.map((e) => (e.id === eventId ? existing : e));
@@ -1097,7 +1064,7 @@ export const dbService = {
             const rollbackList = currentEvents.filter((e) => e.id !== eventId);
             saveCache(STORAGE_KEYS.EVENTS, rollbackList, false);
           }
-          if (updated.org_id) {
+          if (updated.org_id && err?.code !== 'unauthorized') {
             this.getEvents(updated.org_id, true).catch(() => {});
           }
           throw err;
@@ -1108,6 +1075,9 @@ export const dbService = {
         await queueMutationLocally('events', 'UPDATE', eventId, dbUpdates);
         notifyOfflineSaved('Event');
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('events', 'UPDATE', eventId, dbUpdates);
+      notifyOfflineSaved('Event');
     } else {
       notifyOfflineSaved('Event');
     }
@@ -1149,28 +1119,30 @@ export const dbService = {
   },
 
   async deleteEvent(eventId: string): Promise<boolean> {
-    const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
-    const target = events.find((e) => e.id === eventId);
-    const remaining = events.filter((e) => e.id !== eventId);
+    const eventsSnapshot = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+    const target = eventsSnapshot.find((e) => e.id === eventId);
+    const remaining = eventsSnapshot.filter((e) => e.id !== eventId);
     saveCache(STORAGE_KEYS.EVENTS, remaining, false);
     if (target?.org_id) {
       invalidateCache(`${STORAGE_KEYS.EVENTS}_${target.org_id.toUpperCase()}`);
     }
 
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
-        const rpcRes = await callSecuredWriteRpc('event_delete', { p_event_id: eventId });
-        if (!rpcRes.usedRpc) {
-          const { error } = await supabase.from('events').delete().eq('id', eventId);
-          if (error) throw error;
-        }
+        await callSecuredWriteRpc('event_delete', { p_event_id: eventId });
         notifyCloudSync('Event');
       } catch (err: any) {
-        if (err?.code === 'ROSTER_LOCKED' || err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.EVENTS, eventsSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: event deletion saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('events', 'DELETE', eventId, null);
         notifyOfflineSaved('Event');
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('events', 'DELETE', eventId, null);
+      notifyOfflineSaved('Event');
     } else {
       notifyOfflineSaved('Event');
     }
@@ -1213,8 +1185,11 @@ export const dbService = {
         if (!error && data) {
           const normalized = data.map(normalizeJudge);
           const currentJudges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
-          const otherJudges = currentJudges.filter((j) => j.org_id.toUpperCase() !== cleanOrgId);
-          saveCache(STORAGE_KEYS.JUDGES, [...otherJudges, ...normalized], true); // SILENT
+          const otherJudges = currentJudges.filter(
+            (j) => (j.org_id || '').trim().toUpperCase() !== cleanOrgId
+          );
+          const changed = !areRecordsEqual(cachedJudges, normalized);
+          saveCache(STORAGE_KEYS.JUDGES, [...otherJudges, ...normalized], !changed);
           updateCacheTimestamp(cacheKey);
           return normalized;
         }
@@ -1222,9 +1197,10 @@ export const dbService = {
       } catch (err: any) {
         console.warn('Supabase getJudges network fallback:', err?.message || err);
       }
+    } else {
+      updateCacheTimestamp(cacheKey);
     }
 
-    updateCacheTimestamp(cacheKey);
     return cachedJudges;
   },
 
@@ -1274,35 +1250,25 @@ export const dbService = {
     });
 
     // 1. OPTIMISTIC WRITE: Save to local cache immediately & notify UI
+    const judgesSnapshot = [...judges];
     saveCache(STORAGE_KEYS.JUDGES, [newJudge, ...judges], false);
     invalidateCache(`${STORAGE_KEYS.JUDGES}_${cleanOrgId}`);
 
-    // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
-      const payload = {
-        id: newJudge.id,
-        org_id: newJudge.org_id,
-        name: newJudge.name,
-        judge_id: newJudge.judge_id,
-        pin: newJudge.pin,
-        assigned_events: newJudge.assigned_events,
-        current_session_token: newJudge.current_session_token,
-      };
+    const payload = {
+      id: newJudge.id,
+      org_id: newJudge.org_id,
+      name: newJudge.name,
+      judge_id: newJudge.judge_id,
+      pin: newJudge.pin,
+      assigned_events: newJudge.assigned_events,
+      current_session_token: newJudge.current_session_token,
+    };
 
+    // 2. BACKGROUND CLOUD SYNC
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<SupabaseJudge>('judge_upsert', { p_record: payload });
-        let createdRow = rpcRes.usedRpc ? rpcRes.data : null;
-        if (!rpcRes.usedRpc) {
-          const { data, error } = await supabase
-            .from('judges')
-            .insert([payload])
-            .select()
-            .single();
-
-          if (error) throw error;
-          createdRow = data;
-        }
-
+        const createdRow = rpcRes.data;
         if (createdRow) {
           const synced = normalizeJudge(createdRow);
           const currentList = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
@@ -1313,10 +1279,15 @@ export const dbService = {
           );
         }
       } catch (err: any) {
-        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.JUDGES, judgesSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: judge saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('judges', 'INSERT', newJudge.id, payload);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('judges', 'INSERT', newJudge.id, payload);
     }
 
     return newJudge;
@@ -1324,7 +1295,8 @@ export const dbService = {
 
   async updateJudge(judgeId: string, updates: Partial<SupabaseJudge>): Promise<SupabaseJudge> {
     const cleanPin = updates.pin?.trim() || updates.judge_pin?.trim();
-    const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+    const judgesSnapshot = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+    const judges = [...judgesSnapshot];
     const idx = judges.findIndex((j) => j.id === judgeId || j.judge_id === judgeId);
     const existing = idx !== -1 ? judges[idx] : null;
 
@@ -1345,30 +1317,18 @@ export const dbService = {
       invalidateCache(`${STORAGE_KEYS.JUDGES}_${updated.org_id.toUpperCase()}`);
     }
 
-    // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
-      const dbUpdates: Record<string, any> = { ...updates };
-      if (cleanPin) dbUpdates.pin = cleanPin;
-      delete dbUpdates.judge_pin;
+    const dbUpdates: Record<string, any> = { ...updates };
+    if (cleanPin) dbUpdates.pin = cleanPin;
+    delete dbUpdates.judge_pin;
 
+    // 2. BACKGROUND CLOUD SYNC
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<SupabaseJudge>('judge_update', {
           p_judge_id: judgeId,
           p_updates: dbUpdates,
         });
-        let syncedRow = rpcRes.usedRpc ? rpcRes.data : null;
-        if (!rpcRes.usedRpc) {
-          const { data, error } = await supabase
-            .from('judges')
-            .update(dbUpdates)
-            .eq('id', judgeId)
-            .select()
-            .single();
-
-          if (error) throw error;
-          syncedRow = data;
-        }
-
+        const syncedRow = rpcRes.data;
         if (syncedRow) {
           const synced = normalizeJudge(syncedRow);
           const currentList = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
@@ -1379,10 +1339,15 @@ export const dbService = {
           );
         }
       } catch (err: any) {
-        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.JUDGES, judgesSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: judge update saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('judges', 'UPDATE', judgeId, dbUpdates);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('judges', 'UPDATE', judgeId, dbUpdates);
     }
 
     return updated;
@@ -1400,119 +1365,28 @@ export const dbService = {
       throw err;
     }
 
-    const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
-    const target = judges.find((j) => j.id === judgeId || j.judge_id === judgeId);
-    const remaining = judges.filter((j) => j.id !== judgeId && j.judge_id !== judgeId);
+    const judgesSnapshot = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+    const target = judgesSnapshot.find((j) => j.id === judgeId || j.judge_id === judgeId);
+    const remaining = judgesSnapshot.filter((j) => j.id !== judgeId && j.judge_id !== judgeId);
     saveCache(STORAGE_KEYS.JUDGES, remaining, false);
     if (target?.org_id) {
       invalidateCache(`${STORAGE_KEYS.JUDGES}_${target.org_id.toUpperCase()}`);
     }
 
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
-        const rpcRes = await callSecuredWriteRpc('judge_delete', { p_judge_id: judgeId });
-        if (!rpcRes.usedRpc) {
-          const { error } = await supabase.from('judges').delete().eq('id', judgeId);
-          if (error) throw error;
-        }
+        await callSecuredWriteRpc('judge_delete', { p_judge_id: judgeId });
       } catch (err: any) {
-        if (err?.code === 'ROSTER_LOCKED' || err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.JUDGES, judgesSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: judge deletion saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('judges', 'DELETE', judgeId, null);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('judges', 'DELETE', judgeId, null);
     }
-  },
-
-  async verifyJudgeCredentials(
-    orgId: string,
-    judgeIdOrPin: string,
-    pinOrEventId?: string
-  ): Promise<{ judge: SupabaseJudge; assignedEvents: SupabaseEvent[] } | null> {
-    const cleanOrgId = orgId ? orgId.trim().toUpperCase() : '';
-    let judges = cleanOrgId ? await this.getJudges(cleanOrgId) : [];
-    let matchedJudge: SupabaseJudge | undefined;
-
-    const findMatch = (list: SupabaseJudge[]) => {
-      if (pinOrEventId && pinOrEventId.trim()) {
-        const targetJudgeId = judgeIdOrPin.trim().toLowerCase();
-        const targetPin = pinOrEventId.trim().toLowerCase();
-
-        return list.find((j) => {
-          const idMatches =
-            j.id.toLowerCase() === targetJudgeId ||
-            (j.judge_id && j.judge_id.toLowerCase() === targetJudgeId) ||
-            j.name.toLowerCase().includes(targetJudgeId);
-          const pinMatches =
-            String(j.pin || '').trim().toLowerCase() === targetPin ||
-            String(j.judge_pin || '').trim().toLowerCase() === targetPin;
-          return idMatches && pinMatches;
-        });
-      } else {
-        const targetPin = judgeIdOrPin.trim().toLowerCase();
-        return list.find(
-          (j) =>
-            String(j.pin || '').trim().toLowerCase() === targetPin ||
-            String(j.judge_pin || '').trim().toLowerCase() === targetPin
-        );
-      }
-    };
-
-    matchedJudge = findMatch(judges);
-
-    // Tier 2: Check global cache across all organizations
-    if (!matchedJudge) {
-      const allCachedJudges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
-      matchedJudge = findMatch(allCachedJudges);
-    }
-
-    // Tier 3: Search Supabase directly by PIN or Judge ID if configured
-    if (!matchedJudge && isSupabaseConfigured()) {
-      try {
-        const targetPin = (pinOrEventId && pinOrEventId.trim()) ? pinOrEventId.trim() : judgeIdOrPin.trim();
-        const { data: dbJudges } = await supabase
-          .from('judges')
-          .select('*')
-          .or(`pin.eq.${targetPin},judge_pin.eq.${targetPin}`);
-
-        if (dbJudges && dbJudges.length > 0) {
-          matchedJudge = findMatch(dbJudges.map(normalizeJudge));
-          if (matchedJudge) {
-            const currentList = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
-            if (!currentList.some((j) => j.id === matchedJudge!.id)) {
-              saveCache(STORAGE_KEYS.JUDGES, [matchedJudge, ...currentList], true);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Supabase judge direct lookup notice:', err);
-      }
-    }
-
-    if (!matchedJudge) return null;
-
-    // SINGLE-DEVICE SESSION LOCK: Claim active session token on login
-    const newSessionToken = `jtok_${generateUUID()}`;
-    setLocalJudgeDeviceToken(newSessionToken);
-    try {
-      matchedJudge = await this.updateJudge(matchedJudge.id, {
-        current_session_token: newSessionToken,
-      });
-    } catch (err) {
-      console.warn('Session lock update offline notice:', err);
-    }
-
-    const events = await this.getEvents(orgId);
-    const assigned = events.filter(
-      (e) =>
-        e.assigned_judges.includes(matchedJudge!.id) ||
-        (matchedJudge!.assigned_events || []).includes(e.id) ||
-        e.status === 'active'
-    );
-
-    return {
-      judge: matchedJudge,
-      assignedEvents: assigned,
-    };
   },
 
   // ------------------------------------------
@@ -1537,7 +1411,12 @@ export const dbService = {
           .order('created_at', { ascending: true });
 
         if (!error && data) {
-          saveCache(STORAGE_KEYS.PARTICIPANTS, data, true); // SILENT
+          const allCached = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+          const otherOrgParticipants = allCached.filter(
+            (p) => (p.org_id || '').trim().toUpperCase() !== cleanOrgId
+          );
+          const changed = !areRecordsEqual(cached, data);
+          saveCache(STORAGE_KEYS.PARTICIPANTS, [...data, ...otherOrgParticipants], !changed);
           updateCacheTimestamp(cacheKey);
           return data;
         }
@@ -1545,9 +1424,10 @@ export const dbService = {
       } catch (err: any) {
         console.warn('Supabase getParticipants network fallback:', err?.message || err);
       }
+    } else {
+      updateCacheTimestamp(cacheKey);
     }
 
-    updateCacheTimestamp(cacheKey);
     return cached;
   },
 
@@ -1587,52 +1467,47 @@ export const dbService = {
     };
 
     // 1. OPTIMISTIC WRITE: Save to local cache immediately & notify UI
+    const participantsSnapshot = [...participants];
     saveCache(STORAGE_KEYS.PARTICIPANTS, [newParticipant, ...participants], false);
     invalidateCache(`${STORAGE_KEYS.PARTICIPANTS}_${cleanOrgId}`);
 
-    // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
-      const payload = {
-        id: newParticipant.id,
-        org_id: newParticipant.org_id,
-        identity_id: newParticipant.identity_id,
-        sl_no: newParticipant.sl_no,
-        name: newParticipant.name,
-        school: newParticipant.school,
-        class_or_age: newParticipant.class_or_age,
-        mobile_number: newParticipant.mobile_number,
-        custom_values: newParticipant.custom_values,
-      };
+    const payload = {
+      id: newParticipant.id,
+      org_id: newParticipant.org_id,
+      identity_id: newParticipant.identity_id,
+      sl_no: newParticipant.sl_no,
+      name: newParticipant.name,
+      school: newParticipant.school,
+      class_or_age: newParticipant.class_or_age,
+      mobile_number: newParticipant.mobile_number,
+      custom_values: newParticipant.custom_values,
+    };
 
+    // 2. BACKGROUND CLOUD SYNC
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<SupabaseParticipant[]>('participant_upsert_batch', {
           p_records: [payload],
         });
-        let createdRow = rpcRes.usedRpc && Array.isArray(rpcRes.data) ? rpcRes.data[0] : null;
-        if (!rpcRes.usedRpc) {
-          const { data: created, error } = await supabase
-            .from('participants')
-            .insert([payload])
-            .select()
-            .single();
-
-          if (error) throw error;
-          createdRow = created;
-        }
-
+        const createdRow = Array.isArray(rpcRes.data) ? rpcRes.data[0] : null;
         if (createdRow) {
           const currentList = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
           saveCache(
             STORAGE_KEYS.PARTICIPANTS,
-            currentList.map((p) => (p.id === createdRow!.id ? createdRow! : p)),
+            currentList.map((p) => (p.id === createdRow.id ? createdRow : p)),
             true
           );
         }
       } catch (err: any) {
-        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.PARTICIPANTS, participantsSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: participant saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'INSERT', newParticipant.id, payload);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('participants', 'INSERT', newParticipant.id, payload);
     }
 
     return newParticipant;
@@ -1680,38 +1555,29 @@ export const dbService = {
     }));
 
     // 1. OPTIMISTIC WRITE: Save to local cache immediately & notify UI
+    const participantsSnapshot = [...participants];
     saveCache(STORAGE_KEYS.PARTICIPANTS, [...newItems, ...participants], false);
     invalidateCache(`${STORAGE_KEYS.PARTICIPANTS}_${cleanOrgId}`);
 
-    // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
-      const payloads = newItems.map((item) => ({
-        id: item.id,
-        org_id: item.org_id,
-        identity_id: item.identity_id,
-        sl_no: item.sl_no,
-        name: item.name,
-        school: item.school,
-        class_or_age: item.class_or_age,
-        mobile_number: item.mobile_number,
-        custom_values: item.custom_values,
-      }));
+    const payloads = newItems.map((item) => ({
+      id: item.id,
+      org_id: item.org_id,
+      identity_id: item.identity_id,
+      sl_no: item.sl_no,
+      name: item.name,
+      school: item.school,
+      class_or_age: item.class_or_age,
+      mobile_number: item.mobile_number,
+      custom_values: item.custom_values,
+    }));
 
+    // 2. BACKGROUND CLOUD SYNC
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<SupabaseParticipant[]>('participant_upsert_batch', {
           p_records: payloads,
         });
-        let createdRows = rpcRes.usedRpc ? rpcRes.data : null;
-        if (!rpcRes.usedRpc) {
-          const { data, error } = await supabase
-            .from('participants')
-            .insert(payloads)
-            .select();
-
-          if (error) throw error;
-          createdRows = data;
-        }
-
+        const createdRows = rpcRes.data;
         if (createdRows) {
           const currentList = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
           const dataMap = new Map(createdRows.map((d: any) => [d.id, d]));
@@ -1722,10 +1588,15 @@ export const dbService = {
           );
         }
       } catch (err: any) {
-        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.PARTICIPANTS, participantsSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: bulk participants saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'INSERT', `bulk_${Date.now()}`, payloads);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('participants', 'INSERT', `bulk_${Date.now()}`, payloads);
     }
 
     return newItems.length;
@@ -1738,7 +1609,8 @@ export const dbService = {
     const safeUpdates = { ...updates };
     delete safeUpdates.identity_id;
 
-    const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+    const participantsSnapshot = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+    const participants = [...participantsSnapshot];
     const idx = participants.findIndex((p) => p.id === participantId);
     const existing = idx !== -1 ? participants[idx] : null;
 
@@ -1759,38 +1631,31 @@ export const dbService = {
     }
 
     // 2. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const rpcRes = await callSecuredWriteRpc<SupabaseParticipant>('participant_update', {
           p_participant_id: participantId,
           p_updates: safeUpdates,
         });
-        let updatedRow = rpcRes.usedRpc ? rpcRes.data : null;
-        if (!rpcRes.usedRpc) {
-          const { data, error } = await supabase
-            .from('participants')
-            .update(safeUpdates)
-            .eq('id', participantId)
-            .select()
-            .single();
-
-          if (error) throw error;
-          updatedRow = data;
-        }
-
+        const updatedRow = rpcRes.data;
         if (updatedRow) {
           const currentList = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
           saveCache(
             STORAGE_KEYS.PARTICIPANTS,
-            currentList.map((p) => (p.id === participantId ? updatedRow! : p)),
+            currentList.map((p) => (p.id === participantId ? updatedRow : p)),
             true
           );
         }
       } catch (err: any) {
-        if (err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.PARTICIPANTS, participantsSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: participant update saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'UPDATE', participantId, safeUpdates);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('participants', 'UPDATE', participantId, safeUpdates);
     }
 
     return updated;
@@ -1873,8 +1738,8 @@ export const dbService = {
 
     // If enrolled in active/draft events, clean from rosters
     if (safety.tier === 'warning' && forceOverrideActive) {
-      const allEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
-      for (const evt of allEvents) {
+      const currentEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+      for (const evt of currentEvents) {
         if ((evt.assigned_participants || []).includes(participantId)) {
           const updatedAssigned = (evt.assigned_participants || []).filter((id) => id !== participantId);
           const updatedSl = { ...(evt.participant_sl_numbers || {}) };
@@ -1887,26 +1752,27 @@ export const dbService = {
       }
     }
 
-    const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
-    const target = participants.find((p) => p.id === participantId);
-    const remaining = participants.filter((p) => p.id !== participantId);
+    const participantsSnapshot = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+    const target = participantsSnapshot.find((p) => p.id === participantId);
+    const remaining = participantsSnapshot.filter((p) => p.id !== participantId);
     saveCache(STORAGE_KEYS.PARTICIPANTS, remaining, false);
     if (target?.org_id) {
       invalidateCache(`${STORAGE_KEYS.PARTICIPANTS}_${target.org_id.toUpperCase()}`);
     }
 
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
-        const rpcRes = await callSecuredWriteRpc('participant_delete', { p_participant_id: participantId });
-        if (!rpcRes.usedRpc) {
-          const { error } = await supabase.from('participants').delete().eq('id', participantId);
-          if (error) throw error;
-        }
+        await callSecuredWriteRpc('participant_delete', { p_participant_id: participantId });
       } catch (err: any) {
-        if (err?.code === 'ROSTER_LOCKED' || err?.code === 'unauthorized' || err?.code === 'forbidden') throw err;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.PARTICIPANTS, participantsSnapshot, false);
+          throw err;
+        }
         console.warn('Offline mode: participant deletion saved locally, deferring cloud sync:', err?.message || err);
         await queueMutationLocally('participants', 'DELETE', participantId, null);
       }
+    } else if (isSupabaseConfigured()) {
+      await queueMutationLocally('participants', 'DELETE', participantId, null);
     }
   },
 
@@ -1936,7 +1802,8 @@ export const dbService = {
           const existingCache = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []).filter(
             (s) => s.event_id !== eventId
           );
-          saveCache(STORAGE_KEYS.SCORES, [...existingCache, ...normalized], true); // SILENT
+          const changed = !areRecordsEqual(eventCached, normalized);
+          saveCache(STORAGE_KEYS.SCORES, [...existingCache, ...normalized], !changed);
           updateCacheTimestamp(cacheKey);
           return normalized;
         }
@@ -1944,9 +1811,10 @@ export const dbService = {
       } catch (err: any) {
         console.warn('Supabase getScores network fallback:', err?.message || err);
       }
+    } else {
+      updateCacheTimestamp(cacheKey);
     }
 
-    updateCacheTimestamp(cacheKey);
     return eventCached;
   },
 
@@ -1968,7 +1836,8 @@ export const dbService = {
 
         if (!error && data) {
           const normalized = data.map(normalizeScore);
-          saveCache(STORAGE_KEYS.SCORES, normalized, true); // SILENT
+          const changed = !areRecordsEqual(cached, normalized);
+          saveCache(STORAGE_KEYS.SCORES, normalized, !changed);
           updateCacheTimestamp(cacheKey);
           return normalized;
         }
@@ -1976,9 +1845,10 @@ export const dbService = {
       } catch (err: any) {
         console.warn('Supabase getAllScores network fallback:', err?.message || err);
       }
+    } else {
+      updateCacheTimestamp(cacheKey);
     }
 
-    updateCacheTimestamp(cacheKey);
     return cached;
   },
 
@@ -2103,7 +1973,7 @@ export const dbService = {
     invalidateCache(STORAGE_KEYS.SCORES);
 
     // 5. BACKGROUND CLOUD SYNC
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const scorePayload = {
           id: existing && isWithinGrace ? existing.id : optimisticScore.id,
@@ -2118,78 +1988,33 @@ export const dbService = {
           p_records: [scorePayload],
         });
 
-        if (rpcRes.usedRpc) {
-          const syncedRow = Array.isArray(rpcRes.data) ? rpcRes.data[0] : null;
-          if (syncedRow) {
-            const synced = normalizeScore(syncedRow);
-            const currentScores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
-            const existsInCache = currentScores.some((s) => s.id === synced.id);
-            saveCache(
-              STORAGE_KEYS.SCORES,
-              existsInCache
-                ? currentScores.map((s) => (s.id === synced.id ? synced : s))
-                : [...currentScores, synced],
-              true
-            );
-            notifyCloudSync('Score ballot');
-            return synced;
-          }
-        } else if (existing && isWithinGrace) {
-          const { data, error } = await supabase
-            .from('scores')
-            .update({
-              total_score: scoreData.total_score,
-              score_payload: payloadJson,
-            })
-            .eq('id', existing.id)
-            .select()
-            .single();
-
-          if (error) throw error;
-          if (data) {
-            const updated = normalizeScore(data);
-            const currentScores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
-            saveCache(
-              STORAGE_KEYS.SCORES,
-              currentScores.map((s) => (s.id === existing.id ? updated : s)),
-              true
-            );
-            return updated;
-          }
-        } else {
-          const { data, error } = await supabase
-            .from('scores')
-            .insert([
-              {
-                id: optimisticScore.id,
-                event_id: scoreData.event_id,
-                judge_id: scoreData.judge_id,
-                participant_id: scoreData.participant_id,
-                total_score: scoreData.total_score,
-                score_payload: payloadJson,
-              },
-            ])
-            .select()
-            .single();
-
-          if (error) throw error;
-          if (data) {
-            const created = normalizeScore(data);
-            const currentScores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
-            saveCache(
-              STORAGE_KEYS.SCORES,
-              currentScores.map((s) => (s.id === created.id ? created : s)),
-              true
-            );
-            notifyCloudSync('Score ballot');
-            return created;
-          }
+        const syncedRow = Array.isArray(rpcRes.data) ? rpcRes.data[0] : null;
+        if (syncedRow) {
+          const synced = normalizeScore(syncedRow);
+          const currentScores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+          const existsInCache = currentScores.some((s) => s.id === synced.id);
+          saveCache(
+            STORAGE_KEYS.SCORES,
+            existsInCache
+              ? currentScores.map((s) => (s.id === synced.id ? synced : s))
+              : [...currentScores, synced],
+            true
+          );
+          notifyCloudSync('Score ballot');
+          return synced;
         }
       } catch (err: any) {
-        if (err?.message?.includes('RLS Permission Denied')) throw err;
+        if (err?.message?.includes('RLS Permission Denied') || err?.code === 'RLS Permission Denied') {
+          throw err;
+        }
         const orgBlock = parseOrgEnforcementError(err);
         if (orgBlock) {
           eventBus.emit('org_enforcement', { code: orgBlock });
+          await queueScoreLocally(optimisticScore);
+          return optimisticScore;
+        }
+        // On expired/missing session token, STILL queue score locally so judge never loses a ballot.
+        if (err?.code === 'unauthorized') {
           await queueScoreLocally(optimisticScore);
           return optimisticScore;
         }
@@ -2197,6 +2022,9 @@ export const dbService = {
         await queueScoreLocally(optimisticScore);
         notifyOfflineSaved('Score ballot');
       }
+    } else if (isSupabaseConfigured()) {
+      await queueScoreLocally(optimisticScore);
+      notifyOfflineSaved('Score ballot');
     } else {
       notifyOfflineSaved('Score ballot');
     }
@@ -2205,22 +2033,22 @@ export const dbService = {
   },
 
   async deleteScore(scoreId: string): Promise<boolean> {
-    const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+    const scoresSnapshot = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
     saveCache(
       STORAGE_KEYS.SCORES,
-      scores.filter((s) => s.id !== scoreId),
+      scoresSnapshot.filter((s) => s.id !== scoreId),
       true
     );
-    if (isSupabaseConfigured() && navigator.onLine) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
-        const rpcRes = await callSecuredWriteRpc('score_delete', { p_score_id: scoreId });
-        if (!rpcRes.usedRpc) {
-          const { error } = await supabase.from('scores').delete().eq('id', scoreId);
-          if (error) throw error;
-        }
+        await callSecuredWriteRpc('score_delete', { p_score_id: scoreId });
         notifyCloudSync('Score ballot removed');
         return true;
       } catch (err: any) {
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.SCORES, scoresSnapshot, false);
+          throw err;
+        }
         console.warn('deleteScore cloud sync note:', err?.message || err);
       }
     }

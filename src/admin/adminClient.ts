@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseCredentials, isSupabaseConfigured } from '../lib/supabase';
+import { ADMIN_AUTH_STORAGE_KEY, safeAdminStorage } from './adminSession';
 
 let adminClientInstance: SupabaseClient | null = null;
 let cachedCredKey = '';
@@ -15,10 +16,11 @@ export function getAdminClient(): SupabaseClient {
 
     adminClientInstance = createClient(validUrl, validKey, {
       auth: {
-        persistSession: false,
+        persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
-        storageKey: 'fj-admin-auth',
+        storageKey: ADMIN_AUTH_STORAGE_KEY,
+        storage: safeAdminStorage,
       },
     });
   }

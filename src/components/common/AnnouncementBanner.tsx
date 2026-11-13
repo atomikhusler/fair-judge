@@ -17,7 +17,7 @@ export const AnnouncementBanner: React.FC<AnnouncementBannerProps> = ({
   return (
     <div className="w-full shrink-0 z-20" role="region" aria-label="Platform announcements">
       {notices.map((notice) => {
-        const isUrgent = notice.severity === 'urgent';
+        const isUrgent = notice.severity === 'urgent' || notice.severity === 'critical';
         const isWarning = notice.severity === 'warning';
 
         const containerClass = isUrgent

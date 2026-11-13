@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { NetworkStatusIndicator } from './components/NetworkStatusIndicator';
-import { ToastProvider } from './components/common/ToastProvider';
+import { ToastProvider, showToast } from './components/common/ToastProvider';
 import { Organization, SupabaseJudge, SupabaseEvent } from './lib/supabaseTypes';
 import {
   dbService,
@@ -14,11 +14,13 @@ import {
   getStoredSession,
   setStoredSession,
   StoredUserSession,
-  isSupabaseConfigured,
 } from './lib/supabase';
-import { SuperAdminSetupModal } from './components/auth/SuperAdminSetupModal';
 import { initCacheStorage } from './lib/db/indexedDB';
-import { initOfflineSyncListener, clearAllScoreDrafts } from './lib/offlineQueue';
+import {
+  initOfflineSyncListener,
+  clearAllScoreDrafts,
+  flushOfflineQueueToSupabase,
+} from './lib/offlineQueue';
 import { areRecordsEqual, eventBus } from './lib/eventBus';
 import { Scale } from 'lucide-react';
 import { requestStoragePersistenceOnce } from './lib/storagePersistence';
@@ -27,6 +29,10 @@ import { lazyWithRetry } from './lib/lazyWithRetry';
 import { authService } from './lib/authService';
 import { resetSignatureHardwareSession } from './components/shared/SignatureHardware';
 import { resetLastTestResult } from './lib/selfTest';
+import {
+  SessionReverifyModal,
+  SessionReverifySuccessPayload,
+} from './components/auth/SessionReverifyModal';
 
 // Code Splitting: Asynchronously load major route panels with auto-retry resilience
 const OrganiserDashboard = lazyWithRetry(() =>
@@ -77,7 +83,9 @@ export default function App() {
   });
   const [activeJudgeEvent, setActiveJudgeEvent] = useState<SupabaseEvent | null>(null);
 
-  const [isAdminRoute, setIsAdminRoute] = useState(false);
+  const [isAdminRoute, setIsAdminRoute] = useState(() =>
+    typeof window !== 'undefined' && window.location.hash.startsWith('#/admin')
+  );
 
   // Public projector screen state
   const [isPublicView, setIsPublicView] = useState(false);
@@ -93,6 +101,12 @@ export default function App() {
 
   // Forced temporary password reset flag (set via org_login must_change)
   const [mustChangePassword, setMustChangePassword] = useState(false);
+
+  // In-app Session Re-verification prompt (Stage 1 security lock)
+  const [reverifyPrompt, setReverifyPrompt] = useState<{
+    role: 'organiser' | 'judge';
+    reason: 'missing' | 'expired';
+  } | null>(null);
 
   // Smooth server-aware Sign-Out transition state
   const [signOutOverlay, setSignOutOverlay] = useState<{
@@ -133,16 +147,10 @@ export default function App() {
 
     window.addEventListener('fairjudge_session_change', handleSessionEvent);
 
-    if (window.location.hash.startsWith('#/admin')) {
-      history.replaceState(null, '', window.location.pathname + window.location.search);
-    }
-
     const handleHashChange = () => {
-      if (window.location.hash.startsWith('#/admin')) {
-        history.replaceState(null, '', window.location.pathname + window.location.search);
-        setIsAdminRoute(true);
-      }
+      setIsAdminRoute(window.location.hash.startsWith('#/admin'));
     };
+    handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
 
     const params = new URLSearchParams(window.location.search);
@@ -239,6 +247,19 @@ export default function App() {
       };
     }
   }, [session?.role, session?.org?.org_id, session?.judge?.id, refreshJudgeData]);
+
+  // Listen for session_expired events so expired/missing tokens prompt re-verification without losing drafts
+  useEffect(() => {
+    if (!session) {
+      setReverifyPrompt(null);
+      return;
+    }
+    const unsub = eventBus.on('session_expired', ({ role, reason }) => {
+      if (isSigningOutRef.current || isAdminRoute || isPublicView) return;
+      setReverifyPrompt((prev) => prev || { role, reason });
+    });
+    return unsub;
+  }, [session, isAdminRoute, isPublicView]);
 
   // Helper to trigger hardware-accelerated 1.2s splash with 500ms opacity fade
   const triggerAuthSplash = useCallback((displayName: string) => {
@@ -366,6 +387,7 @@ export default function App() {
       resetLastTestResult();
       clearAllScoreDrafts();
       setMustChangePassword(false);
+      setReverifyPrompt(null);
       setStoredSession(null);
       setSession(null);
       setActiveJudgeEvent(null);
@@ -378,6 +400,27 @@ export default function App() {
       }, fadeMs);
     }
   }, [session]);
+
+  const handleReverifySuccess = useCallback(
+    (payload: SessionReverifySuccessPayload) => {
+      if (!session) return;
+      const updatedSession: UserSession = {
+        ...session,
+        org: payload.org || session.org,
+        judge: payload.judge || session.judge,
+        sessionToken: payload.sessionToken,
+      };
+      if (payload.mustChange) {
+        setMustChangePassword(true);
+      }
+      setStoredSession(updatedSession);
+      setSession(updatedSession);
+      setReverifyPrompt(null);
+      showToast('Session verified. Syncing pending changes...', 'success');
+      void flushOfflineQueueToSupabase();
+    },
+    [session]
+  );
 
   // Public View Launcher
   const handleOpenPublicView = (eventId?: string) => {
@@ -421,7 +464,12 @@ export default function App() {
         <AuthScreen
           onOrganiserLogin={handleOrganiserLogin}
           onJudgeLogin={handleJudgeLogin}
-          onOpenAdmin={() => setIsAdminRoute(true)}
+          onOpenAdmin={() => {
+            if (!window.location.hash.startsWith('#/admin')) {
+              window.location.hash = '#/admin';
+            }
+            setIsAdminRoute(true);
+          }}
         />
       );
     }
@@ -468,7 +516,12 @@ export default function App() {
       <AuthScreen
         onOrganiserLogin={handleOrganiserLogin}
         onJudgeLogin={handleJudgeLogin}
-        onOpenAdmin={() => setIsAdminRoute(true)}
+        onOpenAdmin={() => {
+          if (!window.location.hash.startsWith('#/admin')) {
+            window.location.hash = '#/admin';
+          }
+          setIsAdminRoute(true);
+        }}
       />
     );
   };
@@ -595,6 +648,19 @@ export default function App() {
           {renderScreenContent()}
         </div>
       </Suspense>
+
+      {session && reverifyPrompt && !isAdminRoute && (
+        <SessionReverifyModal
+          session={session}
+          reason={reverifyPrompt.reason}
+          onSuccess={handleReverifySuccess}
+          onDismiss={() => setReverifyPrompt(null)}
+          onSignOut={() => {
+            setReverifyPrompt(null);
+            void handleLogout();
+          }}
+        />
+      )}
     </ToastProvider>
   );
 }

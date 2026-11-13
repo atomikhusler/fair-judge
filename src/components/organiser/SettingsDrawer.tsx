@@ -100,6 +100,8 @@ export function SettingsDrawer({
   });
 
   const [hapticSetting, setHapticSetting] = useState<HapticStrength>(getHapticStrength);
+  const [shouldRender, setShouldRender] = useState<boolean>(isOpen);
+  const [isClosing, setIsClosing] = useState<boolean>(false);
 
   // 5-Tap Intelligent Diagnostic State (EPIC 15.1)
   const [diagTapCount, setDiagTapCount] = useState(0);
@@ -159,9 +161,44 @@ export function SettingsDrawer({
 
   useEffect(() => {
     if (isOpen) {
+      setShouldRender(true);
+      setIsClosing(false);
       setHapticSetting(getHapticStrength());
+      return;
     }
-  }, [isOpen]);
+
+    if (!shouldRender) return;
+
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReducedMotion) {
+      setIsClosing(false);
+      setShouldRender(false);
+      return;
+    }
+
+    setIsClosing(true);
+    const closeTimer = window.setTimeout(() => {
+      setIsClosing(false);
+      setShouldRender(false);
+    }, 320);
+
+    return () => window.clearTimeout(closeTimer);
+  }, [isOpen, shouldRender]);
+
+  useEffect(() => {
+    if (!shouldRender || !isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [shouldRender, isOpen, onClose]);
 
 
   // 1. Toggle Tie-Breaker
@@ -250,18 +287,29 @@ export function SettingsDrawer({
     setTimeout(() => setCopiedPublicLink(false), 2200);
   };
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop */}
-      <div 
+    <div
+      className={`fixed inset-0 z-50 flex ${isClosing ? 'pointer-events-none' : 'pointer-events-auto'}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings and Preferences"
+    >
+      {/* Solid Dark Backdrop */}
+      <div
         onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"
+        className={`fixed inset-0 bg-black/60 ${
+          isClosing ? 'animate-backdrop-exit' : 'animate-in fade-in duration-300'
+        }`}
       />
 
-      {/* Drawer Container (Sliding from Left) */}
-      <div className="relative w-full max-w-md sm:max-w-lg bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border-r border-stone-200 dark:border-zinc-800/80 shadow-2xl h-full flex flex-col z-10 animate-spring-drawer select-none">
+      {/* Drawer Container (Symmetric Slide-In / Slide-Out from Left) */}
+      <div
+        className={`relative w-full max-w-md sm:max-w-lg bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border-r border-stone-200 dark:border-zinc-800/80 shadow-2xl h-full flex flex-col z-10 select-none ${
+          isClosing ? 'animate-spring-drawer-exit' : 'animate-spring-drawer'
+        }`}
+      >
         
 
         {/* ========================================================== */}
@@ -283,10 +331,11 @@ export function SettingsDrawer({
           </div>
 
           <div className="flex items-center space-x-2">
-            <ThemeToggleButton className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-all duration-200 active:scale-[0.96] shadow-sm flex items-center justify-center cursor-pointer" />
+            <ThemeToggleButton className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors duration-200 active:scale-[0.96] motion-reduce:transition-none shadow-sm flex items-center justify-center cursor-pointer" />
             <button
+              type="button"
               onClick={onClose}
-              className="w-10 h-10 rounded-xl text-zinc-400 hover:text-zinc-900 dark:hover:text-white bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-sm transition-all duration-200 active:scale-[0.96] flex items-center justify-center cursor-pointer"
+              className="w-11 h-11 rounded-xl text-zinc-400 hover:text-zinc-900 dark:hover:text-white bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-sm transition-colors duration-200 active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer"
               title="Close Drawer"
               aria-label="Close Drawer"
             >

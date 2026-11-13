@@ -11,11 +11,18 @@ export function lazyWithRetry<T extends React.ComponentType<any>>(
   intervalMs: number = 400
 ): React.LazyExoticComponent<T> {
   return React.lazy(() => {
+    const reloadKey = `fj_reload_${chunkKey}`;
+
     return new Promise<{ default: T }>((resolve, reject) => {
       const execute = (remainingAttempts: number) => {
         factory()
-          .then(resolve)
-          .catch((error) => {
+          .then((mod) => {
+            try {
+              sessionStorage.removeItem(reloadKey);
+            } catch {}
+            resolve(mod);
+          })
+          .catch(async (error) => {
             if (remainingAttempts > 0) {
               setTimeout(() => execute(remainingAttempts - 1), intervalMs);
             } else {
@@ -26,10 +33,18 @@ export function lazyWithRetry<T extends React.ComponentType<any>>(
                 error?.name === 'TypeError';
 
               if (isChunkError && typeof window !== 'undefined') {
-                const reloadKey = `fj_reload_${chunkKey}`;
                 const hasReloaded = sessionStorage.getItem(reloadKey);
                 if (!hasReloaded) {
                   sessionStorage.setItem(reloadKey, 'true');
+                  try {
+                    if ('caches' in window) {
+                      const names = await caches.keys();
+                      await Promise.race([
+                        Promise.all(names.map((name) => caches.delete(name))),
+                        new Promise<void>((r) => setTimeout(r, 300)),
+                      ]);
+                    }
+                  } catch {}
                   window.location.reload();
                   return;
                 }

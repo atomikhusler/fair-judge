@@ -28,11 +28,10 @@ import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } f
 import { APP_VERSION } from '../../config/version';
 import { SignatureHardware } from '../shared/SignatureHardware';
 import {
-  PlatformAnnouncement,
-  fetchActiveAnnouncements,
-  dismissNotice,
+  useAnnouncements,
 } from '../../lib/announcements';
 import { AnnouncementBanner } from '../common/AnnouncementBanner';
+import { NotificationBell } from '../common/NotificationBell';
 import { OrgBlockedScreen } from '../common/OrgBlockedScreen';
 import { eventBus } from '../../lib/eventBus';
 
@@ -54,13 +53,23 @@ export function JudgeLobby({
 }: JudgeLobbyProps) {
   // Organization state for header subtitle
   const [organization, setOrganization] = useState<Organization | null>(null);
-  const [announcements, setAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const {
+    bannerNotices,
+    inboxNotices,
+    unreadCount,
+    dismissBanner,
+    markInboxAsRead,
+    refreshAnnouncements,
+  } = useAnnouncements('judge', orgId);
   const [blockedMode, setBlockedMode] = useState<'suspended' | 'deleted' | null>(null);
 
   // Modal states
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [hapticSetting, setHapticSetting] = useState<HapticStrength>(getHapticStrength);
+  const accountBtnRef = useRef<HTMLButtonElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const wasAccountOpenRef = useRef(false);
 
   // 5-Tap Intelligent Diagnostic State (EPIC 15.1)
   const [diagTapCount, setDiagTapCount] = useState(0);
@@ -107,12 +116,11 @@ export function JudgeLobby({
     }
   };
 
-  // Load organization details & active platform announcements once
+  // Load organization details once
   useEffect(() => {
     dbService.getOrganizationByOrgId(orgId).then((org) => {
       if (org) setOrganization(org);
     });
-    fetchActiveAnnouncements('judge', orgId).then(setAnnouncements);
   }, [orgId]);
 
   useEffect(() => {
@@ -128,18 +136,45 @@ export function JudgeLobby({
     return unsub;
   }, []);
 
-  // Modal Scroll Lock: lock document.body scroll when Account modal or logout confirm is open
+  // Modal Scroll Lock, Focus Restoration & Escape Handling
   useEffect(() => {
     if (isAccountModalOpen) {
       setHapticSetting(getHapticStrength());
+      wasAccountOpenRef.current = true;
+    } else if (wasAccountOpenRef.current && !showLogoutConfirm) {
+      wasAccountOpenRef.current = false;
+      accountBtnRef.current?.focus();
     }
-    if (isAccountModalOpen || showLogoutConfirm) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = prev;
-      };
-    }
+
+    if (!isAccountModalOpen && !showLogoutConfirm) return;
+
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusTimer = isAccountModalOpen && !showLogoutConfirm
+      ? window.setTimeout(() => {
+          closeBtnRef.current?.focus();
+        }, 20)
+      : undefined;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      if (showLogoutConfirm) {
+        setShowLogoutConfirm(false);
+        return;
+      }
+      if (isAccountModalOpen) {
+        setIsAccountModalOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      if (focusTimer !== undefined) window.clearTimeout(focusTimer);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = prev;
+    };
   }, [isAccountModalOpen, showLogoutConfirm]);
 
   const handleRefresh = async () => {
@@ -148,7 +183,7 @@ export function JudgeLobby({
     } catch (err) {
       console.warn('Queue flush note:', err);
     }
-    fetchActiveAnnouncements('judge', orgId).then(setAnnouncements);
+    refreshAnnouncements();
     window.dispatchEvent(new CustomEvent('fairjudge_db_change', { detail: { table: 'all' } }));
     await new Promise((r) => setTimeout(r, 600));
   };
@@ -175,14 +210,15 @@ export function JudgeLobby({
       {/* ======================================================== */}
       {/* PART 4: THE JUDGE LOBBY - HEADER                         */}
       {/* ======================================================== */}
-      <header className="sticky top-0 z-50 w-full h-16 shrink-0 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md border-b border-stone-200 dark:border-zinc-800/80 px-4 flex items-center justify-between">
+      <header className="sticky top-0 z-50 w-full h-16 shrink-0 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800/80 px-4 flex items-center justify-between">
         {/* Left: App Logo (Scale icon) with refresh on click */}
         <div className="flex items-center">
           <button
             type="button"
             onClick={handleRefresh}
             title="Refresh events"
-            className="w-10 h-10 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-sm shrink-0 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
+            aria-label="Refresh events"
+            className="w-11 h-11 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-sm shrink-0 active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer"
           >
             <Scale className="w-5 h-5 stroke-[2.2]" />
           </button>
@@ -193,17 +229,26 @@ export function JudgeLobby({
           <span className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight leading-none">
             Fair Judge
           </span>
-          <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mt-1 truncate max-w-[190px] sm:max-w-xs">
+          <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mt-1 truncate max-w-[160px] sm:max-w-xs">
             {organization?.name || orgId}
           </span>
         </div>
 
-        {/* Right: The Theme toggle (Sun/Moon) placed immediately to the left of the Account icon */}
-        <div className="flex items-center space-x-2">
-          <ThemeToggleButton />
+        {/* Right: Notifications bell, Theme toggle, Account icon */}
+        <div className="flex items-center space-x-1.5">
+          <NotificationBell
+            notices={inboxNotices}
+            unreadCount={unreadCount}
+            onMarkRead={markInboxAsRead}
+            accent="amber"
+            buttonClassName="relative w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer shadow-xs"
+          />
+          <ThemeToggleButton className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer shadow-xs" />
           <button
+            ref={accountBtnRef}
+            type="button"
             onClick={() => setIsAccountModalOpen(true)}
-            className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer shadow-xs"
+            className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer shadow-xs"
             title="Judge Account & Session"
             aria-label="Judge Account"
           >
@@ -213,11 +258,8 @@ export function JudgeLobby({
       </header>
 
       <AnnouncementBanner
-        notices={announcements}
-        onDismiss={(id) => {
-          dismissNotice(id);
-          setAnnouncements((prev) => prev.filter((n) => n.id !== id));
-        }}
+        notices={bannerNotices}
+        onDismiss={dismissBanner}
       />
 
       {/* Standalone VIP Judge Pill: Just below the header (No rogue margins or flex-1) */}
@@ -350,39 +392,49 @@ export function JudgeLobby({
       </PullToRefresh>
 
         {/* ======================================================== */}
-        {/* PART 3: THE JUDGE ACCOUNT MODAL (Grouped Cards)          */}
+        {/* PART 3: THE JUDGE ACCOUNT MODAL (C1, C2, C9)             */}
         {/* ======================================================== */}
         {isAccountModalOpen
           ? (() => {
               const accountModalContent = (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 pointer-events-auto">
-                  {/* Backdrop */}
-                  <div 
+                <div
+                  className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 pointer-events-auto"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="judge-account-modal-title"
+                >
+                  {/* Solid Dark Scrim — no backdrop-filter (C1) */}
+                  <div
                     onClick={() => setIsAccountModalOpen(false)}
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+                    className="fixed inset-0 bg-black/60 transition-opacity duration-200 motion-reduce:transition-none"
                   />
 
-                  {/* Modal Dialog */}
-                  <div className="relative w-full max-w-sm bg-stone-100/90 dark:bg-zinc-950 text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden animate-spring-sheet select-none">
-                    
+                  {/* Modal Dialog matching Settings Sheet surface tokens (C1) */}
+                  <div className="relative w-full max-w-sm bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden animate-spring-sheet select-none">
                     {/* Modal Header */}
-                    <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                    <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
                       <div className="flex items-center space-x-3">
                         <div className={`w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center ${diagAnimating ? 'animate-flip-y' : ''}`}>
                           <CircleUser className="w-5 h-5 stroke-[2.2]" />
                         </div>
                         <div>
-                          <div className="flex items-center space-x-2">
-                            <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
+                          <div className="flex items-center space-x-1.5">
+                            <h3
+                              id="judge-account-modal-title"
+                              className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                            >
                               Judge Terminal
                             </h3>
                             <button
                               type="button"
                               onClick={handleVersionTap}
-                              className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 active:scale-95 transition-transform cursor-pointer select-none"
+                              className="min-h-[44px] px-1 inline-flex items-center cursor-pointer select-none"
                               title="Tap 5 times to run system diagnostics"
+                              aria-label={`Version ${APP_VERSION}`}
                             >
-                              v{APP_VERSION}
+                              <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                v{APP_VERSION}
+                              </span>
                             </button>
                           </div>
                           <p className="text-[11px] text-zinc-500 font-mono font-medium">
@@ -392,8 +444,10 @@ export function JudgeLobby({
                       </div>
 
                       <button
+                        ref={closeBtnRef}
+                        type="button"
                         onClick={() => setIsAccountModalOpen(false)}
-                        className="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer"
+                        className="w-11 h-11 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer shrink-0"
                         aria-label="Close modal"
                       >
                         <X className="w-4 h-4" />
@@ -401,8 +455,23 @@ export function JudgeLobby({
                     </div>
 
                     {/* Grouped Details Card (Scrollable Modal Body) */}
-                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3 pb-10">
-                      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800/80 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60 text-xs">
+                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-stone-100 dark:bg-black p-4 space-y-3 pb-10">
+                      <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60 text-xs">
+                        {/* TOP: Sign Out attached flush above identity card (C2) */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic('tick');
+                            setShowLogoutConfirm(true);
+                          }}
+                          className="w-full min-h-[48px] px-4 py-3 flex items-center justify-between text-left bg-red-500/10 hover:bg-red-500/20 dark:bg-red-500/10 dark:hover:bg-red-500/20 border border-red-500/40 rounded-t-2xl transition-colors cursor-pointer group"
+                        >
+                          <span className="text-sm font-bold text-red-600 dark:text-red-400">
+                            Sign out
+                          </span>
+                          <LogOut className="w-4 h-4 text-red-600 dark:text-red-400 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+                        </button>
+
                         {/* Name Row */}
                         <div className="p-3.5 flex items-center justify-between">
                           <span className="text-zinc-500 font-medium">Judge Name</span>
@@ -414,7 +483,7 @@ export function JudgeLobby({
                         {/* ID / PIN Row */}
                         <div className="p-3.5 flex items-center justify-between">
                           <span className="text-zinc-500 font-medium">Terminal PIN / ID</span>
-                          <span className="font-mono font-bold text-amber-500 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
                             PIN: {judge.pin || judge.judge_pin || '••••'}
                           </span>
                         </div>
@@ -430,7 +499,7 @@ export function JudgeLobby({
                         {/* Assigned Events Count */}
                         <div className="p-3.5 flex items-center justify-between">
                           <span className="text-zinc-500 font-medium">Assigned Events</span>
-                          <span className="font-mono font-bold text-amber-500 dark:text-amber-400">
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
                             {events.length} Events
                           </span>
                         </div>
@@ -444,7 +513,7 @@ export function JudgeLobby({
                         {/* Haptics */}
                         <div className="p-3.5 flex items-center justify-between gap-2">
                           <span className="text-zinc-500 font-medium">Haptics</span>
-                          <div className="inline-flex rounded-xl bg-stone-100 dark:bg-zinc-800 p-0.5 border border-stone-200 dark:border-zinc-700">
+                          <div className="inline-flex rounded-xl bg-stone-100 dark:bg-zinc-900 p-0.5 border border-stone-200 dark:border-zinc-800">
                             {(['off', 'low', 'medium', 'strong'] as const).map((lvl) => (
                               <button
                                 key={lvl}
@@ -454,7 +523,7 @@ export function JudgeLobby({
                                   setHapticSetting(lvl);
                                   triggerHaptic('tick');
                                 }}
-                                className={`px-2 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                                className={`min-h-[36px] px-2 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
                                   hapticSetting === lvl
                                     ? 'bg-amber-500 text-black shadow-sm'
                                     : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
@@ -467,26 +536,32 @@ export function JudgeLobby({
                         </div>
                       </div>
 
+                      {diagUnlocked && (
+                        <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-amber-500/30 p-3.5 flex items-center justify-between gap-3 shadow-sm">
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-zinc-900 dark:text-white">
+                              Terminal Diagnostics
+                            </p>
+                            <p className="text-[11px] font-mono text-zinc-500">
+                              Pending queue: {diagQueuePending ?? 0}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleDownloadDiagnostic}
+                            disabled={isDownloadingLog}
+                            className="min-h-[44px] px-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black text-xs font-bold transition-colors cursor-pointer inline-flex items-center space-x-1.5 shrink-0"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{isDownloadingLog ? 'Exporting...' : 'Export Log'}</span>
+                          </button>
+                        </div>
+                      )}
+
                       {/* Signature Hardware: About + Self-Test Terminal (Epic 15.4) */}
                       <div className="pt-1 pb-1">
                         <SignatureHardware role="judge" />
                       </div>
-
-                      {/* Bold Red Logout Button */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsAccountModalOpen(false);
-                          setShowLogoutConfirm(true);
-                        }}
-                        className="w-full p-4 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-500 border border-red-500/25 flex items-center justify-between font-bold text-sm transition-all active:scale-[0.98] cursor-pointer shadow-sm group"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <LogOut className="w-4 h-4 text-red-500 group-hover:-translate-x-0.5 transition-transform" />
-                          <span>Sign Out of Terminal</span>
-                        </div>
-                        <ChevronRight className="w-4 h-4 opacity-50" />
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -496,20 +571,32 @@ export function JudgeLobby({
           : null}
 
         {/* ======================================================== */}
-        {/* CUSTOM FRAMER-STYLE LOGOUT CONFIRMATION POPUP            */}
+        {/* DOUBLE-CONFIRMATION SIGN OUT POPUP (C2)                  */}
         {/* ======================================================== */}
         {showLogoutConfirm
           ? (() => {
               const logoutModalContent = (
-                <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150 pointer-events-auto">
-                  <div className="bg-white dark:bg-zinc-950 border border-red-500/30 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 select-none">
+                <div
+                  className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-150 pointer-events-auto"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="judge-signout-confirm-title"
+                  onClick={() => setShowLogoutConfirm(false)}
+                >
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white dark:bg-zinc-950 border border-red-500/30 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 select-none"
+                  >
                     <div className="flex items-center space-x-3 text-red-600 dark:text-red-500">
-                      <div className="w-11 h-11 rounded-2xl bg-red-500/15 border border-red-500/20 flex items-center justify-center">
+                      <div className="w-11 h-11 rounded-2xl bg-red-500/15 border border-red-500/20 flex items-center justify-center shrink-0">
                         <LogOut className="w-5 h-5 stroke-[2.2]" />
                       </div>
                       <div>
-                        <h3 className="text-base font-extrabold text-zinc-900 dark:text-white leading-tight">
-                          Sign Out of Terminal?
+                        <h3
+                          id="judge-signout-confirm-title"
+                          className="text-base font-extrabold text-zinc-900 dark:text-white leading-tight"
+                        >
+                          Sign out?
                         </h3>
                         <p className="text-xs text-red-600 dark:text-red-400 font-mono">
                           End judging session
@@ -518,14 +605,14 @@ export function JudgeLobby({
                     </div>
 
                     <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                      Are you sure you want to exit your judging session, <strong className="text-zinc-900 dark:text-white">{judge.name}</strong>? Any unsubmitted scores will be discarded, but all previously submitted ballots remain locked in the audit ledger.
+                      Exit judging session for <strong className="text-zinc-900 dark:text-white">{judge.name}</strong>? Queued offline ballots remain stored on this device.
                     </p>
 
                     <div className="grid grid-cols-2 gap-3 pt-2">
                       <button
                         type="button"
                         onClick={() => setShowLogoutConfirm(false)}
-                        className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer border border-stone-200 dark:border-zinc-800"
+                        className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer border border-stone-200 dark:border-zinc-800"
                       >
                         Cancel
                       </button>
@@ -533,12 +620,13 @@ export function JudgeLobby({
                         type="button"
                         onClick={() => {
                           setShowLogoutConfirm(false);
+                          setIsAccountModalOpen(false);
                           onLogout();
                         }}
-                        className="min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                        className="min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
                       >
                         <LogOut className="w-4 h-4" />
-                        <span>Confirm Sign Out</span>
+                        <span>Sign out</span>
                       </button>
                     </div>
                   </div>

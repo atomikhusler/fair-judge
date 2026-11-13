@@ -48,7 +48,7 @@ interface EventsTabProps {
   onNavigateToLiveControl?: (eventId: string) => void;
 }
 
-type FilterStatus = 'all' | 'active' | 'upcoming' | 'draft' | 'ended';
+type FilterStatus = 'all' | 'active' | 'upcoming' | 'draft' | 'ended' | 'archived';
 
 interface RubricItem {
   id: string;
@@ -301,13 +301,56 @@ export function EventsTab({
       }
     });
 
-    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
-    dbService.getEvents(organization.org_id);
-    dbService.getParticipants(organization.org_id);
-    dbService.getJudges(organization.org_id);
-    dbService.getAllScores();
+    let isCancelled = false;
 
-    return () => unsubBus();
+    // Quiet SWR background verification (updates state directly + via cache_updated)
+    dbService
+      .getEvents(organization.org_id)
+      .then((freshEvents) => {
+        if (isCancelled) return;
+        setEvents((prev) => (areRecordsEqual(prev, freshEvents) ? prev : freshEvents));
+      })
+      .catch(() => {});
+
+    dbService
+      .getParticipants(organization.org_id)
+      .then((freshParticipants) => {
+        if (isCancelled) return;
+        setParticipants((prev) => (areRecordsEqual(prev, freshParticipants) ? prev : freshParticipants));
+      })
+      .catch(() => {});
+
+    dbService
+      .getJudges(organization.org_id)
+      .then((freshJudges) => {
+        if (isCancelled) return;
+        setJudges((prev) => (areRecordsEqual(prev, freshJudges) ? prev : freshJudges));
+      })
+      .catch(() => {});
+
+    dbService
+      .getAllScores()
+      .then((freshScores) => {
+        if (isCancelled) return;
+        const scoreCounts: Record<string, number> = {};
+        freshScores.forEach((sc) => {
+          scoreCounts[sc.event_id] = (scoreCounts[sc.event_id] || 0) + 1;
+        });
+        setScoresMap((prev) => {
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(scoreCounts);
+          if (prevKeys.length === nextKeys.length && prevKeys.every((k) => prev[k] === scoreCounts[k])) {
+            return prev;
+          }
+          return scoreCounts;
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      isCancelled = true;
+      unsubBus();
+    };
   }, [organization.org_id]);
 
   const refreshFromCache = useCallback(() => {
@@ -1010,19 +1053,23 @@ export function EventsTab({
   // 11. FILTER & SEARCH LOGIC (Relational Ghost-Filtered Derived State - Phase 13.7)
   // ========================================================
   const statusCounts = useMemo(() => {
-    const counts = { all: 0, active: 0, upcoming: 0, draft: 0, ended: 0 };
+    const counts = { all: 0, active: 0, upcoming: 0, draft: 0, ended: 0, archived: 0 };
     events.forEach((e) => {
-      // Inbox Zero: Archived events do NOT increment the "All" tab count
-      if (!e.is_archived) {
-        counts.all++;
-      }
       const st = (e.status || 'draft').toLowerCase();
+      const isArchived = Boolean(e.is_archived) || st === 'archived';
+      if (isArchived) {
+        counts.archived++;
+        return;
+      }
+
+      counts.all++;
       const hasActiveParticipants = (e.assigned_participants || []).some((id) => activeParticipantIdSet.has(id));
       const hasActiveJudges = (e.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
       const hasBoth = hasActiveParticipants && hasActiveJudges;
-      if (st === 'active') counts.active++;
-      else if (st === 'ended' || st === 'archived') counts.ended++;
-      else if (st === 'ready' || st === 'upcoming' || hasBoth) counts.upcoming++;
+
+      if (st === 'active' || st === 'paused') counts.active++;
+      else if (st === 'ended') counts.ended++;
+      else if (st === 'ready' || st === 'upcoming' || (st === 'draft' && hasBoth)) counts.upcoming++;
       else counts.draft++;
     });
     return counts;
@@ -1040,25 +1087,33 @@ export function EventsTab({
 
       if (!matchesSearch) return false;
 
-      // ARCHIVE LOGIC ("Inbox Zero"):
-      // Archived events must NOT render in the "All" tab.
-      // They ONLY render in their specific status tabs (Active, Upcoming, Draft, Ended) and Global Search.
-      if (!isGlobalSearch && filterStatus === 'all' && e.is_archived) {
-        return false;
+      const st = (e.status || 'draft').toLowerCase();
+      const isArchived = Boolean(e.is_archived) || st === 'archived';
+
+      if (filterStatus === 'archived') {
+        return isArchived;
       }
 
-      const st = (e.status || 'draft').toLowerCase();
+      // ARCHIVE LOGIC ("Inbox Zero"):
+      // Archived events show under the Archived tab and in global search under All,
+      // and never leak into non-archived status tabs.
+      if (filterStatus === 'all') {
+        return isGlobalSearch ? true : !isArchived;
+      }
+
+      if (isArchived) return false;
+
       const hasActiveParticipants = (e.assigned_participants || []).some((id) => activeParticipantIdSet.has(id));
       const hasActiveJudges = (e.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
       const hasBoth = hasActiveParticipants && hasActiveJudges;
+      const isActiveOrPaused = st === 'active' || st === 'paused';
+      const isEnded = st === 'ended';
       const isReadyOrUpcoming = st === 'ready' || st === 'upcoming' || (st === 'draft' && hasBoth);
-      const isDraftOnly = st === 'draft' && !hasBoth;
 
-      if (filterStatus === 'all') return true;
-      if (filterStatus === 'active') return st === 'active';
+      if (filterStatus === 'active') return isActiveOrPaused;
+      if (filterStatus === 'ended') return isEnded;
       if (filterStatus === 'upcoming') return isReadyOrUpcoming;
-      if (filterStatus === 'draft') return isDraftOnly;
-      if (filterStatus === 'ended') return st === 'ended' || st === 'archived';
+      if (filterStatus === 'draft') return !isActiveOrPaused && !isEnded && !isReadyOrUpcoming;
       return true;
     });
   }, [events, deferredSearch, filterStatus, activeParticipantIdSet, activeJudgeIdSet]);
@@ -1118,6 +1173,7 @@ export function EventsTab({
                 { id: 'upcoming', label: 'Upcoming', count: statusCounts.upcoming },
                 { id: 'draft', label: 'Draft', count: statusCounts.draft },
                 { id: 'ended', label: 'Ended', count: statusCounts.ended },
+                { id: 'archived', label: 'Archived', count: statusCounts.archived },
               ] as const
             ).map((tab) => {
               const isSelected = filterStatus === tab.id;
@@ -1158,6 +1214,8 @@ export function EventsTab({
             <p className="text-xs sm:text-sm text-stone-500 dark:text-zinc-400 mt-1 max-w-sm mx-auto">
               {searchQuery
                 ? 'No events match your search query.'
+                : filterStatus === 'archived'
+                ? 'No archived events yet. Events you archive will appear here.'
                 : 'Get started by creating your first competition event.'}
             </p>
             <button

@@ -95,6 +95,36 @@
   will-change: transform, opacity;
 }
 
+@keyframes springSlideOutLeft {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-100%);
+    opacity: 0.75;
+  }
+}
+
+.animate-spring-drawer-exit {
+  animation: springSlideOutLeft 320ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes fjBackdropOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.animate-backdrop-exit {
+  animation: fjBackdropOut 280ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  will-change: opacity;
+}
+
 @keyframes fjEnter {
   from {
     opacity: var(--fj-enter-opacity, 1);
@@ -156,6 +186,8 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-spring-sheet,
   .animate-spring-drawer,
+  .animate-spring-drawer-exit,
+  .animate-backdrop-exit,
   .animate-breathe-fade,
   .animate-in {
     animation: none !important;
@@ -786,6 +818,46 @@
   }
   .fj-skel::after {
     display: none !important;
+  }
+}
+
+/* Stage C8: Smooth GPU-composited Danger Zone Shutter (transform + opacity only) */
+.fj-danger-shutter {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  transition:
+    transform 360ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 160ms ease;
+  will-change: transform, opacity;
+}
+
+.fj-danger-shutter[data-open="true"] {
+  transform: translate3d(0, -100%, 0);
+  opacity: 0;
+  transition:
+    transform 360ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 180ms ease 180ms;
+}
+
+.fj-danger-panel {
+  transform: translate3d(0, 8px, 0) scale(0.985);
+  opacity: 0.35;
+  transition:
+    transform 320ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform, opacity;
+}
+
+.fj-danger-panel[data-open="true"] {
+  transform: translate3d(0, 0, 0) scale(1);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fj-danger-shutter,
+  .fj-danger-panel {
+    transition: none !important;
+    transform: none !important;
   }
 }
 

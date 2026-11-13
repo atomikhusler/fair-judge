@@ -1,0 +1,236 @@
+:root {
+  --admin-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Type Scale */
+.admin-large-title {
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.admin-title {
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.admin-body {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.admin-caption {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* Press feedback: scale(0.98) 90 ms */
+.admin-press {
+  transition: transform 90ms var(--admin-ease);
+}
+
+.admin-press:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Page push (drill-down): 220 ms */
+@keyframes adminPushForward {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.admin-push-forward {
+  animation: adminPushForward 220ms var(--admin-ease) both;
+}
+
+@keyframes adminPushBack {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.admin-push-back {
+  animation: adminPushBack 220ms var(--admin-ease) both;
+}
+
+/* Tab switch: 150 ms crossfade only */
+@keyframes adminTabFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.admin-tab-fade {
+  animation: adminTabFade 150ms var(--admin-ease) both;
+}
+
+/* List entrance: first 8 rows only, translateY(6px)->0 + opacity, 30 ms stagger */
+@keyframes adminRowEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-row-enter {
+  animation: adminRowEnter 200ms var(--admin-ease) both;
+  animation-delay: calc(var(--admin-row-index, 0) * 30ms);
+}
+
+/* Changed-row highlight: violet overlay fading 0.18 -> 0 over 900 ms, once */
+@keyframes adminRowHighlight {
+  from {
+    opacity: 0.18;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.admin-row-highlight {
+  animation: adminRowHighlight 900ms var(--admin-ease) 1 forwards;
+}
+
+/* Attention cue: pulses opacity 2 times then stays solid */
+@keyframes adminAttentionPulse {
+  0% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.admin-attention-pulse {
+  animation: adminAttentionPulse 1200ms var(--admin-ease) 1 forwards;
+}
+
+/* Bottom sheet / Dialog entrance */
+@keyframes adminSheetUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-sheet-in {
+  animation: adminSheetUp 220ms var(--admin-ease) both;
+}
+
+@keyframes adminOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.admin-overlay-in {
+  animation: adminOverlayIn 180ms var(--admin-ease) both;
+}
+
+/* Toast entrance */
+@keyframes adminToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-toast-in {
+  animation: adminToastIn 200ms var(--admin-ease) both;
+}
+
+/* Sliding indicators */
+.admin-slide-transform {
+  transition: transform 220ms var(--admin-ease);
+}
+
+.admin-opacity-fade {
+  transition: opacity 150ms var(--admin-ease);
+}
+
+/* Pause / skip animations when document.hidden */
+[data-admin-hidden="true"] .admin-push-forward,
+[data-admin-hidden="true"] .admin-push-back,
+[data-admin-hidden="true"] .admin-tab-fade,
+[data-admin-hidden="true"] .admin-row-enter,
+[data-admin-hidden="true"] .admin-row-highlight,
+[data-admin-hidden="true"] .admin-attention-pulse,
+[data-admin-hidden="true"] .admin-sheet-in,
+[data-admin-hidden="true"] .admin-overlay-in,
+[data-admin-hidden="true"] .admin-toast-in,
+[data-admin-hidden="true"] .animate-spin {
+  animation-play-state: paused !important;
+}
+
+/* Reduced motion: final still state */
+@media (prefers-reduced-motion: reduce) {
+  .admin-press,
+  .admin-slide-transform,
+  .admin-opacity-fade {
+    transition: none !important;
+  }
+
+  .admin-press:active:not(:disabled) {
+    transform: none !important;
+  }
+
+  .admin-push-forward,
+  .admin-push-back,
+  .admin-tab-fade,
+  .admin-row-enter,
+  .admin-sheet-in,
+  .admin-overlay-in,
+  .admin-toast-in,
+  .admin-attention-pulse,
+  .animate-spin {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .admin-row-highlight {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}

@@ -140,7 +140,10 @@ export const adminService = {
   async signOut(): Promise<void> {
     try {
       const client = getAdminClient();
-      await client.auth.signOut();
+      await Promise.race([
+        client.auth.signOut(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+      ]);
     } catch {
       // Best-effort sign out
     } finally {

@@ -825,13 +825,22 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     };
   }, [organization.org_id, refreshFailedMutations]);
 
-  // Modal Scroll Lock: Ensure body does not scroll while confirm modal or alert popover is open
+  // Modal Scroll Lock & Escape Key: Ensure body does not scroll while confirm modal or alert popover is open
   useEffect(() => {
     if (confirmingEvent || isAlertsOpen || unlockConfirmEvent) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          setConfirmingEvent(null);
+          setUnlockConfirmEvent(null);
+          setIsAlertsOpen(false);
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
       return () => {
         document.body.style.overflow = originalOverflow;
+        window.removeEventListener('keydown', handleKeyDown);
       };
     }
   }, [confirmingEvent, isAlertsOpen, unlockConfirmEvent]);
@@ -1198,28 +1207,25 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       {/* ======================================================== */}
       {/* PART 1: THE COMMAND BAR (Zero-Gap Sticky Header)          */}
       {/* ======================================================== */}
-      <div className="sticky top-0 z-40 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md pb-3 pt-3 flex items-center gap-3">
+      <div className="sticky top-0 z-40 bg-stone-50 dark:bg-black pb-3 pt-3 flex items-center gap-3">
         {/* Smart Notification Bell Button (Left) */}
         <button
           type="button"
           onClick={handleOpenAlerts}
-          className="w-12 h-12 flex-shrink-0 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center relative shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-all active:scale-95 text-stone-700 dark:text-zinc-200 cursor-pointer"
+          className="w-12 h-12 flex-shrink-0 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center relative shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-colors active:scale-95 motion-reduce:transition-none text-stone-700 dark:text-zinc-200 cursor-pointer"
           aria-label="Intelligence Alerts"
           title="System Warnings & Telemetry"
         >
           <Bell className="w-5 h-5 stroke-[2.2]" />
-          {/* Pulsing Red Dot when unread alerts exist */}
+          {/* Static Red Dot when unread alerts exist */}
           {unreadAlerts && (
-            <span className="absolute top-2.5 right-2.5 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
-            </span>
+            <span className="absolute top-2.5 right-2.5 inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
           )}
         </button>
 
         {/* Search Bar (Right / flex-1) */}
         <div className="flex-1 relative">
-          <div className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl px-3.5 py-3 flex items-center gap-2.5 shadow-sm focus-within:ring-2 focus-within:ring-stone-400 dark:focus-within:ring-zinc-600 transition-all">
+          <div className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl px-3.5 py-3 flex items-center gap-2.5 shadow-sm focus-within:ring-2 focus-within:ring-stone-400 dark:focus-within:ring-zinc-600 transition-colors">
             <Search className="w-4 h-4 text-stone-400 dark:text-zinc-500 flex-shrink-0" />
             <input
               type="text"
@@ -1232,7 +1238,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="p-1 rounded-full text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-full text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
                 aria-label="Clear Search"
               >
                 <X className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -1298,7 +1304,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in"
           onClick={() => setConfirmingEvent(null)}
         >
           <div
@@ -1339,7 +1345,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
               <button
                 type="button"
                 onClick={handleConfirmEndSession}
-                className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-900/20 active:scale-95 transition-all cursor-pointer"
+                className="w-full min-h-[44px] py-3 px-4 rounded-xl font-bold text-sm bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-900/20 active:scale-95 transition-colors motion-reduce:transition-none cursor-pointer"
               >
                 End Session
               </button>
@@ -1356,7 +1362,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in"
           onClick={() => setUnlockConfirmEvent(null)}
         >
           <div
@@ -1387,7 +1393,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
               <button
                 type="button"
                 onClick={handleConfirmUnlockLive}
-                className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-900/20 active:scale-95 transition-all cursor-pointer"
+                className="w-full min-h-[44px] py-3 px-4 rounded-xl font-bold text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-900/20 active:scale-95 transition-colors motion-reduce:transition-none cursor-pointer"
               >
                 Unlock Roster
               </button>
@@ -1404,7 +1410,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in"
           onClick={() => setIsAlertsOpen(false)}
         >
           <div
@@ -1428,7 +1434,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
               <button
                 type="button"
                 onClick={() => setIsAlertsOpen(false)}
-                className="p-1 rounded-full text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center rounded-xl text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 cursor-pointer"
                 aria-label="Close Alerts"
               >
                 <X className="w-4 h-4 stroke-[2.5]" />
@@ -1464,7 +1470,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                             await retryFailedMutation(m.id);
                             await refreshFailedMutations();
                           }}
-                          className="px-3 py-1 rounded-lg text-xs font-bold bg-stone-900 text-white dark:bg-zinc-100 dark:text-black hover:opacity-90 transition-all cursor-pointer"
+                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-stone-900 text-white dark:bg-zinc-100 dark:text-black hover:opacity-90 transition-opacity cursor-pointer"
                         >
                           Retry
                         </button>
@@ -1474,7 +1480,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                             await discardFailedMutation(m.id);
                             await refreshFailedMutations();
                           }}
-                          className="px-3 py-1 rounded-lg text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-all cursor-pointer"
+                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer"
                         >
                           Discard
                         </button>

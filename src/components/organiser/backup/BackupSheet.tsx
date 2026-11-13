@@ -70,7 +70,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-none animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-black/65 animate-in fade-in duration-150">
       <div 
         className="relative w-full max-w-md max-h-[calc(100dvh-2rem)] flex flex-col bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
         role="dialog"
@@ -96,7 +96,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
             type="button"
             onClick={onClose}
             aria-label="Close backup modal"
-            className="w-8 h-8 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-900 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-11 h-11 rounded-xl text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-900 flex items-center justify-center transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -161,7 +161,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
             type="button"
             onClick={onClose}
             disabled={isExporting}
-            className="px-4 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+            className="min-h-[44px] px-4 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -170,7 +170,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
             type="button"
             onClick={handleDownload}
             disabled={isExporting || (isEncrypted && pin.trim().length < 4)}
-            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm flex items-center space-x-2 cursor-pointer active:scale-98"
+            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-colors shadow-sm flex items-center space-x-2 cursor-pointer active:scale-95 motion-reduce:transition-none"
           >
             {downloadSuccess ? (
               <>

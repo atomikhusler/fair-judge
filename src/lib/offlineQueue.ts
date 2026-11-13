@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { supabase, isSupabaseConfigured, callSecuredWriteRpc } from './supabase';
+import { isSupabaseConfigured, callSecuredWriteRpc } from './supabase';
 import { APP_VERSION } from '../config/version';
 import { stampLocal, downloadJson } from './downloadUtils';
 import { parseOrgEnforcementError } from './orgEnforcement';
@@ -166,6 +166,7 @@ export async function getPendingMutationsCount(): Promise<number> {
 export async function flushOfflineMutationsToSupabase(): Promise<{
   syncedCount: number;
   failedCount: number;
+  authRequired?: boolean;
 }> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { syncedCount: 0, failedCount: 0 };
@@ -224,95 +225,52 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
   const mutations = Array.from(latestMutationMap.values()).filter((m) => m.syncStatus !== 'failed');
   let syncedCount = 0;
   let failedCount = 0;
+  let authRequired = false;
 
   for (const item of mutations) {
     try {
       if (item.table === 'events') {
         if (item.operation === 'INSERT') {
-          const rpcRes = await callSecuredWriteRpc('event_upsert', { p_record: item.payload });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('events').upsert([item.payload]);
-            if (error) throw error;
-          }
+          await callSecuredWriteRpc('event_upsert', { p_record: item.payload });
         } else if (item.operation === 'UPDATE') {
-          const rpcRes = await callSecuredWriteRpc('event_update', {
+          await callSecuredWriteRpc('event_update', {
             p_event_id: item.entityId,
             p_updates: item.payload,
           });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('events').update(item.payload).eq('id', item.entityId);
-            if (error) throw error;
-          }
         } else if (item.operation === 'DELETE') {
-          const rpcRes = await callSecuredWriteRpc('event_delete', { p_event_id: item.entityId });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('events').delete().eq('id', item.entityId);
-            if (error) throw error;
-          }
+          await callSecuredWriteRpc('event_delete', { p_event_id: item.entityId });
         }
       } else if (item.table === 'participants') {
         if (item.operation === 'INSERT') {
           const records = Array.isArray(item.payload) ? item.payload : [item.payload];
-          const rpcRes = await callSecuredWriteRpc('participant_upsert_batch', { p_records: records });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('participants').upsert(records);
-            if (error) throw error;
-          }
+          await callSecuredWriteRpc('participant_upsert_batch', { p_records: records });
         } else if (item.operation === 'UPDATE') {
-          const rpcRes = await callSecuredWriteRpc('participant_update', {
+          await callSecuredWriteRpc('participant_update', {
             p_participant_id: item.entityId,
             p_updates: item.payload,
           });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('participants').update(item.payload).eq('id', item.entityId);
-            if (error) throw error;
-          }
         } else if (item.operation === 'DELETE') {
-          const rpcRes = await callSecuredWriteRpc('participant_delete', { p_participant_id: item.entityId });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('participants').delete().eq('id', item.entityId);
-            if (error) throw error;
-          }
+          await callSecuredWriteRpc('participant_delete', { p_participant_id: item.entityId });
         }
       } else if (item.table === 'judges') {
         if (item.operation === 'INSERT') {
-          const rpcRes = await callSecuredWriteRpc('judge_upsert', { p_record: item.payload });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('judges').upsert([item.payload]);
-            if (error) throw error;
-          }
+          await callSecuredWriteRpc('judge_upsert', { p_record: item.payload });
         } else if (item.operation === 'UPDATE') {
-          const rpcRes = await callSecuredWriteRpc('judge_update', {
+          await callSecuredWriteRpc('judge_update', {
             p_judge_id: item.entityId,
             p_updates: item.payload,
           });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('judges').update(item.payload).eq('id', item.entityId);
-            if (error) throw error;
-          }
         } else if (item.operation === 'DELETE') {
-          const rpcRes = await callSecuredWriteRpc('judge_delete', { p_judge_id: item.entityId });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('judges').delete().eq('id', item.entityId);
-            if (error) throw error;
-          }
+          await callSecuredWriteRpc('judge_delete', { p_judge_id: item.entityId });
         }
       } else if (item.table === 'organizations') {
         if (item.operation === 'UPDATE') {
-          const rpcRes = await callSecuredWriteRpc('org_update', {
+          await callSecuredWriteRpc('org_update', {
             p_org_id: item.entityId,
             p_updates: item.payload,
           });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('organizations').update(item.payload).ilike('org_id', item.entityId);
-            if (error) throw error;
-          }
         } else if (item.operation === 'DELETE') {
-          const rpcRes = await callSecuredWriteRpc('org_delete', { p_org_id: item.entityId });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('organizations').delete().ilike('org_id', item.entityId);
-            if (error) throw error;
-          }
+          await callSecuredWriteRpc('org_delete', { p_org_id: item.entityId });
         }
       }
 
@@ -320,6 +278,17 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
       syncedCount++;
     } catch (err: any) {
       console.warn(`Error syncing offline mutation ${item.id} (${item.table}):`, err?.message || err);
+
+      // Auth/Session token missing or expired: keep mutation pending with 0 strikes and pause queue
+      if (err?.code === 'unauthorized') {
+        authRequired = true;
+        break;
+      }
+
+      // RPC not yet deployed on backend: keep mutation pending with 0 strikes and pause queue
+      if (err?.code === 'rpc_unavailable') {
+        break;
+      }
 
       const orgBlock = parseOrgEnforcementError(err);
       if (orgBlock) {
@@ -334,11 +303,13 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
       }
 
       const isRosterLocked = Boolean(
+        err?.code === 'ROSTER_LOCKED' ||
         err?.message?.includes('ROSTER_LOCKED') ||
         (err?.details && String(err.details).includes('ROSTER_LOCKED'))
       );
       const isRls = Boolean(
         err?.code === '42501' ||
+        err?.code === 'forbidden' ||
         err?.message?.toLowerCase().includes('row-level security') ||
         err?.message?.toLowerCase().includes('permission denied')
       );
@@ -407,7 +378,7 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
   }
 
   notifyQueueChange();
-  return { syncedCount, failedCount };
+  return { syncedCount, failedCount, authRequired };
 }
 
 /**
@@ -560,6 +531,7 @@ export async function discardFailedMutation(id: string): Promise<void> {
 export async function flushOfflineQueueToSupabase(): Promise<{
   syncedCount: number;
   failedCount: number;
+  authRequired?: boolean;
 }> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { syncedCount: 0, failedCount: 0 };
@@ -567,13 +539,14 @@ export async function flushOfflineQueueToSupabase(): Promise<{
 
   // 1. Flush offline structural mutations first (events, participants, judges)
   const mutationResult = await flushOfflineMutationsToSupabase();
+  let authRequired = Boolean(mutationResult.authRequired);
 
   // 2. Flush pending scores (ballots) with OCC deduplication and batched upsert
   const rawScores = await getPendingScores();
   let scoreSynced = 0;
   let scoreFailed = 0;
 
-  if (isSupabaseConfigured() && rawScores.length > 0) {
+  if (!authRequired && isSupabaseConfigured() && rawScores.length > 0) {
     // OCC Deduplication: Group by event_id + participant_id + judge_id
     const dedupedScoreMap = new Map<string, PendingScoreRecord>();
     const obsoleteScoreIds: string[] = [];
@@ -612,74 +585,67 @@ export async function flushOfflineQueueToSupabase(): Promise<{
     }));
 
     try {
-      // Single batched network call via token-authenticated RPC (fallback if pre-D3)
-      const rpcRes = await callSecuredWriteRpc('score_upsert_batch', { p_records: batchedPayload });
-      if (!rpcRes.usedRpc) {
-        const { error } = await supabase.from('scores').upsert(batchedPayload);
-        if (error) {
-          throw error;
-        }
-      }
+      await callSecuredWriteRpc('score_upsert_batch', { p_records: batchedPayload });
 
       // Success: Clean up all synced items from IndexedDB
       await Promise.all(dedupedScores.map((item) => removePendingScore(item.id)));
       scoreSynced += dedupedScores.length;
     } catch (batchErr: any) {
-      console.warn('Batched score upsert encountered error, falling back to granular safe sync:', batchErr?.message || batchErr);
+      if (batchErr?.code === 'unauthorized') {
+        authRequired = true;
+      } else if (batchErr?.code === 'rpc_unavailable') {
+        // Keep all scores safely pending in IndexedDB
+      } else {
+        console.warn('Batched score upsert encountered error, falling back to granular safe sync:', batchErr?.message || batchErr);
 
-      // Granular fallback in case one score has an RLS immutability conflict
-      for (const item of dedupedScores) {
-        try {
-          const payloadJson = {
-            criteria: item.score_data || item.score_payload?.criteria || {},
-            total_score: item.total_score,
-            submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
-          };
+        // Granular fallback in case one score has an RLS immutability conflict
+        for (const item of dedupedScores) {
+          try {
+            const payloadJson = {
+              criteria: item.score_data || item.score_payload?.criteria || {},
+              total_score: item.total_score,
+              submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
+            };
 
-          const singleRecord = {
-            id: item.id,
-            event_id: item.event_id,
-            judge_id: item.judge_id,
-            participant_id: item.participant_id,
-            total_score: item.total_score,
-            score_payload: payloadJson,
-          };
+            const singleRecord = {
+              id: item.id,
+              event_id: item.event_id,
+              judge_id: item.judge_id,
+              participant_id: item.participant_id,
+              total_score: item.total_score,
+              score_payload: payloadJson,
+            };
 
-          const rpcRes = await callSecuredWriteRpc('score_upsert_batch', { p_records: [singleRecord] });
-          if (!rpcRes.usedRpc) {
-            const { error } = await supabase.from('scores').upsert([singleRecord]);
-            if (error) {
-              if (error.message && error.message.includes('RLS Permission Denied')) {
-                await removePendingScore(item.id);
-                scoreSynced++;
-                continue;
-              }
-              throw error;
-            }
-          }
+            await callSecuredWriteRpc('score_upsert_batch', { p_records: [singleRecord] });
 
-          await removePendingScore(item.id);
-          scoreSynced++;
-        } catch (err: any) {
-          if (err?.message?.includes('RLS Permission Denied')) {
             await removePendingScore(item.id);
             scoreSynced++;
-            continue;
-          }
-          const orgBlock = parseOrgEnforcementError(err);
-          if (orgBlock) {
-            eventBus.emit('org_enforcement', { code: orgBlock });
+          } catch (err: any) {
+            if (err?.code === 'unauthorized') {
+              authRequired = true;
+              break;
+            }
+            if (err?.code === 'rpc_unavailable') {
+              break;
+            }
+            if (err?.message?.includes('RLS Permission Denied')) {
+              await removePendingScore(item.id);
+              scoreSynced++;
+              continue;
+            }
+            const orgBlock = parseOrgEnforcementError(err);
+            if (orgBlock) {
+              eventBus.emit('org_enforcement', { code: orgBlock });
+              scoreFailed++;
+              continue;
+            }
+            console.warn(`Retryable error syncing offline score ${item.id}:`, err?.message || err);
             scoreFailed++;
-            continue;
           }
-          console.warn(`Retryable error syncing offline score ${item.id}:`, err?.message || err);
-          scoreFailed++;
         }
       }
     }
   }
-
-  eventBus.emit('sync_status', { status: 'syncing', message: 'Syncing with cloud...' });
 
   notifyQueueChange();
   const totalSynced = mutationResult.syncedCount + scoreSynced;
@@ -697,12 +663,17 @@ export async function flushOfflineQueueToSupabase(): Promise<{
   eventBus.emit('sync_status', {
     status: remainingCount > 0 ? 'offline' : 'synced',
     pendingCount: remainingCount,
-    message: remainingCount > 0 ? `${remainingCount} queued` : 'Cloud Synced',
+    message: authRequired
+      ? 'Verification required to sync'
+      : remainingCount > 0
+      ? `${remainingCount} queued`
+      : 'Cloud Synced',
   });
 
   return {
     syncedCount: totalSynced,
     failedCount: mutationResult.failedCount + scoreFailed,
+    authRequired,
   };
 }
 
