@@ -2,6 +2,7 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { supabase, isSupabaseConfigured, callSecuredWriteRpc } from './supabase';
 import { APP_VERSION } from '../config/version';
 import { stampLocal, downloadJson } from './downloadUtils';
+import { parseOrgEnforcementError } from './orgEnforcement';
 
 export interface PendingScoreRecord {
   id: string;
@@ -319,6 +320,18 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
       syncedCount++;
     } catch (err: any) {
       console.warn(`Error syncing offline mutation ${item.id} (${item.table}):`, err?.message || err);
+
+      const orgBlock = parseOrgEnforcementError(err);
+      if (orgBlock) {
+        eventBus.emit('org_enforcement', { code: orgBlock });
+        item.lastError = `ORG_NOT_ALLOWED: ${orgBlock}`;
+        if (orgBlock === 'SUSPENDED' || orgBlock === 'DELETED') {
+          item.syncStatus = 'failed';
+        }
+        await db.put('pending_mutations', item);
+        failedCount++;
+        continue;
+      }
 
       const isRosterLocked = Boolean(
         err?.message?.includes('ROSTER_LOCKED') ||
@@ -651,6 +664,12 @@ export async function flushOfflineQueueToSupabase(): Promise<{
           if (err?.message?.includes('RLS Permission Denied')) {
             await removePendingScore(item.id);
             scoreSynced++;
+            continue;
+          }
+          const orgBlock = parseOrgEnforcementError(err);
+          if (orgBlock) {
+            eventBus.emit('org_enforcement', { code: orgBlock });
+            scoreFailed++;
             continue;
           }
           console.warn(`Retryable error syncing offline score ${item.id}:`, err?.message || err);

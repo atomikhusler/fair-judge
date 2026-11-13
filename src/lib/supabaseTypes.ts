@@ -23,6 +23,11 @@ export interface Organization {
   name: string;
   email?: string;
   verification_status?: VerificationStatus; // 'pending' | 'verified' | 'rejected'
+  rejection_reason?: string | null;
+  verified_at?: string | null;
+  suspended?: boolean;
+  suspended_reason?: string | null;
+  deleted_at?: string | null;
   tie_breaker_enabled?: boolean; // Default false (off by default)
   tie_breaker_method?: TieBreakerMethod; // 'olympic' | 'shared' | 'manual'
   custom_participant_fields?: CustomParticipantField[];

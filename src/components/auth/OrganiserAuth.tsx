@@ -20,7 +20,7 @@ import { showToast, toast } from '../common/ToastProvider';
 import { sanitizeAuthError } from './authSanitizer';
 
 interface OrganiserAuthProps {
-  onOrganiserLogin: (org: Organization, sessionToken?: string) => void;
+  onOrganiserLogin: (org: Organization, sessionToken?: string, mustChange?: boolean) => void;
   onBack: () => void;
 }
 
@@ -122,14 +122,20 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
       setIsSubmitting(true);
       try {
         // Strict read-only login validation via authService (no auto-registration fallback)
-        const { org, sessionToken } = await authService.loginOrganiser(identifier, password);
+        const { org, sessionToken, mustChange } = await authService.loginOrganiser(identifier, password);
 
-        onOrganiserLogin(org, sessionToken);
+        onOrganiserLogin(org, sessionToken, mustChange);
       } catch (err: any) {
         console.warn('Login attempt notice:', err?.message || err);
-        const msg = err.message?.includes('Invalid Organization ID')
-          ? err.message
-          : 'Invalid Organization ID or Master Password.';
+        const rawMsg = typeof err?.message === 'string' ? err.message : '';
+        const msg =
+          rawMsg.includes('Invalid Organization ID') ||
+          rawMsg.includes('suspended') ||
+          rawMsg.includes('removed') ||
+          rawMsg.includes('Too many attempts') ||
+          rawMsg.includes('internet connection')
+            ? rawMsg
+            : 'Invalid Organization ID or Master Password.';
         setErrorMessage(msg);
         showToast(msg, 'error');
       } finally {

@@ -31,6 +31,7 @@ export interface JudgeAuthResult {
 export interface OrganiserAuthResult {
   org: Organization;
   sessionToken?: string;
+  mustChange?: boolean;
 }
 
 export const authService = {
@@ -78,6 +79,14 @@ export const authService = {
         } else {
           const res = rpcData as any;
           if (!res || !res.ok || !res.judge) {
+            const errCode = res?.error || res?.reason;
+            if (errCode === 'org_deleted') {
+              throw new Error('This organization has been removed.');
+            }
+            if (errCode === 'org_suspended') {
+              const reason = typeof res?.detail === 'string' && res.detail.trim() ? `: ${res.detail.trim()}` : '';
+              throw new Error(`This organization is suspended${reason}`);
+            }
             throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
           }
 
@@ -108,7 +117,11 @@ export const authService = {
           );
         }
       } catch (cloudErr: any) {
-        if (cloudErr.message?.includes('Authentication Failed')) {
+        if (
+          cloudErr.message?.includes('Authentication Failed') ||
+          cloudErr.message?.includes('organization is suspended') ||
+          cloudErr.message?.includes('organization has been removed')
+        ) {
           throw cloudErr;
         }
         console.warn('judge_login RPC notice, evaluating fallback:', cloudErr);
@@ -285,6 +298,13 @@ export const authService = {
         if (errCode === 'too_many_attempts') {
           throw new Error('Too many attempts. Try again in 15 minutes.');
         }
+        if (errCode === 'org_deleted') {
+          throw new Error('This organization has been removed.');
+        }
+        if (errCode === 'org_suspended') {
+          const reason = typeof res?.detail === 'string' && res.detail.trim() ? `: ${res.detail.trim()}` : '';
+          throw new Error(`This organization is suspended${reason}`);
+        }
         throw new Error('Invalid Organization ID or Master Password.');
       }
 
@@ -301,12 +321,15 @@ export const authService = {
       return {
         org: foundOrg as Organization,
         sessionToken: typeof res.session_token === 'string' ? res.session_token : undefined,
+        mustChange: Boolean(res.must_change),
       };
     } catch (err: any) {
       if (
         err.message === 'Organiser sign-in needs an internet connection.' ||
         err.message === 'Too many attempts. Try again in 15 minutes.' ||
-        err.message === 'Invalid Organization ID or Master Password.'
+        err.message === 'Invalid Organization ID or Master Password.' ||
+        err.message === 'This organization has been removed.' ||
+        err.message?.startsWith('This organization is suspended')
       ) {
         throw err;
       }

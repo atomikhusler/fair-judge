@@ -1,16 +1,33 @@
 import React from 'react';
 import { Scale, Gavel, Command } from 'lucide-react';
+import { useSecretTap } from '../../lib/useSecretTap';
 
 interface GatewayProps {
   onSelectRole: (role: 'organiser' | 'judge') => void;
+  onOpenAdmin?: () => void;
 }
 
-export function Gateway({ onSelectRole }: GatewayProps) {
+export function Gateway({ onSelectRole, onOpenAdmin }: GatewayProps) {
+  const handleLogoTap = useSecretTap({
+    requiredTaps: 5,
+    windowMs: 2000,
+    onTrigger: () => {
+      if (onOpenAdmin) {
+        onOpenAdmin();
+      } else {
+        window.location.hash = '#/admin';
+      }
+    },
+  });
+
   return (
     <div className="w-full max-w-xl mx-auto flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-200">
       {/* 1. Massive Centered App Logo & Brand Anchor (No Extra Descriptive Bloat) */}
       <div className="flex flex-col items-center justify-center text-center mb-10 md:mb-12">
-        <div className="w-20 h-20 md:w-24 md:h-24 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 shadow-2xl shadow-emerald-500/15 mb-4 transition-transform hover:scale-105 duration-300">
+        <div
+          onClick={handleLogoTap}
+          className="w-20 h-20 md:w-24 md:h-24 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 shadow-2xl shadow-emerald-500/15 mb-4 transition-transform hover:scale-105 duration-300 select-none"
+        >
           <Scale className="w-10 h-10 md:w-12 md:h-12 stroke-[2.2]" />
         </div>
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-zinc-900 dark:text-white font-mono">

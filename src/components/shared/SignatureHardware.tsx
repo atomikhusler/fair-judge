@@ -11,8 +11,8 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { APP_VERSION } from '../../config/version';
-import { TELEGRAM_SUPPORT_URL } from '../../config/support';
 import { triggerHaptic } from '../../lib/haptics';
+import { SupportReportModal } from './SupportReportModal';
 import { 
   runSelfTest, 
   SelfTestRunResult, 
@@ -113,8 +113,9 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
   const [savedBugLogFilename, setSavedBugLogFilename] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keycap physical press tracking
+  // Keycap physical press tracking & support report sheet
   const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
 
   const autoWakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakePhaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -384,30 +385,10 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
     }
   };
 
-  // 1. Send to Developer Action
-  const handleSendToDeveloper = async () => {
+  // 1. Send to Developer Action (opens C2+C3 Support Modal)
+  const handleSendToDeveloper = () => {
     triggerHaptic('tick');
-    if (!testResult) return;
-    try {
-      const { filename, jsonContent, summaryLines } = await generateSelfTestReport(role, testResult);
-      // (1) Download file
-      downloadReportFile(filename, jsonContent);
-
-      // (2) Copy 3-line summary to clipboard
-      try {
-        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(summaryLines);
-        }
-      } catch {}
-
-      // (3) Open Telegram support URL
-      window.open(TELEGRAM_SUPPORT_URL, '_blank', 'noopener,noreferrer');
-
-      // (4) Toast
-      showToast('Report saved. Attach it in the Telegram group.', 'success');
-    } catch {
-      showToast('Failed to generate diagnostic report', 'error');
-    }
+    setIsSupportModalOpen(true);
   };
 
   // 0. Primary Action: Full Bug Log Download
@@ -1051,15 +1032,14 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                     <button
                       type="button"
                       onClick={handleSendToDeveloper}
-                      disabled={!testResult}
                       onPointerDown={() => {
                         triggerHaptic('light');
                         setPressedKey('send-dev');
                       }}
                       onPointerUp={() => setPressedKey(null)}
                       onPointerLeave={() => setPressedKey(null)}
-                      aria-label="Send diagnostic report to developer on Telegram"
-                      className="h-[44px] flex items-center justify-center bg-transparent border-0 cursor-pointer disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 rounded-[8px]"
+                      aria-label="Send bug report and diagnostics to developer"
+                      className="h-[44px] flex items-center justify-center bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 rounded-[8px]"
                     >
                       <div
                         data-pressed={pressedKey === 'send-dev'}
@@ -1156,6 +1136,24 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
       <p className="text-center text-xs text-zinc-500 dark:text-zinc-400 mt-2.5 px-2 font-normal leading-relaxed text-balance max-w-[28ch] mx-auto">
         Scores save on this phone first, then sync when you're online.
       </p>
+
+      <div className="flex justify-center mt-1">
+        <button
+          type="button"
+          onClick={handleSendToDeveloper}
+          className="min-h-[44px] px-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer"
+        >
+          <Send className="w-3.5 h-3.5" />
+          <span>Send bug report to developer</span>
+        </button>
+      </div>
+
+      <SupportReportModal
+        open={isSupportModalOpen}
+        role={role}
+        testResult={testResult}
+        onClose={() => setIsSupportModalOpen(false)}
+      />
     </div>
   );
 };

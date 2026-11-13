@@ -25,12 +25,15 @@ export interface ToastPayload {
   duration?: number;
 }
 
+import type { OrgBlockCode } from './orgEnforcement';
+
 export interface EventBusMap {
   cache_updated: CacheUpdatedPayload;
   sync_status: SyncStatusPayload;
   toast: ToastPayload;
   mutation_queued: { table: string; operation: string; entityId: string };
   trigger_pull_refresh: { force: boolean };
+  org_enforcement: { code: OrgBlockCode; reason?: string };
 }
 
 class EventBus {

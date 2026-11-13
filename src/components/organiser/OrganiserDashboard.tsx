@@ -15,7 +15,7 @@ import {
   X
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
-import { dbService, subscribeToDatabase, setStoredSession, invalidateCache } from '../../lib/supabase';
+import { dbService, subscribeToDatabase, getStoredSession, setStoredSession, invalidateCache } from '../../lib/supabase';
 import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
 import { eventBus } from '../../lib/eventBus';
 import { SettingsDrawer } from './SettingsDrawer';
@@ -24,6 +24,15 @@ import { PullToRefresh } from '../common/PullToRefresh';
 import { TabProgressFallback } from '../common/Skeletons';
 import { triggerHaptic } from '../../lib/haptics';
 import { lazyWithRetry } from '../../lib/lazyWithRetry';
+import {
+  PlatformAnnouncement,
+  fetchActiveAnnouncements,
+  dismissNotice,
+} from '../../lib/announcements';
+import { AnnouncementBanner } from '../common/AnnouncementBanner';
+import { OrgBlockedScreen } from '../common/OrgBlockedScreen';
+import { showToast } from '../common/ToastProvider';
+import { getOrgEnforcementMessage } from '../../lib/orgEnforcement';
 
 // Code Splitting: Asynchronously load organiser tabs with auto-retry resilience
 const LiveTab = lazyWithRetry(() => import('./tabs/LiveTab').then((m) => ({ default: m.LiveTab })), 'live');
@@ -38,6 +47,8 @@ interface OrganiserDashboardProps {
   onLogout: () => void;
   onOpenPublicView: (eventId?: string) => void;
   onSwitchToJudgeView?: () => void;
+  mustChangePassword?: boolean;
+  onPasswordChanged?: () => void;
 }
 
 function areOrganizationsEqual(a: Organization, b: Organization): boolean {
@@ -48,6 +59,10 @@ function areOrganizationsEqual(a: Organization, b: Organization): boolean {
     a.name === b.name &&
     a.email === b.email &&
     a.verification_status === b.verification_status &&
+    a.rejection_reason === b.rejection_reason &&
+    a.suspended === b.suspended &&
+    a.suspended_reason === b.suspended_reason &&
+    a.deleted_at === b.deleted_at &&
     a.tie_breaker_enabled === b.tie_breaker_enabled &&
     a.tie_breaker_method === b.tie_breaker_method &&
     a.blind_judging_enabled === b.blind_judging_enabled &&
@@ -61,14 +76,18 @@ export function OrganiserDashboard({
   organization: initialOrg,
   onLogout,
   onOpenPublicView,
+  mustChangePassword = false,
+  onPasswordChanged,
 }: OrganiserDashboardProps) {
   const [organization, setOrganization] = useState<Organization>(initialOrg);
   const [activeTab, setActiveTab] = useState<OrganiserNavTab>('live');
 
   // Modals, Drawers & UI State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(mustChangePassword);
   const [isBannerDismissed, setIsBannerDismissed] = useState(false);
+  const [announcements, setAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const [blockedMode, setBlockedMode] = useState<'suspended' | 'deleted' | null>(null);
 
   const verificationStatus = organization.verification_status || 'pending';
 
@@ -128,6 +147,7 @@ export function OrganiserDashboard({
         setStoredSession({
           role: 'organiser',
           org: freshOrg,
+          sessionToken: getStoredSession()?.sessionToken,
         });
         return freshOrg;
       });
@@ -140,6 +160,36 @@ export function OrganiserDashboard({
     } catch (err) {
       console.warn('Could not sync organization status:', err);
     }
+  }, []);
+
+  const loadAnnouncements = useCallback(async () => {
+    const items = await fetchActiveAnnouncements('organiser', orgIdRef.current);
+    setAnnouncements(items);
+  }, []);
+
+  useEffect(() => {
+    void loadAnnouncements();
+  }, [loadAnnouncements, organization.org_id]);
+
+  // Open AccountModal automatically when forced temporary password change is required
+  useEffect(() => {
+    if (mustChangePassword) {
+      setIsAccountModalOpen(true);
+    }
+  }, [mustChangePassword]);
+
+  // Listen for runtime org enforcement events (SUSPENDED / DELETED / NOT_VERIFIED)
+  useEffect(() => {
+    const unsub = eventBus.on('org_enforcement', ({ code }) => {
+      if (code === 'DELETED') {
+        setBlockedMode('deleted');
+      } else if (code === 'SUSPENDED') {
+        setBlockedMode('suspended');
+      } else if (code === 'NOT_VERIFIED') {
+        showToast(getOrgEnforcementMessage('NOT_VERIFIED'), 'warning', 4500);
+      }
+    });
+    return unsub;
   }, []);
 
   // Singleton Supabase Realtime subscription lifecycle - mounts once and cleans up on unmount
@@ -168,6 +218,7 @@ export function OrganiserDashboard({
     setStoredSession({
       role: 'organiser',
       org: updated,
+      sessionToken: getStoredSession()?.sessionToken,
     });
   };
 
@@ -177,6 +228,7 @@ export function OrganiserDashboard({
     await flushOfflineQueueToSupabase();
     await Promise.all([
       syncOrganizationStatus(),
+      loadAnnouncements(),
       dbService.getEvents(organization.org_id, true),
       dbService.getParticipants(organization.org_id, true),
       dbService.getJudges(organization.org_id, true),
@@ -192,6 +244,21 @@ export function OrganiserDashboard({
     { id: 'people', label: 'People', icon: Users },
     { id: 'insights', label: 'Insights', icon: BarChart3 },
   ];
+
+  const isOrgDeleted = Boolean(organization.deleted_at) || blockedMode === 'deleted';
+  const isOrgSuspended = Boolean(organization.suspended) || blockedMode === 'suspended';
+
+  if (isOrgDeleted || isOrgSuspended) {
+    return (
+      <OrgBlockedScreen
+        mode={isOrgDeleted ? 'deleted' : 'suspended'}
+        orgName={organization.name}
+        orgId={organization.org_id}
+        reason={organization.suspended_reason}
+        onLogout={onLogout}
+      />
+    );
+  }
 
   return (
     <div className="h-[100dvh] w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-between overflow-hidden transition-colors duration-200 relative select-none">
@@ -254,6 +321,14 @@ export function OrganiserDashboard({
         </button>
       </header>
 
+      <AnnouncementBanner
+        notices={announcements}
+        onDismiss={(id) => {
+          dismissNotice(id);
+          setAnnouncements((prev) => prev.filter((n) => n.id !== id));
+        }}
+      />
+
       {/* ======================================================== */}
       {/* 1.5 VERIFICATION STATUS BANNER (PENDING OR REJECTED)     */}
       {/* ======================================================== */}
@@ -293,7 +368,9 @@ export function OrganiserDashboard({
           <div className="flex items-start sm:items-center space-x-2.5 min-w-0 pr-6 relative">
             <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5 sm:mt-0" />
             <p className="text-[11px] font-bold text-red-700 dark:text-red-300 leading-snug pr-2">
-              Email verification failed! Your organization is scheduled for deletion. Contact Developer immediately:
+              {organization.rejection_reason
+                ? `Verification rejected: ${organization.rejection_reason}`
+                : 'Email verification failed! Your organization is scheduled for deletion. Contact Developer immediately:'}
             </p>
             {/* Mobile-only dismiss button (positioned absolutely top right if wrapping occurs) */}
             <button
@@ -360,6 +437,8 @@ export function OrganiserDashboard({
           organization={organization}
           onUpdateOrganization={handleUpdateOrganization}
           onLogout={onLogout}
+          mustChangePassword={mustChangePassword}
+          onPasswordChanged={onPasswordChanged}
         />
       ) : null}
 

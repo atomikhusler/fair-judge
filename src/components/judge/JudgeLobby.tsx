@@ -27,6 +27,14 @@ import { showToast } from '../common/ToastProvider';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
 import { APP_VERSION } from '../../config/version';
 import { SignatureHardware } from '../shared/SignatureHardware';
+import {
+  PlatformAnnouncement,
+  fetchActiveAnnouncements,
+  dismissNotice,
+} from '../../lib/announcements';
+import { AnnouncementBanner } from '../common/AnnouncementBanner';
+import { OrgBlockedScreen } from '../common/OrgBlockedScreen';
+import { eventBus } from '../../lib/eventBus';
 
 interface JudgeLobbyProps {
   orgId: string;
@@ -46,6 +54,8 @@ export function JudgeLobby({
 }: JudgeLobbyProps) {
   // Organization state for header subtitle
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [announcements, setAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const [blockedMode, setBlockedMode] = useState<'suspended' | 'deleted' | null>(null);
 
   // Modal states
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -97,12 +107,26 @@ export function JudgeLobby({
     }
   };
 
-  // Load organization details
+  // Load organization details & active platform announcements once
   useEffect(() => {
     dbService.getOrganizationByOrgId(orgId).then((org) => {
       if (org) setOrganization(org);
     });
+    fetchActiveAnnouncements('judge', orgId).then(setAnnouncements);
   }, [orgId]);
+
+  useEffect(() => {
+    const unsub = eventBus.on('org_enforcement', ({ code }) => {
+      if (code === 'DELETED') {
+        setBlockedMode('deleted');
+      } else if (code === 'SUSPENDED') {
+        setBlockedMode('suspended');
+      } else if (code === 'NOT_VERIFIED') {
+        showToast('Organization verification required before live scores can sync.', 'warning', 4500);
+      }
+    });
+    return unsub;
+  }, []);
 
   // Modal Scroll Lock: lock document.body scroll when Account modal or logout confirm is open
   useEffect(() => {
@@ -124,11 +148,26 @@ export function JudgeLobby({
     } catch (err) {
       console.warn('Queue flush note:', err);
     }
+    fetchActiveAnnouncements('judge', orgId).then(setAnnouncements);
     window.dispatchEvent(new CustomEvent('fairjudge_db_change', { detail: { table: 'all' } }));
     await new Promise((r) => setTimeout(r, 600));
   };
 
   const activeEventsCount = events.filter((e) => e.status === 'active').length;
+  const isOrgDeleted = Boolean(organization?.deleted_at) || blockedMode === 'deleted';
+  const isOrgSuspended = Boolean(organization?.suspended) || blockedMode === 'suspended';
+
+  if (isOrgDeleted || isOrgSuspended) {
+    return (
+      <OrgBlockedScreen
+        mode={isOrgDeleted ? 'deleted' : 'suspended'}
+        orgName={organization?.name}
+        orgId={orgId}
+        reason={organization?.suspended_reason}
+        onLogout={onLogout}
+      />
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] overflow-y-auto w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col items-center justify-start selection:bg-amber-500 selection:text-black transition-colors duration-200 relative">
@@ -172,6 +211,14 @@ export function JudgeLobby({
           </button>
         </div>
       </header>
+
+      <AnnouncementBanner
+        notices={announcements}
+        onDismiss={(id) => {
+          dismissNotice(id);
+          setAnnouncements((prev) => prev.filter((n) => n.id !== id));
+        }}
+      />
 
       {/* Standalone VIP Judge Pill: Just below the header (No rogue margins or flex-1) */}
       <div className="w-full flex justify-center pt-4 pb-1 px-4 shrink-0 pointer-events-none">

@@ -20,6 +20,7 @@ import {
 import { eventBus } from './eventBus';
 import { calculateRankings as engineCalculateRankings, calculateRankingsAsync as engineCalculateRankingsAsync } from './tieBreakerEngine';
 import { blackBox } from './blackBox';
+import { parseOrgEnforcementError } from './orgEnforcement';
 
 // ==========================================
 // SUPABASE CREDENTIALS & DYNAMIC CLIENT INJECTION
@@ -1075,12 +1076,16 @@ export const dbService = {
           notifyCloudSync('Event');
         }
       } catch (err: any) {
+        const orgBlock = parseOrgEnforcementError(err);
+        if (orgBlock) {
+          eventBus.emit('org_enforcement', { code: orgBlock });
+        }
         const isRosterLocked = Boolean(
           err?.code === 'ROSTER_LOCKED' ||
           err?.message?.includes('ROSTER_LOCKED') ||
           (err?.details && String(err.details).includes('ROSTER_LOCKED'))
         );
-        const isServerReturned = Boolean(err?.code || isRosterLocked);
+        const isServerReturned = Boolean(err?.code || isRosterLocked || orgBlock);
 
         // If ROSTER_LOCKED or any server-returned error: roll cache back, refetch events and rethrow
         if (isServerReturned) {
@@ -2182,6 +2187,12 @@ export const dbService = {
         }
       } catch (err: any) {
         if (err?.message?.includes('RLS Permission Denied')) throw err;
+        const orgBlock = parseOrgEnforcementError(err);
+        if (orgBlock) {
+          eventBus.emit('org_enforcement', { code: orgBlock });
+          await queueScoreLocally(optimisticScore);
+          return optimisticScore;
+        }
         console.warn('Offline mode: score ballot saved locally, deferring cloud sync:', err?.message || err);
         await queueScoreLocally(optimisticScore);
         notifyOfflineSaved('Score ballot');

@@ -7,7 +7,7 @@ interface PullToRefreshProps {
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
-  accentColor?: 'emerald' | 'amber';
+  accentColor?: 'emerald' | 'amber' | 'violet';
 }
 
 export function PullToRefresh({
@@ -153,7 +153,9 @@ export function PullToRefresh({
           className={`bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-lg rounded-full p-2.5 flex items-center justify-center ${
             accentColor === 'amber'
               ? 'text-amber-500 dark:text-amber-400'
-              : 'text-emerald-600 dark:text-emerald-400'
+              : accentColor === 'violet'
+                ? 'text-violet-500 dark:text-violet-400'
+                : 'text-emerald-600 dark:text-emerald-400'
           }`}
         >
           <RefreshCw

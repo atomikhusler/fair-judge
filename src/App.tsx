@@ -19,7 +19,7 @@ import {
 import { SuperAdminSetupModal } from './components/auth/SuperAdminSetupModal';
 import { initCacheStorage } from './lib/db/indexedDB';
 import { initOfflineSyncListener, clearAllScoreDrafts } from './lib/offlineQueue';
-import { areRecordsEqual } from './lib/eventBus';
+import { areRecordsEqual, eventBus } from './lib/eventBus';
 import { Scale } from 'lucide-react';
 import { requestStoragePersistenceOnce } from './lib/storagePersistence';
 import { scrubCachedPasswords } from './lib/authScrubber';
@@ -44,6 +44,10 @@ const JudgeLobby = lazyWithRetry(() =>
 const PublicLeaderboard = lazyWithRetry(() =>
   import('./components/public/PublicLeaderboard').then((m) => ({ default: m.PublicLeaderboard })),
   'public'
+);
+const AdminApp = lazyWithRetry(() =>
+  import('./admin/AdminApp').then((m) => ({ default: m.AdminApp })),
+  'admin'
 );
 
 export type UserSession = StoredUserSession;
@@ -73,6 +77,8 @@ export default function App() {
   });
   const [activeJudgeEvent, setActiveJudgeEvent] = useState<SupabaseEvent | null>(null);
 
+  const [isAdminRoute, setIsAdminRoute] = useState(false);
+
   // Public projector screen state
   const [isPublicView, setIsPublicView] = useState(false);
   const [publicOrgId, setPublicOrgId] = useState('');
@@ -84,6 +90,19 @@ export default function App() {
     isFading: boolean;
   } | null>(null);
   const authSplashTimerRef = useRef<{ hold?: number; fade?: number }>({});
+
+  // Forced temporary password reset flag (set via org_login must_change)
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+
+  // Smooth server-aware Sign-Out transition state
+  const [signOutOverlay, setSignOutOverlay] = useState<{
+    name: string;
+    role: 'organiser' | 'judge';
+    waitingOnServer: boolean;
+    isFading: boolean;
+  } | null>(null);
+  const isSigningOutRef = useRef(false);
+  const signOutTimersRef = useRef<{ wait?: number; fade?: number }>({});
 
   // Instant App Hydration
   useEffect(() => {
@@ -114,6 +133,18 @@ export default function App() {
 
     window.addEventListener('fairjudge_session_change', handleSessionEvent);
 
+    if (window.location.hash.startsWith('#/admin')) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+
+    const handleHashChange = () => {
+      if (window.location.hash.startsWith('#/admin')) {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+        setIsAdminRoute(true);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+
     const params = new URLSearchParams(window.location.search);
     if (params.get('view') === 'public') {
       const orgParam = params.get('orgId');
@@ -142,8 +173,11 @@ export default function App() {
     return () => {
       if (bootFadeTimer) clearTimeout(bootFadeTimer);
       if (bootUnmountTimer) clearTimeout(bootUnmountTimer);
+      if (signOutTimersRef.current.wait) clearTimeout(signOutTimersRef.current.wait);
+      if (signOutTimersRef.current.fade) clearTimeout(signOutTimersRef.current.fade);
       if (unsubSync) unsubSync();
       window.removeEventListener('fairjudge_session_change', handleSessionEvent);
+      window.removeEventListener('hashchange', handleHashChange);
     };
   }, []);
 
@@ -193,7 +227,16 @@ export default function App() {
           refreshJudgeData();
         }
       });
-      return () => unsubDb();
+      const unsubEnforce = eventBus.on('org_enforcement', ({ code }) => {
+        if (code === 'SUSPENDED' || code === 'DELETED') {
+          setActiveJudgeEvent(null);
+          refreshJudgeData();
+        }
+      });
+      return () => {
+        unsubDb();
+        unsubEnforce();
+      };
     }
   }, [session?.role, session?.org?.org_id, session?.judge?.id, refreshJudgeData]);
 
@@ -216,7 +259,7 @@ export default function App() {
   }, []);
 
   // Organiser Login Handler
-  const handleOrganiserLogin = (org: Organization, sessionToken?: string) => {
+  const handleOrganiserLogin = (org: Organization, sessionToken?: string, mustChange?: boolean) => {
     resetSignatureHardwareSession();
     resetLastTestResult();
     clearAllScoreDrafts();
@@ -226,6 +269,7 @@ export default function App() {
       org,
       sessionToken,
     };
+    setMustChangePassword(Boolean(mustChange));
     setStoredSession(newSession);
     setSession(newSession);
     triggerAuthSplash(org.name || 'Organiser');
@@ -259,6 +303,7 @@ export default function App() {
       judge,
       sessionToken,
     };
+    setMustChangePassword(false);
     setStoredSession(newSession);
     setSession(newSession);
     setJudgeEvents(assignedEvents);
@@ -266,19 +311,73 @@ export default function App() {
     triggerAuthSplash(judge.name ? `Judge ${judge.name}` : 'Judge');
   };
 
-  // Logout Handler
-  const handleLogout = () => {
-    if (session?.sessionToken) {
-      void authService.logoutSession(session.role, session.sessionToken);
+  // Smooth Server-Aware Sign-Out Handler
+  const handleLogout = useCallback(async () => {
+    if (isSigningOutRef.current) return;
+    isSigningOutRef.current = true;
+
+    const currentSession = session;
+    const role: 'organiser' | 'judge' = currentSession?.role === 'judge' ? 'judge' : 'organiser';
+    const displayName =
+      role === 'judge'
+        ? currentSession?.judge?.name || 'Judge'
+        : currentSession?.org?.name || 'Organiser';
+    const token = currentSession?.sessionToken;
+
+    const prefersReducedMotion =
+      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const minDwellMs = prefersReducedMotion ? 350 : 1200;
+    const fadeMs = prefersReducedMotion ? 150 : 350;
+
+    if (signOutTimersRef.current.wait) clearTimeout(signOutTimersRef.current.wait);
+    if (signOutTimersRef.current.fade) clearTimeout(signOutTimersRef.current.fade);
+
+    setSignOutOverlay({
+      name: displayName,
+      role,
+      waitingOnServer: false,
+      isFading: false,
+    });
+
+    if (token) {
+      signOutTimersRef.current.wait = window.setTimeout(() => {
+        setSignOutOverlay((prev) => (prev ? { ...prev, waitingOnServer: true } : null));
+      }, 1500);
     }
-    resetSignatureHardwareSession();
-    resetLastTestResult();
-    clearAllScoreDrafts();
-    setStoredSession(null);
-    setSession(null);
-    setActiveJudgeEvent(null);
-    setIsPublicView(false);
-  };
+
+    const serverLogoutPromise = token
+      ? Promise.race([
+          authService.logoutSession(role, token),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 8000)),
+        ])
+      : Promise.resolve();
+
+    const dwellPromise = new Promise<void>((resolve) => window.setTimeout(resolve, minDwellMs));
+
+    try {
+      await Promise.all([serverLogoutPromise, dwellPromise]);
+    } finally {
+      if (signOutTimersRef.current.wait) {
+        clearTimeout(signOutTimersRef.current.wait);
+        signOutTimersRef.current.wait = undefined;
+      }
+
+      resetSignatureHardwareSession();
+      resetLastTestResult();
+      clearAllScoreDrafts();
+      setMustChangePassword(false);
+      setStoredSession(null);
+      setSession(null);
+      setActiveJudgeEvent(null);
+      setIsPublicView(false);
+
+      setSignOutOverlay((prev) => (prev ? { ...prev, isFading: true } : null));
+      signOutTimersRef.current.fade = window.setTimeout(() => {
+        setSignOutOverlay(null);
+        isSigningOutRef.current = false;
+      }, fadeMs);
+    }
+  }, [session]);
 
   // Public View Launcher
   const handleOpenPublicView = (eventId?: string) => {
@@ -291,6 +390,20 @@ export default function App() {
 
   // Active Screen Content based on session and route
   const renderScreenContent = () => {
+    // 0. SUPER ADMIN CONSOLE (#/admin)
+    if (isAdminRoute) {
+      return (
+        <AdminApp
+          onExit={() => {
+            if (window.location.hash) {
+              history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+            setIsAdminRoute(false);
+          }}
+        />
+      );
+    }
+
     // 1. PUBLIC PROJECTOR SCREEN
     if (isPublicView) {
       return (
@@ -308,6 +421,7 @@ export default function App() {
         <AuthScreen
           onOrganiserLogin={handleOrganiserLogin}
           onJudgeLogin={handleJudgeLogin}
+          onOpenAdmin={() => setIsAdminRoute(true)}
         />
       );
     }
@@ -319,6 +433,8 @@ export default function App() {
           organization={session.org}
           onLogout={handleLogout}
           onOpenPublicView={handleOpenPublicView}
+          mustChangePassword={mustChangePassword}
+          onPasswordChanged={() => setMustChangePassword(false)}
         />
       );
     }
@@ -352,6 +468,7 @@ export default function App() {
       <AuthScreen
         onOrganiserLogin={handleOrganiserLogin}
         onJudgeLogin={handleJudgeLogin}
+        onOpenAdmin={() => setIsAdminRoute(true)}
       />
     );
   };
@@ -429,6 +546,44 @@ export default function App() {
                 }`}
               />
               <span>Syncing offline ledger...</span>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Smooth Server-Aware Sign-Out Overlay */}
+      {signOutOverlay && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center text-white px-6 transition-opacity duration-300 motion-reduce:transition-none ${
+            signOutOverlay.isFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          }`}
+        >
+          <div className="flex flex-col items-center text-center max-w-sm w-full">
+            <div
+              className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-xl ${
+                signOutOverlay.role === 'judge'
+                  ? 'bg-amber-500/15 border border-amber-500/40 text-amber-400 shadow-amber-500/20'
+                  : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 shadow-emerald-500/20'
+              }`}
+            >
+              <Scale className="w-8 h-8 stroke-[2.2]" />
+            </div>
+            <p className="text-base sm:text-lg font-semibold text-zinc-100 tracking-tight">
+              Signing out <span className="font-extrabold text-white">{signOutOverlay.name}</span>
+            </p>
+            <p className="text-xs font-mono text-zinc-400 mt-2 flex items-center gap-2">
+              <span
+                className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                  signOutOverlay.role === 'judge' ? 'bg-amber-400' : 'bg-emerald-400'
+                }`}
+              />
+              <span>
+                {signOutOverlay.waitingOnServer
+                  ? 'Waiting on server to finish signing out...'
+                  : 'Securing local ledger & revoking session...'}
+              </span>
             </p>
           </div>
         </div>

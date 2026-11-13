@@ -37,6 +37,8 @@ interface AccountModalProps {
   organization: Organization;
   onUpdateOrganization: (updated: Organization) => void;
   onLogout: () => void;
+  mustChangePassword?: boolean;
+  onPasswordChanged?: () => void;
 }
 
 export function AccountModal({
@@ -45,6 +47,8 @@ export function AccountModal({
   organization,
   onUpdateOrganization,
   onLogout,
+  mustChangePassword = false,
+  onPasswordChanged,
 }: AccountModalProps) {
   const [copiedOrgId, setCopiedOrgId] = useState(false);
   const { showToast } = useToast();
@@ -85,6 +89,13 @@ export function AccountModal({
     setEditName(organization.name);
     setEditEmail(organization.email || '');
   }, [organization]);
+
+  // Expand password reset automatically when temporary password is active
+  useEffect(() => {
+    if (isOpen && mustChangePassword) {
+      setIsUpdatingPassword(true);
+    }
+  }, [isOpen, mustChangePassword]);
 
   // Modal Scroll Lock: lock background scroll when modal is open
   useEffect(() => {
@@ -197,6 +208,7 @@ export function AccountModal({
         return;
       }
       showToast('Master password updated.');
+      onPasswordChanged?.();
       setIsUpdatingPassword(false);
       setCurrentPassword('');
       setNewPassword('');
@@ -463,7 +475,9 @@ export function AccountModal({
                         <div className="flex items-start space-x-2 text-xs text-red-600 dark:text-red-400 font-semibold leading-relaxed">
                           <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
                           <span>
-                            Email verification failed. Please update your email or contact the Developer / Security Team immediately before account removal:
+                            {organization.rejection_reason
+                              ? `Verification rejected: ${organization.rejection_reason}`
+                              : 'Email verification failed. Please update your email or contact the Developer / Security Team immediately before account removal:'}
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 pt-0.5">
@@ -592,6 +606,12 @@ export function AccountModal({
                 {/* Password Update Form (Inline Expandable) */}
                 {isUpdatingPassword && (
                   <form onSubmit={handleSavePassword} className="mt-3 pt-3 border-t border-stone-100 dark:border-zinc-800/60 space-y-2.5 animate-in fade-in duration-150">
+                    {mustChangePassword && (
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] font-medium text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>Temporary password active — please set a new master password now.</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
                         New Master Password

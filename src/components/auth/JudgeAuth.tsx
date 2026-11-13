@@ -147,9 +147,13 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
     } catch (err: any) {
       console.warn('QR authentication notice:', err);
-      const msg = err.message?.includes('Authentication Failed')
-        ? err.message
-        : 'Authentication Failed: Invalid ID or PIN. Please request a new QR code.';
+      const rawMsg = typeof err?.message === 'string' ? err.message : '';
+      const msg =
+        rawMsg.includes('Authentication Failed') ||
+        rawMsg.includes('suspended') ||
+        rawMsg.includes('removed')
+          ? rawMsg
+          : 'Authentication Failed: Invalid ID or PIN. Please request a new QR code.';
       setErrorMessage(msg);
       showToast(msg, 'error');
     } finally {
@@ -210,9 +214,13 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       );
     } catch (err: any) {
       console.warn('Judge authentication notice:', err);
-      const msg = err.message?.includes('Authentication Failed')
-        ? err.message
-        : 'Authentication Failed: Invalid ID or PIN. Please request a new QR code.';
+      const rawMsg = typeof err?.message === 'string' ? err.message : '';
+      const msg =
+        rawMsg.includes('Authentication Failed') ||
+        rawMsg.includes('suspended') ||
+        rawMsg.includes('removed')
+          ? rawMsg
+          : 'Authentication Failed: Invalid ID or PIN. Please request a new QR code.';
       setErrorMessage(msg);
       showToast(msg, 'error');
     } finally {

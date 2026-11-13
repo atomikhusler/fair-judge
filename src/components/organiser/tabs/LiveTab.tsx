@@ -37,6 +37,8 @@ import {
 } from '../../../lib/offlineQueue';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { showToast } from '../../common/ToastProvider';
+import { triggerHaptic } from '../../../lib/haptics';
+import { getOrgEnforcementMessage, parseOrgEnforcementError } from '../../../lib/orgEnforcement';
 
 interface LiveTimerProps {
   status: EventStatus;
@@ -951,7 +953,13 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         )
       );
     } catch (err) {
-      console.error('Failed to start session:', err);
+      const code = parseOrgEnforcementError(err);
+      if (code === 'NOT_VERIFIED') {
+        triggerHaptic('warning');
+        showToast(getOrgEnforcementMessage('NOT_VERIFIED'), 'warning', 4500);
+      } else if (!code) {
+        console.error('Failed to start session:', err);
+      }
     }
   }, []);
 
@@ -994,7 +1002,13 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         )
       );
     } catch (err) {
-      console.error('Failed to resume session:', err);
+      const code = parseOrgEnforcementError(err);
+      if (code === 'NOT_VERIFIED') {
+        triggerHaptic('warning');
+        showToast(getOrgEnforcementMessage('NOT_VERIFIED'), 'warning', 4500);
+      } else if (!code) {
+        console.error('Failed to resume session:', err);
+      }
     }
   }, []);
 
