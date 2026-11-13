@@ -196,6 +196,7 @@ export interface StoredUserSession {
   org: Organization;
   judge?: SupabaseJudge;
   event?: SupabaseEvent;
+  sessionToken?: string;
 }
 
 export function getStoredSession(): StoredUserSession | null {
@@ -206,6 +207,10 @@ export function getStoredSession(): StoredUserSession | null {
   } catch {
     return null;
   }
+}
+
+export function getStoredSessionToken(): string | null {
+  return getStoredSession()?.sessionToken || null;
 }
 
 export function setStoredSession(session: StoredUserSession | null): void {

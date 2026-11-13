@@ -24,6 +24,7 @@ import { Scale } from 'lucide-react';
 import { requestStoragePersistenceOnce } from './lib/storagePersistence';
 import { scrubCachedPasswords } from './lib/authScrubber';
 import { lazyWithRetry } from './lib/lazyWithRetry';
+import { authService } from './lib/authService';
 
 // Code Splitting: Asynchronously load major route panels with auto-retry resilience
 const OrganiserDashboard = lazyWithRetry(() =>
@@ -192,12 +193,13 @@ export default function App() {
   }, []);
 
   // Organiser Login Handler
-  const handleOrganiserLogin = (org: Organization) => {
+  const handleOrganiserLogin = (org: Organization, sessionToken?: string) => {
     clearAllScoreDrafts();
     requestStoragePersistenceOnce();
     const newSession: UserSession = {
       role: 'organiser',
       org,
+      sessionToken,
     };
     setStoredSession(newSession);
     setSession(newSession);
@@ -208,7 +210,8 @@ export default function App() {
   const handleJudgeLogin = async (
     orgId: string,
     judge: SupabaseJudge,
-    assignedEvents: SupabaseEvent[]
+    assignedEvents: SupabaseEvent[],
+    sessionToken?: string
   ) => {
     clearAllScoreDrafts();
     requestStoragePersistenceOnce();
@@ -227,6 +230,7 @@ export default function App() {
         created_at: new Date().toISOString(),
       },
       judge,
+      sessionToken,
     };
     setStoredSession(newSession);
     setSession(newSession);
@@ -237,6 +241,9 @@ export default function App() {
 
   // Logout Handler
   const handleLogout = () => {
+    if (session?.sessionToken) {
+      void authService.logoutSession(session.role, session.sessionToken);
+    }
     clearAllScoreDrafts();
     setStoredSession(null);
     setSession(null);

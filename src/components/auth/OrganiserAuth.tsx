@@ -20,7 +20,7 @@ import { showToast, toast } from '../common/ToastProvider';
 import { sanitizeAuthError } from './authSanitizer';
 
 interface OrganiserAuthProps {
-  onOrganiserLogin: (org: Organization) => void;
+  onOrganiserLogin: (org: Organization, sessionToken?: string) => void;
   onBack: () => void;
 }
 
@@ -87,14 +87,14 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
       setIsSubmitting(true);
       try {
         // Pre-flight check & strict INSERT via zero-trust authService
-        const createdOrg = await authService.registerOrganiser(
+        const { org: createdOrg, sessionToken } = await authService.registerOrganiser(
           cleanName,
           cleanEmail || undefined,
           cleanPassword
         );
 
         showToast(`Organisation "${createdOrg.name}" registered successfully!`, 'success');
-        onOrganiserLogin(createdOrg);
+        onOrganiserLogin(createdOrg, sessionToken);
       } catch (err: any) {
         console.warn('Registration attempt notice:', err?.message || err);
         const msg = err.message?.includes('Registration Failed')
@@ -122,9 +122,9 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
       setIsSubmitting(true);
       try {
         // Strict read-only login validation via authService (no auto-registration fallback)
-        const org = await authService.loginOrganiser(identifier, password);
+        const { org, sessionToken } = await authService.loginOrganiser(identifier, password);
 
-        onOrganiserLogin(org);
+        onOrganiserLogin(org, sessionToken);
       } catch (err: any) {
         console.warn('Login attempt notice:', err?.message || err);
         const msg = err.message?.includes('Invalid Organization ID')

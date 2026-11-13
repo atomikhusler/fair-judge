@@ -21,7 +21,7 @@ import { sanitizeAuthError } from './authSanitizer';
 import { parseQrCodeFromImageFile, extractJudgeCredentials } from '../../lib/qrCodeParser';
 
 interface JudgeAuthProps {
-  onJudgeLogin: (orgId: string, judge: SupabaseJudge, assignedEvents: SupabaseEvent[]) => void;
+  onJudgeLogin: (orgId: string, judge: SupabaseJudge, assignedEvents: SupabaseEvent[], sessionToken?: string) => void;
   onBack: () => void;
 }
 
@@ -127,7 +127,12 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
           eventId: creds.eventId,
         });
 
-        onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
+        onJudgeLogin(
+          verified.judge.org_id.toUpperCase(),
+          verified.judge,
+          verified.assignedEvents,
+          verified.sessionToken
+        );
         return;
       }
 
@@ -197,7 +202,12 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         pin: targetPin,
       });
 
-      onJudgeLogin(verified.judge.org_id.toUpperCase(), verified.judge, verified.assignedEvents);
+      onJudgeLogin(
+        verified.judge.org_id.toUpperCase(),
+        verified.judge,
+        verified.assignedEvents,
+        verified.sessionToken
+      );
     } catch (err: any) {
       console.warn('Judge authentication notice:', err);
       const msg = err.message?.includes('Authentication Failed')

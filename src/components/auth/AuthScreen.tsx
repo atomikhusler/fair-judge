@@ -10,8 +10,8 @@ import { ThemeToggleButton } from '../../lib/theme';
 export type AuthView = 'gateway' | 'organiser' | 'judge';
 
 interface AuthScreenProps {
-  onOrganiserLogin: (org: Organization) => void;
-  onJudgeLogin: (orgId: string, judge: SupabaseJudge, assignedEvents: SupabaseEvent[]) => void;
+  onOrganiserLogin: (org: Organization, sessionToken?: string) => void;
+  onJudgeLogin: (orgId: string, judge: SupabaseJudge, assignedEvents: SupabaseEvent[], sessionToken?: string) => void;
   initialView?: AuthView;
 }
 
