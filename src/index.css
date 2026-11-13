@@ -79,6 +79,91 @@
   will-change: transform, opacity;
 }
 
+@keyframes springSlideInLeft {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.75;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-spring-drawer {
+  animation: springSlideInLeft 380ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes fjEnter {
+  from {
+    opacity: var(--fj-enter-opacity, 1);
+    transform: translate3d(
+      var(--fj-enter-translate-x, 0),
+      var(--fj-enter-translate-y, 0),
+      0
+    ) scale3d(
+      var(--fj-enter-scale, 1),
+      var(--fj-enter-scale, 1),
+      1
+    );
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-in {
+  animation-name: fjEnter;
+  animation-duration: var(--tw-duration, 250ms);
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  animation-fill-mode: both;
+}
+
+.fade-in {
+  --fj-enter-opacity: 0;
+}
+
+.zoom-in-95 {
+  --fj-enter-scale: 0.95;
+}
+
+.slide-in-from-left {
+  --fj-enter-translate-x: -100%;
+}
+
+.slide-in-from-right {
+  --fj-enter-translate-x: 100%;
+}
+
+.slide-in-from-top-2 {
+  --fj-enter-translate-y: -0.5rem;
+}
+
+.slide-in-from-bottom-1 {
+  --fj-enter-translate-y: 0.25rem;
+}
+
+.slide-in-from-bottom-2 {
+  --fj-enter-translate-y: 0.5rem;
+}
+
+.slide-in-from-bottom-4 {
+  --fj-enter-translate-y: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spring-sheet,
+  .animate-spring-drawer,
+  .animate-breathe-fade,
+  .animate-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
 .tactile-btn {
   transition: transform 75ms cubic-bezier(0.32, 0.72, 0, 1);
   will-change: transform;

@@ -157,6 +157,12 @@ export function SettingsDrawer({
     }
   }, [organization]);
 
+  useEffect(() => {
+    if (isOpen) {
+      setHapticSetting(getHapticStrength());
+    }
+  }, [isOpen]);
+
 
   // 1. Toggle Tie-Breaker
   const handleToggleTieBreaker = async () => {
@@ -251,11 +257,11 @@ export function SettingsDrawer({
       {/* Backdrop */}
       <div 
         onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"
       />
 
       {/* Drawer Container (Sliding from Left) */}
-      <div className="relative w-full max-w-md sm:max-w-lg bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border-r border-stone-200 dark:border-zinc-800/80 shadow-2xl h-full flex flex-col z-10 animate-in slide-in-from-left duration-300 select-none">
+      <div className="relative w-full max-w-md sm:max-w-lg bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border-r border-stone-200 dark:border-zinc-800/80 shadow-2xl h-full flex flex-col z-10 animate-spring-drawer select-none">
         
 
         {/* ========================================================== */}

@@ -60,6 +60,11 @@ interface DiagnosticConsoleLine {
 let hasAutoWokenInSession = false;
 let sessionLastPosition: SwitchPosition = 'about';
 
+export function resetSignatureHardwareSession(): void {
+  hasAutoWokenInSession = false;
+  sessionLastPosition = 'about';
+}
+
 const HARDWARE_KEYS: Array<{ id: SwitchPosition; label: string; ariaLabel: string }> = [
   { id: 'sleep', label: 'SLEEP', ariaLabel: 'Sleep' },
   { id: 'about', label: 'ABOUT', ariaLabel: 'About' },
@@ -165,7 +170,6 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
         sessionLastPosition = 'about';
         setPosition('about');
         setWakeStage('blinking');
-        triggerHaptic('tick');
 
         wakePhaseTimerRef.current = setTimeout(() => {
           setWakeStage('awake');

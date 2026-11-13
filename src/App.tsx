@@ -25,6 +25,8 @@ import { requestStoragePersistenceOnce } from './lib/storagePersistence';
 import { scrubCachedPasswords } from './lib/authScrubber';
 import { lazyWithRetry } from './lib/lazyWithRetry';
 import { authService } from './lib/authService';
+import { resetSignatureHardwareSession } from './components/shared/SignatureHardware';
+import { resetLastTestResult } from './lib/selfTest';
 
 // Code Splitting: Asynchronously load major route panels with auto-retry resilience
 const OrganiserDashboard = lazyWithRetry(() =>
@@ -47,7 +49,10 @@ const PublicLeaderboard = lazyWithRetry(() =>
 export type UserSession = StoredUserSession;
 
 export default function App() {
-  const [isBooting, setIsBooting] = useState(false);
+  const [isBooting, setIsBooting] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('view') !== 'public';
+  });
   const [isBootFading, setIsBootFading] = useState(false);
   const [session, setSession] = useState<UserSession | null>(getStoredSession);
   const [judgeEvents, setJudgeEvents] = useState<SupabaseEvent[]>(() => {
@@ -118,7 +123,25 @@ export default function App() {
       setIsPublicView(true);
     }
 
+    const prefersReducedMotion =
+      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const bootHoldMs = prefersReducedMotion ? 250 : 1100;
+    const bootFadeMs = prefersReducedMotion ? 150 : 420;
+    let bootFadeTimer: number | undefined;
+    let bootUnmountTimer: number | undefined;
+
+    if (params.get('view') !== 'public') {
+      bootFadeTimer = window.setTimeout(() => {
+        setIsBootFading(true);
+        bootUnmountTimer = window.setTimeout(() => {
+          setIsBooting(false);
+        }, bootFadeMs);
+      }, bootHoldMs);
+    }
+
     return () => {
+      if (bootFadeTimer) clearTimeout(bootFadeTimer);
+      if (bootUnmountTimer) clearTimeout(bootUnmountTimer);
       if (unsubSync) unsubSync();
       window.removeEventListener('fairjudge_session_change', handleSessionEvent);
     };
@@ -194,6 +217,8 @@ export default function App() {
 
   // Organiser Login Handler
   const handleOrganiserLogin = (org: Organization, sessionToken?: string) => {
+    resetSignatureHardwareSession();
+    resetLastTestResult();
     clearAllScoreDrafts();
     requestStoragePersistenceOnce();
     const newSession: UserSession = {
@@ -213,6 +238,8 @@ export default function App() {
     assignedEvents: SupabaseEvent[],
     sessionToken?: string
   ) => {
+    resetSignatureHardwareSession();
+    resetLastTestResult();
     clearAllScoreDrafts();
     requestStoragePersistenceOnce();
     const cleanOrgId = orgId.trim().toUpperCase();
@@ -244,6 +271,8 @@ export default function App() {
     if (session?.sessionToken) {
       void authService.logoutSession(session.role, session.sessionToken);
     }
+    resetSignatureHardwareSession();
+    resetLastTestResult();
     clearAllScoreDrafts();
     setStoredSession(null);
     setSession(null);

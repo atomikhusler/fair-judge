@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Scale,
   CircleUser, 
@@ -105,6 +106,9 @@ export function JudgeLobby({
 
   // Modal Scroll Lock: lock document.body scroll when Account modal or logout confirm is open
   useEffect(() => {
+    if (isAccountModalOpen) {
+      setHapticSetting(getHapticStrength());
+    }
     if (isAccountModalOpen || showLogoutConfirm) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
@@ -301,191 +305,201 @@ export function JudgeLobby({
         {/* ======================================================== */}
         {/* PART 3: THE JUDGE ACCOUNT MODAL (Grouped Cards)          */}
         {/* ======================================================== */}
-        {isAccountModalOpen ? (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 pointer-events-auto">
-            {/* Backdrop */}
-            <div 
-              onClick={() => setIsAccountModalOpen(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
-            />
+        {isAccountModalOpen
+          ? (() => {
+              const accountModalContent = (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 pointer-events-auto">
+                  {/* Backdrop */}
+                  <div 
+                    onClick={() => setIsAccountModalOpen(false)}
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+                  />
 
-            {/* Modal Dialog */}
-            <div className="relative w-full max-w-sm bg-stone-100/90 dark:bg-zinc-950 text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 select-none">
-              
-              {/* Modal Header */}
-              <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center ${diagAnimating ? 'animate-flip-y' : ''}`}>
-                    <CircleUser className="w-5 h-5 stroke-[2.2]" />
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
-                        Judge Terminal
-                      </h3>
+                  {/* Modal Dialog */}
+                  <div className="relative w-full max-w-sm bg-stone-100/90 dark:bg-zinc-950 text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden animate-spring-sheet select-none">
+                    
+                    {/* Modal Header */}
+                    <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center ${diagAnimating ? 'animate-flip-y' : ''}`}>
+                          <CircleUser className="w-5 h-5 stroke-[2.2]" />
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
+                              Judge Terminal
+                            </h3>
+                            <button
+                              type="button"
+                              onClick={handleVersionTap}
+                              className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 active:scale-95 transition-transform cursor-pointer select-none"
+                              title="Tap 5 times to run system diagnostics"
+                            >
+                              v{APP_VERSION}
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-zinc-500 font-mono font-medium">
+                            Active VIP Session
+                          </p>
+                        </div>
+                      </div>
+
                       <button
-                        type="button"
-                        onClick={handleVersionTap}
-                        className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 active:scale-95 transition-transform cursor-pointer select-none"
-                        title="Tap 5 times to run system diagnostics"
+                        onClick={() => setIsAccountModalOpen(false)}
+                        className="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer"
+                        aria-label="Close modal"
                       >
-                        v{APP_VERSION}
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
-                    <p className="text-[11px] text-zinc-500 font-mono font-medium">
-                      Active VIP Session
-                    </p>
-                  </div>
-                </div>
 
-                <button
-                  onClick={() => setIsAccountModalOpen(false)}
-                  className="w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer"
-                  aria-label="Close modal"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+                    {/* Grouped Details Card (Scrollable Modal Body) */}
+                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3 pb-10">
+                      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800/80 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60 text-xs">
+                        {/* Name Row */}
+                        <div className="p-3.5 flex items-center justify-between">
+                          <span className="text-zinc-500 font-medium">Judge Name</span>
+                          <span className="font-extrabold text-zinc-900 dark:text-white text-sm">
+                            {judge.name}
+                          </span>
+                        </div>
 
-              {/* Grouped Details Card */}
-              <div className="p-4 space-y-3">
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-stone-200 dark:border-zinc-800/80 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60 text-xs">
-                  {/* Name Row */}
-                  <div className="p-3.5 flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Judge Name</span>
-                    <span className="font-extrabold text-zinc-900 dark:text-white text-sm">
-                      {judge.name}
-                    </span>
-                  </div>
+                        {/* ID / PIN Row */}
+                        <div className="p-3.5 flex items-center justify-between">
+                          <span className="text-zinc-500 font-medium">Terminal PIN / ID</span>
+                          <span className="font-mono font-bold text-amber-500 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
+                            PIN: {judge.pin || judge.judge_pin || '••••'}
+                          </span>
+                        </div>
 
-                  {/* ID / PIN Row */}
-                  <div className="p-3.5 flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Terminal PIN / ID</span>
-                    <span className="font-mono font-bold text-amber-500 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
-                      PIN: {judge.pin || judge.judge_pin || '••••'}
-                    </span>
-                  </div>
+                        {/* Organization Row */}
+                        <div className="p-3.5 flex items-center justify-between">
+                          <span className="text-zinc-500 font-medium">Organization</span>
+                          <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">
+                            {orgId}
+                          </span>
+                        </div>
 
-                  {/* Organization Row */}
-                  <div className="p-3.5 flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Organization</span>
-                    <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">
-                      {orgId}
-                    </span>
-                  </div>
+                        {/* Assigned Events Count */}
+                        <div className="p-3.5 flex items-center justify-between">
+                          <span className="text-zinc-500 font-medium">Assigned Events</span>
+                          <span className="font-mono font-bold text-amber-500 dark:text-amber-400">
+                            {events.length} Events
+                          </span>
+                        </div>
 
-                  {/* Assigned Events Count */}
-                  <div className="p-3.5 flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Assigned Events</span>
-                    <span className="font-mono font-bold text-amber-500 dark:text-amber-400">
-                      {events.length} Events
-                    </span>
-                  </div>
+                        {/* Display Mode Toggle */}
+                        <div className="p-3.5 flex items-center justify-between">
+                          <span className="text-zinc-500 font-medium">Interface Theme</span>
+                          <ThemeToggleButton />
+                        </div>
 
-                  {/* Display Mode Toggle */}
-                  <div className="p-3.5 flex items-center justify-between">
-                    <span className="text-zinc-500 font-medium">Interface Theme</span>
-                    <ThemeToggleButton />
-                  </div>
+                        {/* Haptics */}
+                        <div className="p-3.5 flex items-center justify-between gap-2">
+                          <span className="text-zinc-500 font-medium">Haptics</span>
+                          <div className="inline-flex rounded-xl bg-stone-100 dark:bg-zinc-800 p-0.5 border border-stone-200 dark:border-zinc-700">
+                            {(['off', 'low', 'medium', 'strong'] as const).map((lvl) => (
+                              <button
+                                key={lvl}
+                                type="button"
+                                onClick={() => {
+                                  setHapticStrength(lvl);
+                                  setHapticSetting(lvl);
+                                  triggerHaptic('tick');
+                                }}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                                  hapticSetting === lvl
+                                    ? 'bg-amber-500 text-black shadow-sm'
+                                    : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                                }`}
+                              >
+                                {lvl}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
 
-                  {/* Haptics */}
-                  <div className="p-3.5 flex items-center justify-between gap-2">
-                    <span className="text-zinc-500 font-medium">Haptics</span>
-                    <div className="inline-flex rounded-xl bg-stone-100 dark:bg-zinc-800 p-0.5 border border-stone-200 dark:border-zinc-700">
-                      {(['off', 'low', 'medium', 'strong'] as const).map((lvl) => (
-                        <button
-                          key={lvl}
-                          type="button"
-                          onClick={() => {
-                            setHapticStrength(lvl);
-                            setHapticSetting(lvl);
-                            triggerHaptic('tick');
-                          }}
-                          className={`px-2 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
-                            hapticSetting === lvl
-                              ? 'bg-amber-500 text-black shadow-sm'
-                              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
-                          }`}
-                        >
-                          {lvl}
-                        </button>
-                      ))}
+                      {/* Signature Hardware: About + Self-Test Terminal (Epic 15.4) */}
+                      <div className="pt-1 pb-1">
+                        <SignatureHardware role="judge" />
+                      </div>
+
+                      {/* Bold Red Logout Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAccountModalOpen(false);
+                          setShowLogoutConfirm(true);
+                        }}
+                        className="w-full p-4 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-500 border border-red-500/25 flex items-center justify-between font-bold text-sm transition-all active:scale-[0.98] cursor-pointer shadow-sm group"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <LogOut className="w-4 h-4 text-red-500 group-hover:-translate-x-0.5 transition-transform" />
+                          <span>Sign Out of Terminal</span>
+                        </div>
+                        <ChevronRight className="w-4 h-4 opacity-50" />
+                      </button>
                     </div>
                   </div>
                 </div>
-
-                {/* Signature Hardware: About + Self-Test Terminal (Epic 15.4) */}
-                <div className="pt-1 pb-1">
-                  <SignatureHardware role="judge" />
-                </div>
-
-                {/* Bold Red Logout Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAccountModalOpen(false);
-                    setShowLogoutConfirm(true);
-                  }}
-                  className="w-full p-4 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-500 border border-red-500/25 flex items-center justify-between font-bold text-sm transition-all active:scale-[0.98] cursor-pointer shadow-sm group"
-                >
-                  <div className="flex items-center space-x-2">
-                    <LogOut className="w-4 h-4 text-red-500 group-hover:-translate-x-0.5 transition-transform" />
-                    <span>Sign Out of Terminal</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 opacity-50" />
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+              );
+              return typeof document !== 'undefined' ? createPortal(accountModalContent, document.body) : accountModalContent;
+            })()
+          : null}
 
         {/* ======================================================== */}
         {/* CUSTOM FRAMER-STYLE LOGOUT CONFIRMATION POPUP            */}
         {/* ======================================================== */}
-        {showLogoutConfirm ? (
-          <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150 pointer-events-auto">
-            <div className="bg-white dark:bg-zinc-950 border border-red-500/30 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 select-none">
-              <div className="flex items-center space-x-3 text-red-600 dark:text-red-500">
-                <div className="w-11 h-11 rounded-2xl bg-red-500/15 border border-red-500/20 flex items-center justify-center">
-                  <LogOut className="w-5 h-5 stroke-[2.2]" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-zinc-900 dark:text-white leading-tight">
-                    Sign Out of Terminal?
-                  </h3>
-                  <p className="text-xs text-red-600 dark:text-red-400 font-mono">
-                    End judging session
-                  </p>
-                </div>
-              </div>
+        {showLogoutConfirm
+          ? (() => {
+              const logoutModalContent = (
+                <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150 pointer-events-auto">
+                  <div className="bg-white dark:bg-zinc-950 border border-red-500/30 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 select-none">
+                    <div className="flex items-center space-x-3 text-red-600 dark:text-red-500">
+                      <div className="w-11 h-11 rounded-2xl bg-red-500/15 border border-red-500/20 flex items-center justify-center">
+                        <LogOut className="w-5 h-5 stroke-[2.2]" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-extrabold text-zinc-900 dark:text-white leading-tight">
+                          Sign Out of Terminal?
+                        </h3>
+                        <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                          End judging session
+                        </p>
+                      </div>
+                    </div>
 
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                Are you sure you want to exit your judging session, <strong className="text-zinc-900 dark:text-white">{judge.name}</strong>? Any unsubmitted scores will be discarded, but all previously submitted ballots remain locked in the audit ledger.
-              </p>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      Are you sure you want to exit your judging session, <strong className="text-zinc-900 dark:text-white">{judge.name}</strong>? Any unsubmitted scores will be discarded, but all previously submitted ballots remain locked in the audit ledger.
+                    </p>
 
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowLogoutConfirm(false)}
-                  className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer border border-stone-200 dark:border-zinc-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowLogoutConfirm(false);
-                    onLogout();
-                  }}
-                  className="min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Confirm Sign Out</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowLogoutConfirm(false)}
+                        className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer border border-stone-200 dark:border-zinc-800"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowLogoutConfirm(false);
+                          onLogout();
+                        }}
+                        className="min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Confirm Sign Out</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+              return typeof document !== 'undefined' ? createPortal(logoutModalContent, document.body) : logoutModalContent;
+            })()
+          : null}
 
     </div>
   );

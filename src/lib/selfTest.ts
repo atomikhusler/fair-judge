@@ -60,6 +60,11 @@ export function getLastTestResult(): { result: SelfTestRunResult | null; timesta
   return { result: lastRunResult, timestamp: lastRunTimestamp };
 }
 
+export function resetLastTestResult(): void {
+  lastRunResult = null;
+  lastRunTimestamp = null;
+}
+
 export function formatCheckedTimeAgo(timestamp: number | null): string | null {
   if (!timestamp) return null;
   const diffMs = Date.now() - timestamp;
