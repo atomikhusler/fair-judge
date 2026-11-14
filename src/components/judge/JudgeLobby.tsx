@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Scale,
@@ -33,6 +33,8 @@ import {
 import { AnnouncementBanner } from '../common/AnnouncementBanner';
 import { NotificationBell } from '../common/NotificationBell';
 import { OrgBlockedScreen } from '../common/OrgBlockedScreen';
+import { ReadRetryBanner } from '../common/ReadRetryBanner';
+import { DB_TABLES } from '../../lib/dbTables';
 import { eventBus } from '../../lib/eventBus';
 
 interface JudgeLobbyProps {
@@ -42,6 +44,9 @@ interface JudgeLobbyProps {
   onSelectEvent: (event: SupabaseEvent) => void;
   onLogout: () => void;
   onSwitchToOrganiserView?: () => void;
+  loadError?: string | null;
+  isRetryingLoad?: boolean;
+  onRetryLoad?: () => void;
 }
 
 export function JudgeLobby({
@@ -50,9 +55,16 @@ export function JudgeLobby({
   events,
   onSelectEvent,
   onLogout,
+  loadError,
+  isRetryingLoad = false,
+  onRetryLoad,
 }: JudgeLobbyProps) {
   // Organization state for header subtitle
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [orgLoadError, setOrgLoadError] = useState<string | null>(null);
+  const [isRetryingOrg, setIsRetryingOrg] = useState(false);
+  const orgLoadErrorRef = useRef<string | null>(null);
+  const orgLoadReqIdRef = useRef(0);
   const {
     bannerNotices,
     inboxNotices,
@@ -78,9 +90,18 @@ export function JudgeLobby({
   const [diagQueuePending, setDiagQueuePending] = useState<number | null>(null);
   const [isDownloadingLog, setIsDownloadingLog] = useState(false);
   const diagTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const diagAnimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (diagTimerRef.current) clearTimeout(diagTimerRef.current);
+      if (diagAnimTimerRef.current) clearTimeout(diagAnimTimerRef.current);
+    };
+  }, []);
 
   const handleVersionTap = async () => {
     if (diagTimerRef.current) clearTimeout(diagTimerRef.current);
+    if (diagAnimTimerRef.current) clearTimeout(diagAnimTimerRef.current);
     const next = diagTapCount + 1;
     if (next >= 5) {
       setDiagTapCount(0);
@@ -94,7 +115,7 @@ export function JudgeLobby({
       setDiagUnlocked(true);
       if (totalPending === 0) {
         setDiagAnimating(true);
-        setTimeout(() => setDiagAnimating(false), 650);
+        diagAnimTimerRef.current = setTimeout(() => setDiagAnimating(false), 650);
       }
     } else {
       setDiagTapCount(next);
@@ -116,12 +137,64 @@ export function JudgeLobby({
     }
   };
 
-  // Load organization details once
   useEffect(() => {
-    dbService.getOrganizationByOrgId(orgId).then((org) => {
-      if (org) setOrganization(org);
-    });
+    orgLoadErrorRef.current = orgLoadError;
+  }, [orgLoadError]);
+
+  const loadOrgDetails = useCallback(async (force: boolean = false) => {
+    const reqId = ++orgLoadReqIdRef.current;
+    if (force) setIsRetryingOrg(true);
+
+    try {
+      const res = await dbService.getOrganizationByOrgIdResult(orgId, force);
+      if (reqId !== orgLoadReqIdRef.current) return;
+
+      if (res.data) {
+        setOrganization(res.data);
+      }
+
+      if (!res.ok) {
+        setOrgLoadError(res.error || 'Showing cached organization details. Unable to reach server.');
+      } else {
+        setOrgLoadError(null);
+      }
+    } catch (err: any) {
+      if (reqId !== orgLoadReqIdRef.current) return;
+      setOrgLoadError(err?.message || 'Showing cached organization details. Unable to reach server.');
+    } finally {
+      if (force && reqId === orgLoadReqIdRef.current) {
+        setIsRetryingOrg(false);
+      }
+    }
   }, [orgId]);
+
+  useEffect(() => {
+    void loadOrgDetails(false);
+
+    const handleVisibilityOrOnline = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      if (orgLoadErrorRef.current) {
+        void loadOrgDetails(true);
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleVisibilityOrOnline);
+    }
+
+    return () => {
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleVisibilityOrOnline);
+      }
+    };
+  }, [loadOrgDetails]);
 
   useEffect(() => {
     const unsub = eventBus.on('org_enforcement', ({ code }) => {
@@ -184,8 +257,10 @@ export function JudgeLobby({
       console.warn('Queue flush note:', err);
     }
     refreshAnnouncements();
-    window.dispatchEvent(new CustomEvent('fairjudge_db_change', { detail: { table: 'all' } }));
-    await new Promise((r) => setTimeout(r, 600));
+    await loadOrgDetails(true);
+    onRetryLoad?.();
+    window.dispatchEvent(new CustomEvent('fairjudge_db_change', { detail: { table: DB_TABLES.ALL } }));
+    await new Promise((r) => setTimeout(r, 300));
   };
 
   const activeEventsCount = events.filter((e) => e.status === 'active').length;
@@ -275,6 +350,17 @@ export function JudgeLobby({
       {/* ======================================================== */}
       <PullToRefresh onRefresh={handleRefresh} accentColor="amber" className="w-full flex-1 flex flex-col items-center">
         <main className="w-full max-w-lg px-4 pt-3 pb-40 space-y-4 relative z-10">
+          {(loadError || orgLoadError) && (
+            <ReadRetryBanner
+              message={loadError || orgLoadError}
+              isRetrying={Boolean(isRetryingLoad || isRetryingOrg)}
+              onRetry={() => {
+                void loadOrgDetails(true);
+                onRetryLoad?.();
+              }}
+            />
+          )}
+
           <div className="flex items-center justify-between px-1">
             <div>
               <h2 className="text-xs font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
@@ -320,9 +406,9 @@ export function JudgeLobby({
                         showToast(`Access Restricted: "${event.name}" is ${event.status}. Only active events can be evaluated.`);
                       }
                     }}
-                    className={`w-full p-4 sm:p-5 rounded-3xl border border-t-white/5 text-left relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both ${
+                    className={`w-full p-4 sm:p-5 rounded-3xl border border-t-white/5 text-left relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both motion-reduce:animate-none ${
                       isActive
-                        ? 'bg-white dark:bg-zinc-950 border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-900/40 cursor-pointer shadow-md active:scale-95 transition-transform duration-75 ease-out will-change-transform'
+                        ? 'bg-white dark:bg-zinc-950 border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-900/40 cursor-pointer shadow-md active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform'
                         : 'bg-white/50 dark:bg-zinc-950 border-stone-200/50 dark:border-zinc-800 cursor-not-allowed opacity-65'
                     }`}
                   >

@@ -32,6 +32,9 @@ import {
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
+import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
+import { ReadRetryBanner } from '../../common/ReadRetryBanner';
+import { showToast } from '../../common/ToastProvider';
 
 interface InsightsTabProps {
   organization: Organization;
@@ -61,7 +64,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     dbService.getCachedParticipants(organization.org_id)
   );
   const [allScores, setAllScores] = useState<SupabaseScore[]>(() =>
-    dbService.getCachedScores()
+    dbService.getCachedScores(organization.org_id)
   );
   // Accordion state for Stats section
   const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({});
@@ -73,44 +76,127 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   const [isEventDropdownOpen, setIsEventDropdownOpen] = useState(false);
   const [isJudgeDropdownOpen, setIsJudgeDropdownOpen] = useState(false);
 
-  // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
+  const [readError, setReadError] = useState<string | null>(null);
+  const [isRetryingRead, setIsRetryingRead] = useState(false);
+  const readErrorRef = useRef<string | null>(null);
+  const loadRequestIdRef = useRef(0);
+
   useEffect(() => {
+    readErrorRef.current = readError;
+  }, [readError]);
+
+  const loadData = useCallback(
+    async (force: boolean = false) => {
+      const reqId = ++loadRequestIdRef.current;
+      if (force) setIsRetryingRead(true);
+
+      try {
+        const [eventsRes, judgesRes, participantsRes, scoresRes] = await Promise.all([
+          dbService.getEventsResult(organization.org_id, force),
+          dbService.getJudgesResult(organization.org_id, force),
+          dbService.getParticipantsResult(organization.org_id, force),
+          dbService.getOrgScoresResult(organization.org_id, force),
+        ]);
+
+        if (reqId !== loadRequestIdRef.current) return;
+
+        setEvents((prev) => (areRecordsEqual(prev, eventsRes.data) ? prev : eventsRes.data));
+        setJudges((prev) => (areRecordsEqual(prev, judgesRes.data) ? prev : judgesRes.data));
+        setParticipants((prev) =>
+          areRecordsEqual(prev, participantsRes.data) ? prev : participantsRes.data
+        );
+        setAllScores((prev) => (areRecordsEqual(prev, scoresRes.data) ? prev : scoresRes.data));
+
+        const firstFailure = [eventsRes, judgesRes, participantsRes, scoresRes].find((r) => !r.ok);
+        if (firstFailure) {
+          setReadError(firstFailure.error || 'Showing cached data. Unable to reach server.');
+        } else {
+          setReadError(null);
+        }
+      } catch (err: any) {
+        if (reqId !== loadRequestIdRef.current) return;
+        setReadError(err?.message || 'Showing cached data. Unable to reach server.');
+      } finally {
+        if (force && reqId === loadRequestIdRef.current) {
+          setIsRetryingRead(false);
+        }
+      }
+    },
+    [organization.org_id]
+  );
+
+  // Pure Event-Driven Architecture: Subscribe to eventBus & database updates with coordinated reads
+  useEffect(() => {
+    setEvents(dbService.getCachedEvents(organization.org_id));
+    setJudges(dbService.getCachedJudges(organization.org_id));
+    setParticipants(dbService.getCachedParticipants(organization.org_id));
+    setAllScores(dbService.getCachedScores(organization.org_id));
+
     const unsubBus = eventBus.on('cache_updated', (payload) => {
       const table = payload?.table;
-      if (!table || table === 'events' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.EVENTS)) {
         setEvents((prev) => {
           const next = dbService.getCachedEvents(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'judges' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.JUDGES)) {
         setJudges((prev) => {
           const next = dbService.getCachedJudges(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'participants' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.PARTICIPANTS)) {
         setParticipants((prev) => {
           const next = dbService.getCachedParticipants(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'scores' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.SCORES)) {
         setAllScores((prev) => {
-          const next = dbService.getCachedScores();
+          const next = dbService.getCachedScores(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
     });
 
-    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
-    dbService.getEvents(organization.org_id);
-    dbService.getJudges(organization.org_id);
-    dbService.getParticipants(organization.org_id);
-    dbService.getAllScores();
+    const unsubDb = subscribeToDatabase((table) => {
+      if (
+        matchesDbTable(
+          table,
+          DB_TABLES.EVENTS,
+          DB_TABLES.JUDGES,
+          DB_TABLES.PARTICIPANTS,
+          DB_TABLES.SCORES
+        )
+      ) {
+        void loadData(false);
+      }
+    });
 
-    return () => unsubBus();
-  }, [organization.org_id]);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && readErrorRef.current) {
+        void loadData(true);
+      }
+    };
+    const handleOnline = () => {
+      if (readErrorRef.current) {
+        void loadData(true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleOnline);
+
+    void loadData(false);
+
+    return () => {
+      unsubBus();
+      unsubDb();
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [organization.org_id, loadData]);
 
   // --- LOOKUP MAPS ---
   const eventMap = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
@@ -500,6 +586,8 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       setTimeout(() => {
         printWin.print();
       }, 250);
+    } else {
+      showToast('Pop-up blocked. Allow pop-ups to export PDF.', 'warning');
     }
   };
 
@@ -1020,13 +1108,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       {/* ======================================================== */}
       {/* PART 1: THE 4-PILLAR STICKY NAVIGATION (Segmented Bar)    */}
       {/* ======================================================== */}
-      <div className="sticky top-0 z-40 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md pt-3 pb-3 px-4 border-b border-stone-200/80 dark:border-zinc-800/80 shadow-xs">
+      <div className="sticky top-0 z-40 bg-stone-50 dark:bg-black pt-3 pb-3 px-4 border-b border-stone-200 dark:border-zinc-800 shadow-xs">
         <div className="flex w-full p-0.5 bg-stone-200/70 dark:bg-zinc-900 rounded-xl border border-stone-200/60 dark:border-zinc-800 shadow-inner">
           {/* Pillar 1: Results (Cyan Taxonomy) */}
           <button
             type="button"
             onClick={() => setActivePillar('results')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'results'
                 ? 'bg-white dark:bg-zinc-950 text-cyan-600 dark:text-cyan-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1040,7 +1128,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
           <button
             type="button"
             onClick={() => setActivePillar('stats')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'stats'
                 ? 'bg-white dark:bg-zinc-950 text-rose-600 dark:text-rose-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1054,7 +1142,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
           <button
             type="button"
             onClick={() => setActivePillar('analytics')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'analytics'
                 ? 'bg-white dark:bg-zinc-950 text-amber-600 dark:text-amber-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1068,7 +1156,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
           <button
             type="button"
             onClick={() => setActivePillar('logs')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'logs'
                 ? 'bg-white dark:bg-zinc-950 text-slate-700 dark:text-slate-300 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1081,17 +1169,25 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       </div>
 
       <div className="px-4 pt-3.5 space-y-4">
+        {readError && (
+          <ReadRetryBanner
+            message={readError}
+            isRetrying={isRetryingRead}
+            onRetry={() => loadData(true)}
+          />
+        )}
+
         {/* ======================================================== */}
         {/* SECTION A: RESULTS (The Podium View)                     */}
         {/* ======================================================== */}
         {activePillar === 'results' && (
-          <div className="space-y-4 animate-in fade-in duration-200">
+          <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
                 onClick={handleExportResultsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-cyan-500 dark:text-cyan-600" />
                 <span>Export PDF (Results)</span>
@@ -1100,7 +1196,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportResultsExcel}
-                className="min-h-[44px] px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-cyan-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-cyan-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Results)</span>
@@ -1153,7 +1249,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             return (
                               <div
                                 key={winner.participant.id}
-                                className={`rounded-xl p-3.5 border-2 flex flex-col justify-between space-y-2 transition-all ${
+                                className={`rounded-xl p-3.5 border-2 flex flex-col justify-between space-y-2 transition-colors motion-reduce:transition-none ${
                                   isGold
                                     ? 'border-yellow-400 bg-yellow-400/5 dark:bg-yellow-400/10'
                                     : isSilver
@@ -1221,13 +1317,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         {/* SECTION B: STATS (The Master Scorecard - Dark Rose Pink Taxonomy) */}
         {/* ======================================================== */}
         {activePillar === 'stats' && (
-          <div className="space-y-4 animate-in fade-in duration-200">
+          <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
                 onClick={handleExportStatsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-rose-500 dark:text-rose-400" />
                 <span>Export PDF (Stats)</span>
@@ -1236,7 +1332,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportStatsExcel}
-                className="min-h-[44px] px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-rose-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-rose-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Stats)</span>
@@ -1403,13 +1499,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         {/* SECTION C: ANALYTICS (The Integrity Engine)              */}
         {/* ======================================================== */}
         {activePillar === 'analytics' && (
-          <div className="space-y-4 animate-in fade-in duration-200">
+          <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
                 onClick={handleExportAnalyticsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-amber-500 dark:text-amber-600" />
                 <span>Export PDF (Analytics)</span>
@@ -1418,7 +1514,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportAnalyticsExcel}
-                className="min-h-[44px] px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-amber-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-amber-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Analytics)</span>
@@ -1533,7 +1629,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                           </div>
                           {/* Moving indicator pin */}
                           <div
-                            className={`absolute top-0 w-3 h-4 rounded-sm border shadow-xs transform -translate-x-1/2 transition-all ${
+                            className={`absolute top-0 w-3 h-4 rounded-sm border shadow-xs transform -translate-x-1/2 transition-opacity motion-reduce:transition-none ${
                               bm.classification === 'Lenient'
                                 ? 'bg-amber-500 border-amber-600'
                                 : bm.classification === 'Strict'
@@ -1635,13 +1731,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         {/* SECTION D: LOGS (The Cryptographic Ledger)               */}
         {/* ======================================================== */}
         {activePillar === 'logs' && (
-          <div className="space-y-4 animate-in fade-in duration-200">
+          <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
                 onClick={handleExportLogsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-stone-400 dark:text-stone-600" />
                 <span>Export PDF (Logs)</span>
@@ -1650,7 +1746,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportLogsExcel}
-                className="min-h-[44px] px-3 bg-stone-700 hover:bg-stone-600 text-white font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-700 hover:bg-stone-600 text-white font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Logs)</span>

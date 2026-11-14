@@ -9,7 +9,8 @@ import {
   TieBreakerMethod,
   VerificationStatus
 } from './supabaseTypes';
-import { queueMutationLocally, queueScoreLocally, clearAllScoreDrafts } from './offlineQueue';
+import { queueMutationLocally, queueScoreLocally, clearAllScoreDrafts, getPendingScores } from './offlineQueue';
+import { getServerClockOffsetMs, setServerClockOffsetMs, getServerNowMs } from './serverClock';
 import { 
   getHotCache, 
   setIndexedDBCache, 
@@ -22,6 +23,112 @@ import { eventBus, areRecordsEqual } from './eventBus';
 import { calculateRankings as engineCalculateRankings, calculateRankingsAsync as engineCalculateRankingsAsync } from './tieBreakerEngine';
 import { blackBox } from './blackBox';
 import { parseOrgEnforcementError } from './orgEnforcement';
+import { DB_TABLES, DbTableName, normalizeDbTableName, matchesDbTable } from './dbTables';
+
+export { getServerClockOffsetMs, getServerNowMs, DB_TABLES, normalizeDbTableName, matchesDbTable };
+export type { DbTableName };
+
+export const READ_TIMEOUT_MS = 8000;
+
+export interface ReadResult<T> {
+  ok: boolean;
+  data: T;
+  fromCache: boolean;
+  error: string | null;
+  errorCode?: string | null;
+  timedOut: boolean;
+  notFound?: boolean;
+  unauthorized?: boolean;
+}
+
+class ReadTimeoutError extends Error {
+  public readonly isTimeout = true;
+  constructor(label: string, ms: number) {
+    super(`${label} timed out after ${Math.round(ms / 1000)}s`);
+    this.name = 'ReadTimeoutError';
+  }
+}
+
+async function withReadTimeout<T>(
+  promiseLike: PromiseLike<T>,
+  label: string,
+  timeoutMs: number = READ_TIMEOUT_MS
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new ReadTimeoutError(label, timeoutMs));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.resolve(promiseLike), timeoutPromise]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
+
+const inflightNormalReads = new Map<string, Promise<ReadResult<any>>>();
+const inflightForcedReads = new Map<string, Promise<ReadResult<any>>>();
+
+function coalesceRead<T>(
+  key: string,
+  force: boolean,
+  loader: () => Promise<ReadResult<T>>
+): Promise<ReadResult<T>> {
+  const existingForced = inflightForcedReads.get(key) as Promise<ReadResult<T>> | undefined;
+  if (existingForced) {
+    return existingForced;
+  }
+  if (!force) {
+    const existingNormal = inflightNormalReads.get(key) as Promise<ReadResult<T>> | undefined;
+    if (existingNormal) {
+      return existingNormal;
+    }
+  }
+  const map = force ? inflightForcedReads : inflightNormalReads;
+  const promise = loader().finally(() => {
+    if (map.get(key) === promise) {
+      map.delete(key);
+    }
+  });
+  map.set(key, promise);
+  return promise;
+}
+
+function classifyReadError(err: any): {
+  message: string;
+  code: string | null;
+  timedOut: boolean;
+  unauthorized: boolean;
+} {
+  const timedOut = Boolean(
+    err instanceof ReadTimeoutError ||
+      err?.isTimeout ||
+      err?.name === 'AbortError' ||
+      String(err?.message || '').toLowerCase().includes('timed out')
+  );
+  const code = err?.code ? String(err.code) : err?.status ? String(err.status) : null;
+  const rawMsg = typeof err?.message === 'string' && err.message.trim()
+    ? err.message.trim()
+    : 'Network or database read failed';
+  const lower = rawMsg.toLowerCase();
+  const unauthorized = Boolean(
+    code === '401' ||
+      code === '403' ||
+      code === '42501' ||
+      code === 'PGRST301' ||
+      code === 'unauthorized' ||
+      lower.includes('unauthorized') ||
+      lower.includes('jwt expired') ||
+      lower.includes('invalid jwt')
+  );
+  return {
+    message: timedOut ? 'Request timed out after 8 seconds' : rawMsg,
+    code,
+    timedOut,
+    unauthorized,
+  };
+}
 
 // ==========================================
 // SUPABASE CREDENTIALS & DYNAMIC CLIENT INJECTION
@@ -119,6 +226,9 @@ export function getSupabaseClient(): SupabaseClient {
 }
 
 export function resetSupabaseClient(): void {
+  teardownRealtimeChannel();
+  inflightNormalReads.clear();
+  inflightForcedReads.clear();
   activeClient = null;
 }
 
@@ -224,16 +334,69 @@ function isOnlineNavigator(): boolean {
 }
 
 function isServerRejectionError(err: any): boolean {
+  const msg = String(err?.message || '').toLowerCase();
   return Boolean(
     err?.code === 'unauthorized' ||
     err?.code === 'forbidden' ||
     err?.code === 'ROSTER_LOCKED' ||
     err?.code === 'rpc_unavailable' ||
     err?.code === 'not_found' ||
+    err?.code === '42501' ||
+    err?.code === '23505' ||
+    err?.code === '23503' ||
+    err?.code === '23502' ||
+    err?.code === '22P02' ||
+    err?.code === 'RLS Permission Denied' ||
     err?.message?.includes('ROSTER_LOCKED') ||
     err?.message?.includes('RLS Permission Denied') ||
+    msg.includes('permission denied') ||
+    msg.includes('row-level security') ||
+    msg.includes('not assigned') ||
     parseOrgEnforcementError(err)
   );
+}
+
+let lastClockSyncAt = 0;
+let inflightClockSync: Promise<number> | null = null;
+
+export async function syncServerClockOffset(force: boolean = false): Promise<number> {
+  if (!isSupabaseConfigured() || !isOnlineNavigator()) {
+    return getServerClockOffsetMs();
+  }
+  const nowMono = Date.now();
+  if (!force && lastClockSyncAt > 0 && nowMono - lastClockSyncAt < 60_000) {
+    return getServerClockOffsetMs();
+  }
+  if (inflightClockSync) return inflightClockSync;
+
+  inflightClockSync = (async () => {
+    try {
+      const tBefore = Date.now();
+      const { data, error } = await withReadTimeout<{ data: any; error: any }>(
+        (supabase.rpc as any)('fj_server_time'),
+        'Sync server clock',
+        5000
+      );
+      const tAfter = Date.now();
+      if (!error && data) {
+        const serverMs = Date.parse(String(data));
+        if (Number.isFinite(serverMs)) {
+          const clientMidMs = (tBefore + tAfter) / 2;
+          const offsetMs = serverMs - clientMidMs;
+          setServerClockOffsetMs(offsetMs);
+          lastClockSyncAt = Date.now();
+          return offsetMs;
+        }
+      }
+    } catch (err) {
+      console.warn('Server clock sync note:', err);
+    } finally {
+      inflightClockSync = null;
+    }
+    return getServerClockOffsetMs();
+  })();
+
+  return inflightClockSync;
 }
 
 /**
@@ -256,10 +419,14 @@ export async function callSecuredWriteRpc<T = any>(
     throw authErr;
   }
 
-  const { data, error } = await supabase.rpc(rpcName, {
-    p_token: token,
-    ...params,
-  });
+  const { data, error } = await withReadTimeout(
+    supabase.rpc(rpcName, {
+      p_token: token,
+      ...params,
+    }),
+    `Write RPC (${rpcName})`,
+    20_000
+  );
 
   if (error) {
     const msg = (error.message || '').toLowerCase();
@@ -287,6 +454,55 @@ export async function callSecuredWriteRpc<T = any>(
   }
 
   return { data: res.data as T };
+}
+
+/**
+ * Executes a Phase 2A token-authenticated read RPC exclusively.
+ * Rejects unauthenticated callers when no session token is available.
+ */
+export async function callSecuredReadRpc<T = any>(
+  rpcName: string,
+  params: Record<string, any> = {},
+  tokenOverride?: string
+): Promise<{ data?: T; not_found?: boolean; can_delete?: boolean; judges?: any[]; participants?: any[] }> {
+  const token = (tokenOverride || getStoredSessionToken() || '').trim();
+  if (!token) {
+    const authErr = new Error('Session expired or missing. Please sign in again.');
+    (authErr as any).code = 'unauthorized';
+    throw authErr;
+  }
+
+  const { data, error } = await withReadTimeout(
+    supabase.rpc(rpcName, {
+      p_token: token,
+      ...params,
+    }),
+    `Read RPC (${rpcName})`,
+    READ_TIMEOUT_MS
+  );
+
+  if (error) {
+    const msg = (error.message || '').toLowerCase();
+    if (error.code === 'PGRST202' || error.code === '42883' || msg.includes(`function public.${rpcName}`)) {
+      const rpcErr = new Error(
+        'Database read RPCs are not deployed yet. Please run sql/15.12-phase2a-read-rpcs.sql.'
+      );
+      (rpcErr as any).code = 'rpc_unavailable';
+      throw rpcErr;
+    }
+    throw error;
+  }
+
+  const res = data as any;
+  if (!res || !res.ok) {
+    const errCode = res?.error || 'RPC_ERROR';
+    const msg = res?.message || res?.error || 'Database read rejected.';
+    const err = new Error(msg);
+    (err as any).code = errCode;
+    throw err;
+  }
+
+  return res;
 }
 
 export function setStoredSession(session: StoredUserSession | null): void {
@@ -333,27 +549,26 @@ function saveCache<T>(key: string, data: T[], silent: boolean = false) {
 
 const DB_CHANGE_EVENT = 'fairjudge_db_change';
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-let batchedTables = new Set<string>();
+let batchedTables = new Set<DbTableName>();
 
 // Debounced event broadcaster: batches multiple database changes into EventBus & CustomEvents
 function notifyDatabaseChange(table: string) {
-  batchedTables.add(table);
+  batchedTables.add(normalizeDbTableName(table));
   if (debounceTimer) {
     clearTimeout(debounceTimer);
   }
   debounceTimer = setTimeout(() => {
-    let rawTable = table.replace('fairjudge_supabase_', '');
-    if (rawTable === 'orgs') rawTable = 'organizations';
+    const tables = Array.from(batchedTables);
+    batchedTables.clear();
+    const emittedTable: DbTableName = tables.length === 1 ? tables[0] : DB_TABLES.ALL;
 
     // Broadcast through typed EventBus
-    eventBus.emit('cache_updated', { table: rawTable });
+    eventBus.emit('cache_updated', { table: emittedTable });
 
     if (typeof window !== 'undefined') {
-      const tables = Array.from(batchedTables);
-      batchedTables.clear();
       window.dispatchEvent(
         new CustomEvent(DB_CHANGE_EVENT, {
-          detail: { table: tables.length === 1 ? tables[0] : 'all', tables },
+          detail: { table: emittedTable, tables },
         })
       );
     }
@@ -361,47 +576,120 @@ function notifyDatabaseChange(table: string) {
   }, 150);
 }
 
-// Global Supabase Realtime Channel
+// Global Supabase Realtime Channel (reference-counted with exponential backoff reconnect)
 let realtimeChannel: RealtimeChannel | null = null;
+let realtimeSubscriberCount = 0;
+let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let realtimeRetryAttempt = 0;
+let realtimeOnlineListenerBound = false;
+
+function clearRealtimeReconnectTimer() {
+  if (realtimeReconnectTimer) {
+    clearTimeout(realtimeReconnectTimer);
+    realtimeReconnectTimer = null;
+  }
+}
+
+function handleRealtimeOnlineResume() {
+  if (realtimeSubscriberCount > 0 && !realtimeChannel) {
+    realtimeRetryAttempt = 0;
+    ensureRealtimeSubscription();
+  }
+}
+
+function teardownRealtimeChannel() {
+  clearRealtimeReconnectTimer();
+  if (realtimeChannel) {
+    const ch = realtimeChannel;
+    realtimeChannel = null;
+    try {
+      void supabase.removeChannel(ch).catch(() => {});
+    } catch {}
+  }
+  if (realtimeSubscriberCount === 0 && typeof window !== 'undefined' && realtimeOnlineListenerBound) {
+    window.removeEventListener('online', handleRealtimeOnlineResume);
+    realtimeOnlineListenerBound = false;
+  }
+}
+
+function scheduleRealtimeReconnect() {
+  if (
+    realtimeReconnectTimer ||
+    realtimeSubscriberCount <= 0 ||
+    !isSupabaseConfigured() ||
+    !isOnlineNavigator()
+  ) {
+    return;
+  }
+  const delayMs = Math.min(30_000, 2000 * Math.pow(2, realtimeRetryAttempt));
+  realtimeRetryAttempt = Math.min(realtimeRetryAttempt + 1, 5);
+  realtimeReconnectTimer = setTimeout(() => {
+    realtimeReconnectTimer = null;
+    if (realtimeSubscriberCount > 0) {
+      ensureRealtimeSubscription();
+    }
+  }, delayMs);
+}
 
 function ensureRealtimeSubscription() {
   if (!isSupabaseConfigured() || realtimeChannel || typeof window === 'undefined') return;
+  if (!isOnlineNavigator()) return;
+
+  if (!realtimeOnlineListenerBound) {
+    window.addEventListener('online', handleRealtimeOnlineResume);
+    realtimeOnlineListenerBound = true;
+  }
 
   try {
-    realtimeChannel = supabase
+    const channel = supabase
       .channel('fairjudge-live-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
-        invalidateCache();
-        notifyDatabaseChange('events');
+        invalidateCache(STORAGE_KEYS.EVENTS);
+        notifyDatabaseChange(DB_TABLES.EVENTS);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, () => {
         invalidateCache(STORAGE_KEYS.SCORES);
-        notifyDatabaseChange('scores');
+        notifyDatabaseChange(DB_TABLES.SCORES);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
-        invalidateCache();
-        notifyDatabaseChange('participants');
+        invalidateCache(STORAGE_KEYS.PARTICIPANTS);
+        notifyDatabaseChange(DB_TABLES.PARTICIPANTS);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'judges' }, () => {
-        invalidateCache();
-        notifyDatabaseChange('judges');
+        invalidateCache(STORAGE_KEYS.JUDGES);
+        notifyDatabaseChange(DB_TABLES.JUDGES);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'organizations' }, () => {
-        invalidateCache();
-        notifyDatabaseChange('organizations');
-      })
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn('Supabase realtime sync status:', status, '- relying on local event bus');
-        }
+        invalidateCache(STORAGE_KEYS.ORGS);
+        notifyDatabaseChange(DB_TABLES.ORGANIZATIONS);
       });
+
+    realtimeChannel = channel;
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        realtimeRetryAttempt = 0;
+        clearRealtimeReconnectTimer();
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        console.warn('Supabase realtime sync status:', status, '- scheduling reconnect');
+        if (realtimeChannel === channel) {
+          realtimeChannel = null;
+          try {
+            void supabase.removeChannel(channel).catch(() => {});
+          } catch {}
+          scheduleRealtimeReconnect();
+        }
+      }
+    });
   } catch (err) {
     console.warn('Realtime channel subscription error:', err);
+    realtimeChannel = null;
+    scheduleRealtimeReconnect();
   }
 }
 
 export function subscribeToDatabase(callback: (table: string) => void): () => void {
   if (typeof window === 'undefined') return () => {};
+  realtimeSubscriberCount += 1;
   ensureRealtimeSubscription();
 
   const handler = (e: Event) => {
@@ -409,7 +697,17 @@ export function subscribeToDatabase(callback: (table: string) => void): () => vo
     callback(custom.detail?.table || 'all');
   };
   window.addEventListener(DB_CHANGE_EVENT, handler);
-  return () => window.removeEventListener(DB_CHANGE_EVENT, handler);
+
+  let unsubscribed = false;
+  return () => {
+    if (unsubscribed) return;
+    unsubscribed = true;
+    window.removeEventListener(DB_CHANGE_EVENT, handler);
+    realtimeSubscriberCount = Math.max(0, realtimeSubscriberCount - 1);
+    if (realtimeSubscriberCount === 0) {
+      teardownRealtimeChannel();
+    }
+  };
 }
 
 // ==========================================
@@ -444,13 +742,13 @@ function normalizeEvent(e: any): SupabaseEvent {
 }
 
 function normalizeJudge(j: any): SupabaseJudge {
-  const cleanPin = j.pin || j.judge_pin || '0000';
+  const cleanPin = j.pin || j.judge_pin || '';
   return {
     ...j,
     pin: cleanPin,
     judge_pin: cleanPin,
     assigned_events: Array.isArray(j.assigned_events) ? j.assigned_events : [],
-    current_session_token: j.current_session_token || null,
+    current_session_token: null,
   };
 }
 
@@ -479,8 +777,7 @@ export interface PublicLinkSettings {
   spotlightMode?: boolean; // 2. Spotlight / Focus Mode
   tickerText?: string; // 3. Custom Broadcast Ticker
   confettiTrigger?: number; // 4. Confetti Trigger timestamp
-  showAppQr?: boolean; // 5. App Login QR
-  paginationTimer?: number; // 6. Custom Pagination Timer in seconds
+  paginationTimer?: number; // 5. Custom Pagination Timer in seconds
 }
 
 // ==========================================
@@ -517,26 +814,30 @@ export const dbService = {
     const cleanOrgId = orgId.trim().toUpperCase();
     const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
     return events
-      .filter((e) => e.org_id.toUpperCase() === cleanOrgId)
+      .filter((e) => (e.org_id || '').trim().toUpperCase() === cleanOrgId)
       .map(normalizeEvent);
   },
 
   getCachedParticipants(orgId: string): SupabaseParticipant[] {
     const cleanOrgId = orgId.trim().toUpperCase();
     const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
-    return participants.filter((p) => p.org_id.toUpperCase() === cleanOrgId);
+    return participants.filter((p) => (p.org_id || '').trim().toUpperCase() === cleanOrgId);
   },
 
   getCachedJudges(orgId: string): SupabaseJudge[] {
     const cleanOrgId = orgId.trim().toUpperCase();
     const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
     return judges
-      .filter((j) => j.org_id.toUpperCase() === cleanOrgId)
+      .filter((j) => (j.org_id || '').trim().toUpperCase() === cleanOrgId)
       .map(normalizeJudge);
   },
 
-  getCachedScores(): SupabaseScore[] {
+  getCachedScores(orgId?: string): SupabaseScore[] {
     const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+    if (orgId) {
+      const orgEventIds = new Set(this.getCachedEvents(orgId).map((e) => e.id));
+      return scores.filter((s) => orgEventIds.has(s.event_id)).map(normalizeScore);
+    }
     return scores.map(normalizeScore);
   },
 
@@ -547,108 +848,92 @@ export const dbService = {
   },
 
   // ------------------------------------------
-  // 1. ORGANIZATIONS
+  // 1. ORGANIZATIONS (Token-Checked, Own Org Only)
   // ------------------------------------------
-  async getOrganizations(force: boolean = false): Promise<Organization[]> {
-    const cacheKey = STORAGE_KEYS.ORGS;
-    const cachedOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []).map(normalizeOrg);
-
-    if (!force && isCacheValid(cacheKey) && cachedOrgs.length > 0) {
-      return cachedOrgs;
-    }
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('organizations')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (!error && data) {
-          const normalized = data.map(normalizeOrg);
-          // SILENT CACHE UPDATE: Do not trigger infinite re-renders!
-          saveCache(STORAGE_KEYS.ORGS, normalized, true);
-          updateCacheTimestamp(cacheKey);
-          return normalized;
-        }
-        if (error) console.warn('Supabase getOrganizations fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getOrganizations network fallback:', err?.message || err);
-      }
-    }
-
-    updateCacheTimestamp(cacheKey);
-    return cachedOrgs;
-  },
-
-  async getOrganizationByOrgId(orgId: string, force: boolean = false): Promise<Organization | null> {
+  async getOrganizationByOrgIdResult(
+    orgId: string,
+    force: boolean = false,
+    tokenOverride?: string
+  ): Promise<ReadResult<Organization | null>> {
     const cleanOrgId = orgId.trim().toUpperCase();
     const cacheKey = `${STORAGE_KEYS.ORGS}_${cleanOrgId}`;
     const orgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
     const found = orgs.find((o) => o.org_id.toUpperCase() === cleanOrgId);
+    const cachedOrg = found ? normalizeOrg(found) : null;
 
-    if (!force && isCacheValid(cacheKey) && found) {
-      return normalizeOrg(found);
+    if (!force && isCacheValid(cacheKey) && cachedOrg) {
+      return { ok: true, data: cachedOrg, fromCache: true, error: null, timedOut: false };
     }
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('organizations')
-          .select('*')
-          .ilike('org_id', cleanOrgId)
-          .maybeSingle();
+    return coalesceRead(cacheKey, force, async () => {
+      const latestOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
+      const latestFound = latestOrgs.find((o) => o.org_id.toUpperCase() === cleanOrgId);
+      const latestCachedOrg = latestFound ? normalizeOrg(latestFound) : null;
 
-        if (!error) {
-          if (data) {
-            const normalized = normalizeOrg(data);
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any>(
+            'read_organization',
+            { p_org_id: cleanOrgId },
+            tokenOverride
+          );
+
+          if (res.data) {
+            const normalized = normalizeOrg(res.data);
+            const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
             saveCache(
               STORAGE_KEYS.ORGS,
-              [normalized, ...orgs.filter((o) => o.org_id.toUpperCase() !== cleanOrgId)],
-              true // SILENT
+              [normalized, ...currentOrgs.filter((o) => o.org_id.toUpperCase() !== cleanOrgId)],
+              true
             );
             updateCacheTimestamp(cacheKey);
-            return normalized;
+            return { ok: true, data: normalized, fromCache: false, error: null, timedOut: false };
           }
-          // Server explicitly confirmed org does not exist
-          return null;
-        }
-        console.warn('Supabase getOrganizationByOrgId fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getOrganizationByOrgId network fallback:', err?.message || err);
-      }
-    } else if (found) {
-      updateCacheTimestamp(cacheKey);
-    }
 
-    if (found) {
-      return normalizeOrg(found);
-    }
-    return null;
+          return {
+            ok: true,
+            data: null,
+            fromCache: false,
+            error: null,
+            timedOut: false,
+            notFound: true,
+          };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getOrganizationByOrgId fallback:', info.message);
+          return {
+            ok: false,
+            data: latestCachedOrg,
+            fromCache: Boolean(latestCachedOrg),
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
+        }
+      } else if (latestCachedOrg) {
+        updateCacheTimestamp(cacheKey);
+        return { ok: true, data: latestCachedOrg, fromCache: true, error: null, timedOut: false };
+      }
+
+      return {
+        ok: Boolean(latestCachedOrg),
+        data: latestCachedOrg,
+        fromCache: Boolean(latestCachedOrg),
+        error: latestCachedOrg ? null : 'Organization not found locally',
+        timedOut: false,
+        notFound: !latestCachedOrg,
+      };
+    });
   },
 
-  async getOrganizationByIdentifier(identifier: string): Promise<Organization | null> {
-    const clean = identifier.trim();
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('organizations')
-          .select('*')
-          .or(`org_id.ilike.${clean},email.ilike.${clean}`)
-          .maybeSingle();
-
-        if (!error && data) return normalizeOrg(data);
-        if (error) console.warn('Supabase getOrganizationByIdentifier fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getOrganizationByIdentifier network fallback:', err?.message || err);
-      }
-    }
-    const orgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
-    const lower = clean.toLowerCase();
-    const found = orgs.find(
-      (o) => o.org_id.toLowerCase() === lower || (o.email && o.email.toLowerCase() === lower)
-    );
-    return found ? normalizeOrg(found) : null;
+  async getOrganizationByOrgId(
+    orgId: string,
+    force: boolean = false,
+    tokenOverride?: string
+  ): Promise<Organization | null> {
+    const res = await this.getOrganizationByOrgIdResult(orgId, force, tokenOverride);
+    return res.data;
   },
 
   async updateOrganization(orgId: string, updates: Partial<Organization>): Promise<Organization> {
@@ -718,11 +1003,11 @@ export const dbService = {
     // Clear local cache for this org
     const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
     const orgEventIds = new Set(
-      events.filter((e) => e.org_id.toUpperCase().trim() === cleanOrgId).map((e) => e.id)
+      events.filter((e) => (e.org_id || '').toUpperCase().trim() === cleanOrgId).map((e) => e.id)
     );
     saveCache(
       STORAGE_KEYS.EVENTS,
-      events.filter((e) => e.org_id.toUpperCase().trim() !== cleanOrgId),
+      events.filter((e) => (e.org_id || '').toUpperCase().trim() !== cleanOrgId),
       false
     );
 
@@ -736,14 +1021,14 @@ export const dbService = {
     const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
     saveCache(
       STORAGE_KEYS.PARTICIPANTS,
-      participants.filter((p) => p.org_id.toUpperCase().trim() !== cleanOrgId),
+      participants.filter((p) => (p.org_id || '').toUpperCase().trim() !== cleanOrgId),
       false
     );
 
     const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
     saveCache(
       STORAGE_KEYS.JUDGES,
-      judges.filter((j) => j.org_id.toUpperCase().trim() !== cleanOrgId),
+      judges.filter((j) => (j.org_id || '').toUpperCase().trim() !== cleanOrgId),
       false
     );
 
@@ -759,15 +1044,15 @@ export const dbService = {
       // Clear local cache after confirmed RPC deletion (never re-call org_reset_data RPC on org_delete)
       const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
       const orgEventIds = new Set(
-        events.filter((e) => e.org_id.toUpperCase().trim() === cleanOrgId).map((e) => e.id)
+        events.filter((e) => (e.org_id || '').toUpperCase().trim() === cleanOrgId).map((e) => e.id)
       );
-      saveCache(STORAGE_KEYS.EVENTS, events.filter((e) => e.org_id.toUpperCase().trim() !== cleanOrgId), false);
+      saveCache(STORAGE_KEYS.EVENTS, events.filter((e) => (e.org_id || '').toUpperCase().trim() !== cleanOrgId), false);
       const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
       saveCache(STORAGE_KEYS.SCORES, scores.filter((s) => !orgEventIds.has(s.event_id)), false);
       const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
-      saveCache(STORAGE_KEYS.PARTICIPANTS, participants.filter((p) => p.org_id.toUpperCase().trim() !== cleanOrgId), false);
+      saveCache(STORAGE_KEYS.PARTICIPANTS, participants.filter((p) => (p.org_id || '').toUpperCase().trim() !== cleanOrgId), false);
       const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
-      saveCache(STORAGE_KEYS.JUDGES, judges.filter((j) => j.org_id.toUpperCase().trim() !== cleanOrgId), false);
+      saveCache(STORAGE_KEYS.JUDGES, judges.filter((j) => (j.org_id || '').toUpperCase().trim() !== cleanOrgId), false);
       invalidateCache();
       clearAllScoreDrafts();
     } else {
@@ -777,7 +1062,7 @@ export const dbService = {
     const orgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
     saveCache(
       STORAGE_KEYS.ORGS,
-      orgs.filter((o) => o.org_id.toUpperCase().trim() !== cleanOrgId),
+      orgs.filter((o) => (o.org_id || '').toUpperCase().trim() !== cleanOrgId),
       false
     );
     setStoredSession(null);
@@ -802,7 +1087,6 @@ export const dbService = {
       spotlightMode: true,
       tickerText: '',
       confettiTrigger: 0,
-      showAppQr: false,
       paginationTimer: 60,
     };
   },
@@ -827,65 +1111,106 @@ export const dbService = {
   // ------------------------------------------
   // 3. EVENTS (Optimistic Mutations + SWR)
   // ------------------------------------------
-  async getEvents(orgId: string, force: boolean = false): Promise<SupabaseEvent[]> {
+  async getEventsResult(orgId: string, force: boolean = false): Promise<ReadResult<SupabaseEvent[]>> {
     const cleanOrgId = orgId.trim().toUpperCase();
     const cacheKey = `${STORAGE_KEYS.EVENTS}_${cleanOrgId}`;
     const cachedEvents = this.getCachedEvents(cleanOrgId);
 
     // 5-Minute SWR Cache Throttle: If cache is valid and has data, return it immediately!
     if (!force && isCacheValid(cacheKey) && cachedEvents.length > 0) {
-      return cachedEvents;
+      return { ok: true, data: cachedEvents, fromCache: true, error: null, timedOut: false };
     }
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('events')
-          .select('*')
-          .ilike('org_id', cleanOrgId)
-          .order('created_at', { ascending: false });
+    return coalesceRead(cacheKey, force, async () => {
+      const latestCached = this.getCachedEvents(cleanOrgId);
 
-        if (!error && data) {
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>('read_events', {});
+          const data = Array.isArray(res.data) ? res.data : [];
           const normalized = data.map(normalizeEvent);
           const allCachedEvents = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
           const otherOrgEvents = allCachedEvents.filter(
             (e) => (e.org_id || '').trim().toUpperCase() !== cleanOrgId
           );
-          const changed = !areRecordsEqual(cachedEvents, normalized);
+          const changed = !areRecordsEqual(latestCached, normalized);
           saveCache(STORAGE_KEYS.EVENTS, [...normalized, ...otherOrgEvents], !changed);
           updateCacheTimestamp(cacheKey);
-          return normalized;
+          return { ok: true, data: normalized, fromCache: false, error: null, timedOut: false };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getEvents fallback:', info.message);
+          return {
+            ok: false,
+            data: latestCached,
+            fromCache: latestCached.length > 0,
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
         }
-        if (error) console.warn('Supabase getEvents fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getEvents network fallback:', err?.message || err);
+      } else {
+        updateCacheTimestamp(cacheKey);
+        return { ok: true, data: latestCached, fromCache: true, error: null, timedOut: false };
       }
-    } else {
-      updateCacheTimestamp(cacheKey);
-    }
+    });
+  },
 
-    return cachedEvents;
+  async getEvents(orgId: string, force: boolean = false): Promise<SupabaseEvent[]> {
+    const res = await this.getEventsResult(orgId, force);
+    return res.data;
+  },
+
+  async getEventByIdResult(eventId: string): Promise<ReadResult<SupabaseEvent | null>> {
+    return coalesceRead(`event_by_id_${eventId}`, false, async () => {
+      const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+      const found = events.find((item) => item.id === eventId);
+      const cachedEvt = found ? normalizeEvent(found) : null;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>('read_events', { p_event_id: eventId });
+          const rows = Array.isArray(res.data) ? res.data : [];
+          if (rows[0]) {
+            return {
+              ok: true,
+              data: normalizeEvent(rows[0]),
+              fromCache: false,
+              error: null,
+              timedOut: false,
+            };
+          }
+          return { ok: true, data: null, fromCache: false, error: null, timedOut: false, notFound: true };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getEventById fallback:', info.message);
+          return {
+            ok: false,
+            data: cachedEvt,
+            fromCache: Boolean(cachedEvt),
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
+        }
+      }
+
+      return {
+        ok: Boolean(cachedEvt),
+        data: cachedEvt,
+        fromCache: Boolean(cachedEvt),
+        error: cachedEvt ? null : 'Event not found locally',
+        timedOut: false,
+        notFound: !cachedEvt,
+      };
+    });
   },
 
   async getEventById(eventId: string): Promise<SupabaseEvent | null> {
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('events')
-          .select('*')
-          .eq('id', eventId)
-          .maybeSingle();
-
-        if (!error && data) return normalizeEvent(data);
-        if (error) console.warn('Supabase getEventById fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getEventById network fallback:', err?.message || err);
-      }
-    }
-
-    const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
-    const found = events.find((item) => item.id === eventId);
-    return found ? normalizeEvent(found) : null;
+    const res = await this.getEventByIdResult(eventId);
+    return res.data;
   },
 
   async createEvent(eventData: {
@@ -1104,14 +1429,10 @@ export const dbService = {
   },
 
   async canDeleteEvent(eventId: string): Promise<boolean> {
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
-        const { count, error } = await supabase
-          .from('scores')
-          .select('*', { count: 'exact', head: true })
-          .eq('event_id', eventId);
-
-        if (!error) return (count ?? 0) === 0;
+        const res = await callSecuredReadRpc('read_can_delete_event', { p_event_id: eventId });
+        return Boolean(res.can_delete);
       } catch {}
     }
     const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
@@ -1162,66 +1483,119 @@ export const dbService = {
   },
 
   // ------------------------------------------
-  // 4. JUDGES (Optimistic Mutations + SWR)
+  // 4. JUDGES (Token-Checked; read_judges omits pin & current_session_token)
   // ------------------------------------------
-  async getJudges(orgId: string, force: boolean = false): Promise<SupabaseJudge[]> {
+  async getJudgesResult(orgId: string, force: boolean = false): Promise<ReadResult<SupabaseJudge[]>> {
     const cleanOrgId = orgId.trim().toUpperCase();
     const cacheKey = `${STORAGE_KEYS.JUDGES}_${cleanOrgId}`;
     const cachedJudges = this.getCachedJudges(cleanOrgId);
 
     // 5-Minute SWR Cache Throttle
     if (!force && isCacheValid(cacheKey) && cachedJudges.length > 0) {
-      return cachedJudges;
+      return { ok: true, data: cachedJudges, fromCache: true, error: null, timedOut: false };
     }
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('judges')
-          .select('*')
-          .ilike('org_id', cleanOrgId)
-          .order('created_at', { ascending: false });
+    return coalesceRead(cacheKey, force, async () => {
+      const latestCached = this.getCachedJudges(cleanOrgId);
 
-        if (!error && data) {
-          const normalized = data.map(normalizeJudge);
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>('read_judges', {});
+          const data = Array.isArray(res.data) ? res.data : [];
+          const isOrganiser = getStoredSession()?.role === 'organiser';
+          const prevPinById = new Map(latestCached.map((j) => [j.id, j.pin]));
+          const normalized = data.map((row) => {
+            const norm = normalizeJudge(row);
+            if (isOrganiser && !norm.pin) {
+              const cachedPin = prevPinById.get(norm.id);
+              if (cachedPin) {
+                return { ...norm, pin: cachedPin, judge_pin: cachedPin };
+              }
+            }
+            return norm;
+          });
           const currentJudges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
           const otherJudges = currentJudges.filter(
             (j) => (j.org_id || '').trim().toUpperCase() !== cleanOrgId
           );
-          const changed = !areRecordsEqual(cachedJudges, normalized);
+          const changed = !areRecordsEqual(latestCached, normalized);
           saveCache(STORAGE_KEYS.JUDGES, [...otherJudges, ...normalized], !changed);
           updateCacheTimestamp(cacheKey);
-          return normalized;
+          return { ok: true, data: normalized, fromCache: false, error: null, timedOut: false };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getJudges fallback:', info.message);
+          return {
+            ok: false,
+            data: latestCached,
+            fromCache: latestCached.length > 0,
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
         }
-        if (error) console.warn('Supabase getJudges fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getJudges network fallback:', err?.message || err);
+      } else {
+        updateCacheTimestamp(cacheKey);
+        return { ok: true, data: latestCached, fromCache: true, error: null, timedOut: false };
       }
-    } else {
-      updateCacheTimestamp(cacheKey);
-    }
+    });
+  },
 
-    return cachedJudges;
+  async getJudges(orgId: string, force: boolean = false): Promise<SupabaseJudge[]> {
+    const res = await this.getJudgesResult(orgId, force);
+    return res.data;
+  },
+
+  async getJudgeByIdResult(judgeId: string): Promise<ReadResult<SupabaseJudge | null>> {
+    return coalesceRead(`judge_by_id_${judgeId}`, false, async () => {
+      const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+      const found = judges.find((j) => j.id === judgeId || j.judge_id === judgeId);
+      const cachedJudge = found ? normalizeJudge(found) : null;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>('read_judges', { p_judge_id: judgeId });
+          const rows = Array.isArray(res.data) ? res.data : [];
+          if (rows[0]) {
+            return {
+              ok: true,
+              data: normalizeJudge(rows[0]),
+              fromCache: false,
+              error: null,
+              timedOut: false,
+            };
+          }
+          return { ok: true, data: null, fromCache: false, error: null, timedOut: false, notFound: true };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getJudgeById fallback:', info.message);
+          return {
+            ok: false,
+            data: cachedJudge,
+            fromCache: Boolean(cachedJudge),
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
+        }
+      }
+
+      return {
+        ok: Boolean(cachedJudge),
+        data: cachedJudge,
+        fromCache: Boolean(cachedJudge),
+        error: cachedJudge ? null : 'Judge not found locally',
+        timedOut: false,
+        notFound: !cachedJudge,
+      };
+    });
   },
 
   async getJudgeById(judgeId: string): Promise<SupabaseJudge | null> {
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('judges')
-          .select('*')
-          .eq('id', judgeId)
-          .maybeSingle();
-
-        if (!error && data) return normalizeJudge(data);
-        if (error) console.warn('Supabase getJudgeById fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getJudgeById network fallback:', err?.message || err);
-      }
-    }
-    const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
-    const found = judges.find((j) => j.id === judgeId || j.judge_id === judgeId);
-    return found ? normalizeJudge(found) : null;
+    const res = await this.getJudgeByIdResult(judgeId);
+    return res.data;
   },
 
   async createJudge(
@@ -1390,45 +1764,160 @@ export const dbService = {
   },
 
   // ------------------------------------------
-  // 5. PARTICIPANTS (Optimistic Mutations + SWR)
+  // 5. PARTICIPANTS (Token-Checked; read_participants omits mobile_number)
   // ------------------------------------------
-  async getParticipants(orgId: string, force: boolean = false): Promise<SupabaseParticipant[]> {
+  async getParticipantsResult(
+    orgId: string,
+    force: boolean = false
+  ): Promise<ReadResult<SupabaseParticipant[]>> {
     const cleanOrgId = orgId.trim().toUpperCase();
     const cacheKey = `${STORAGE_KEYS.PARTICIPANTS}_${cleanOrgId}`;
     const cached = this.getCachedParticipants(cleanOrgId);
 
     // 5-Minute SWR Cache Throttle
     if (!force && isCacheValid(cacheKey) && cached.length > 0) {
-      return cached;
+      return { ok: true, data: cached, fromCache: true, error: null, timedOut: false };
     }
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('participants')
-          .select('*')
-          .ilike('org_id', cleanOrgId)
-          .order('created_at', { ascending: true });
+    return coalesceRead(cacheKey, force, async () => {
+      const latestCached = this.getCachedParticipants(cleanOrgId);
 
-        if (!error && data) {
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>('read_participants', {});
+          const data = Array.isArray(res.data) ? (res.data as SupabaseParticipant[]) : [];
+          const isOrganiser = getStoredSession()?.role === 'organiser';
+          const prevMobileById = new Map(latestCached.map((p) => [p.id, p.mobile_number]));
+          const mergedData = data.map((p) => {
+            if (isOrganiser && !p.mobile_number) {
+              const cachedMobile = prevMobileById.get(p.id);
+              if (cachedMobile) {
+                return { ...p, mobile_number: cachedMobile };
+              }
+            }
+            return p;
+          });
           const allCached = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
           const otherOrgParticipants = allCached.filter(
             (p) => (p.org_id || '').trim().toUpperCase() !== cleanOrgId
           );
-          const changed = !areRecordsEqual(cached, data);
-          saveCache(STORAGE_KEYS.PARTICIPANTS, [...data, ...otherOrgParticipants], !changed);
+          const changed = !areRecordsEqual(latestCached, mergedData);
+          saveCache(STORAGE_KEYS.PARTICIPANTS, [...mergedData, ...otherOrgParticipants], !changed);
           updateCacheTimestamp(cacheKey);
-          return data;
+          return { ok: true, data: mergedData, fromCache: false, error: null, timedOut: false };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getParticipants fallback:', info.message);
+          return {
+            ok: false,
+            data: latestCached,
+            fromCache: latestCached.length > 0,
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
         }
-        if (error) console.warn('Supabase getParticipants fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getParticipants network fallback:', err?.message || err);
+      } else {
+        updateCacheTimestamp(cacheKey);
+        return { ok: true, data: latestCached, fromCache: true, error: null, timedOut: false };
       }
-    } else {
-      updateCacheTimestamp(cacheKey);
+    });
+  },
+
+  async getParticipants(orgId: string, force: boolean = false): Promise<SupabaseParticipant[]> {
+    const res = await this.getParticipantsResult(orgId, force);
+    return res.data;
+  },
+
+  /**
+   * Organiser-only roster read (PeopleTab & encrypted backups) returning Judge PINs and Participant contacts.
+   * Strictly gated by org_sessions token on the server.
+   */
+  async getOrgRosterCredentialsResult(
+    orgId: string,
+    force: boolean = false
+  ): Promise<ReadResult<{ judges: SupabaseJudge[]; participants: SupabaseParticipant[] }>> {
+    const cleanOrgId = orgId.trim().toUpperCase();
+    const cacheKey = `${STORAGE_KEYS.JUDGES}_roster_${cleanOrgId}`;
+    const cachedJudges = this.getCachedJudges(cleanOrgId);
+    const cachedParticipants = this.getCachedParticipants(cleanOrgId);
+    const hasJudgePins = cachedJudges.length === 0 || cachedJudges.every((j) => Boolean(j.pin));
+
+    if (!force && isCacheValid(cacheKey) && hasJudgePins && (cachedJudges.length > 0 || cachedParticipants.length > 0)) {
+      return {
+        ok: true,
+        data: { judges: cachedJudges, participants: cachedParticipants },
+        fromCache: true,
+        error: null,
+        timedOut: false,
+      };
     }
 
-    return cached;
+    return coalesceRead(cacheKey, force, async () => {
+      const latestJudges = this.getCachedJudges(cleanOrgId);
+      const latestParticipants = this.getCachedParticipants(cleanOrgId);
+
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc('read_org_roster_credentials', {});
+          const judges = (Array.isArray(res.judges) ? res.judges : []).map(normalizeJudge);
+          const participants = (Array.isArray(res.participants)
+            ? res.participants
+            : []) as SupabaseParticipant[];
+
+          const allCachedJudges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+          const otherJudges = allCachedJudges.filter(
+            (j) => (j.org_id || '').trim().toUpperCase() !== cleanOrgId
+          );
+          const judgesChanged = !areRecordsEqual(latestJudges, judges);
+          saveCache(STORAGE_KEYS.JUDGES, [...otherJudges, ...judges], !judgesChanged);
+          updateCacheTimestamp(`${STORAGE_KEYS.JUDGES}_${cleanOrgId}`);
+
+          const allCachedParticipants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+          const otherParticipants = allCachedParticipants.filter(
+            (p) => (p.org_id || '').trim().toUpperCase() !== cleanOrgId
+          );
+          const participantsChanged = !areRecordsEqual(latestParticipants, participants);
+          saveCache(
+            STORAGE_KEYS.PARTICIPANTS,
+            [...participants, ...otherParticipants],
+            !participantsChanged
+          );
+          updateCacheTimestamp(`${STORAGE_KEYS.PARTICIPANTS}_${cleanOrgId}`);
+          updateCacheTimestamp(cacheKey);
+
+          return {
+            ok: true,
+            data: { judges, participants },
+            fromCache: false,
+            error: null,
+            timedOut: false,
+          };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getOrgRosterCredentials fallback:', info.message);
+          return {
+            ok: false,
+            data: { judges: latestJudges, participants: latestParticipants },
+            fromCache: latestJudges.length > 0 || latestParticipants.length > 0,
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
+        }
+      } else {
+        updateCacheTimestamp(cacheKey);
+        return {
+          ok: true,
+          data: { judges: latestJudges, participants: latestParticipants },
+          fromCache: true,
+          error: null,
+          timedOut: false,
+        };
+      }
+    });
   },
 
   async createParticipant(
@@ -1777,79 +2266,211 @@ export const dbService = {
   },
 
   // ------------------------------------------
-  // 6. SCORES (Optimistic Submissions + SWR)
+  // 6. SCORES (Token-Checked, Event/Org Scoped + SWR)
   // ------------------------------------------
-  async getScores(eventId: string, force: boolean = false): Promise<SupabaseScore[]> {
+  async getScoresResult(eventId: string, force: boolean = false): Promise<ReadResult<SupabaseScore[]>> {
     const cacheKey = `${STORAGE_KEYS.SCORES}_${eventId}`;
     const allCached = this.getCachedScores();
     const eventCached = allCached.filter((s) => s.event_id === eventId);
 
     // 5-Minute SWR Cache Throttle
     if (!force && isCacheValid(cacheKey) && eventCached.length > 0) {
-      return eventCached;
+      return { ok: true, data: eventCached, fromCache: true, error: null, timedOut: false };
     }
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('scores')
-          .select('*')
-          .eq('event_id', eventId)
-          .order('created_at', { ascending: true });
+    return coalesceRead(cacheKey, force, async () => {
+      const latestEventCached = this.getCachedScores().filter((s) => s.event_id === eventId);
 
-        if (!error && data) {
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>('read_event_scores', { p_event_id: eventId });
+          const data = Array.isArray(res.data) ? res.data : [];
           const normalized = data.map(normalizeScore);
           const existingCache = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []).filter(
             (s) => s.event_id !== eventId
           );
-          const changed = !areRecordsEqual(eventCached, normalized);
+          const changed = !areRecordsEqual(latestEventCached, normalized);
           saveCache(STORAGE_KEYS.SCORES, [...existingCache, ...normalized], !changed);
           updateCacheTimestamp(cacheKey);
-          return normalized;
+          return { ok: true, data: normalized, fromCache: false, error: null, timedOut: false };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getScores fallback:', info.message);
+          return {
+            ok: false,
+            data: latestEventCached,
+            fromCache: latestEventCached.length > 0,
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
         }
-        if (error) console.warn('Supabase getScores fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getScores network fallback:', err?.message || err);
+      } else {
+        updateCacheTimestamp(cacheKey);
+        return { ok: true, data: latestEventCached, fromCache: true, error: null, timedOut: false };
       }
-    } else {
-      updateCacheTimestamp(cacheKey);
-    }
-
-    return eventCached;
+    });
   },
 
-  async getAllScores(force: boolean = false): Promise<SupabaseScore[]> {
-    const cacheKey = STORAGE_KEYS.SCORES;
-    const cached = this.getCachedScores();
+  async getScores(eventId: string, force: boolean = false): Promise<SupabaseScore[]> {
+    const res = await this.getScoresResult(eventId, force);
+    return res.data;
+  },
+
+  async getOrgScoresResult(
+    orgId: string,
+    force: boolean = false
+  ): Promise<ReadResult<SupabaseScore[]>> {
+    const cleanOrgId = orgId.trim().toUpperCase();
+    const cacheKey = `${STORAGE_KEYS.SCORES}_ORG_${cleanOrgId}`;
+    const cached = this.getCachedScores(cleanOrgId);
 
     // 5-Minute SWR Cache Throttle
     if (!force && isCacheValid(cacheKey) && cached.length > 0) {
-      return cached;
+      return { ok: true, data: cached, fromCache: true, error: null, timedOut: false };
     }
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('scores')
-          .select('*')
-          .order('created_at', { ascending: true });
+    return coalesceRead(cacheKey, force, async () => {
+      const latestCached = this.getCachedScores(cleanOrgId);
 
-        if (!error && data) {
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>('read_org_scores', {});
+          const data = Array.isArray(res.data) ? res.data : [];
           const normalized = data.map(normalizeScore);
-          const changed = !areRecordsEqual(cached, normalized);
-          saveCache(STORAGE_KEYS.SCORES, normalized, !changed);
-          updateCacheTimestamp(cacheKey);
-          return normalized;
-        }
-        if (error) console.warn('Supabase getAllScores fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getAllScores network fallback:', err?.message || err);
-      }
-    } else {
-      updateCacheTimestamp(cacheKey);
-    }
 
-    return cached;
+          // Keep scores from other organisations untouched in IndexedDB mirror
+          const orgEventIds = new Set(this.getCachedEvents(cleanOrgId).map((e) => e.id));
+          const allExisting = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+          const otherOrgScores = allExisting.filter((s) => !orgEventIds.has(s.event_id));
+          const changed = !areRecordsEqual(latestCached, normalized);
+          saveCache(STORAGE_KEYS.SCORES, [...otherOrgScores, ...normalized], !changed);
+          updateCacheTimestamp(cacheKey);
+          return { ok: true, data: normalized, fromCache: false, error: null, timedOut: false };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getOrgScores fallback:', info.message);
+          return {
+            ok: false,
+            data: latestCached,
+            fromCache: latestCached.length > 0,
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
+        }
+      } else {
+        updateCacheTimestamp(cacheKey);
+        return { ok: true, data: latestCached, fromCache: true, error: null, timedOut: false };
+      }
+    });
+  },
+
+  async getOrgScores(orgId: string, force: boolean = false): Promise<SupabaseScore[]> {
+    const res = await this.getOrgScoresResult(orgId, force);
+    return res.data;
+  },
+
+  async getScoreForJudgeParticipantResult(
+    eventId: string,
+    judgeId: string,
+    participantId: string
+  ): Promise<ReadResult<SupabaseScore | null>> {
+    const coalesceKey = `ballot_${eventId}_${judgeId}_${participantId}`;
+    return coalesceRead(coalesceKey, false, async () => {
+      let baseScore: SupabaseScore | null = null;
+      let readError: string | null = null;
+      let readErrorCode: string | null = null;
+      let timedOut = false;
+      let unauthorized = false;
+      let fromCache = false;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any>('read_score_for_ballot', {
+            p_event_id: eventId,
+            p_judge_id: judgeId,
+            p_participant_id: participantId,
+          });
+          if (res.data) {
+            baseScore = normalizeScore(res.data);
+          }
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          readError = info.message;
+          readErrorCode = info.code;
+          timedOut = info.timedOut;
+          unauthorized = info.unauthorized;
+          console.warn('Supabase getScore fallback:', info.message);
+        }
+      }
+
+      if (!baseScore) {
+        const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+        const match = scores.find(
+          (s) =>
+            s.event_id === eventId && s.judge_id === judgeId && s.participant_id === participantId
+        );
+        if (match) {
+          baseScore = normalizeScore(match);
+          fromCache = true;
+        }
+      }
+
+      // Merge non-failed pending offline ballots so offline scores remain visible on reload
+      try {
+        const pending = await getPendingScores();
+        const matchingPending = pending
+          .filter(
+            (s) =>
+              s.syncStatus !== 'failed' &&
+              s.event_id === eventId &&
+              s.judge_id === judgeId &&
+              s.participant_id === participantId
+          )
+          .sort((a, b) => new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime())[0];
+
+        if (matchingPending) {
+          const pendingScore = normalizeScore({
+            id: matchingPending.id,
+            event_id: matchingPending.event_id,
+            judge_id: matchingPending.judge_id,
+            participant_id: matchingPending.participant_id,
+            score_data: matchingPending.score_data || matchingPending.score_payload?.criteria || {},
+            score_payload: matchingPending.score_payload,
+            total_score: matchingPending.total_score,
+            created_at: matchingPending.score_payload?.submitted_at || matchingPending.queuedAt,
+          });
+          if (
+            !baseScore ||
+            new Date(matchingPending.queuedAt).getTime() >= new Date(baseScore.created_at).getTime()
+          ) {
+            return {
+              ok: readError === null,
+              data: pendingScore,
+              fromCache: true,
+              error: readError,
+              errorCode: readErrorCode,
+              timedOut,
+              unauthorized,
+            };
+          }
+        }
+      } catch {}
+
+      return {
+        ok: readError === null,
+        data: baseScore,
+        fromCache,
+        error: readError,
+        errorCode: readErrorCode,
+        timedOut,
+        unauthorized,
+        notFound: readError === null && !baseScore,
+      };
+    });
   },
 
   async getScoreForJudgeParticipant(
@@ -1857,32 +2478,12 @@ export const dbService = {
     judgeId: string,
     participantId: string
   ): Promise<SupabaseScore | null> {
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('scores')
-          .select('*')
-          .eq('event_id', eventId)
-          .eq('judge_id', judgeId)
-          .eq('participant_id', participantId)
-          .maybeSingle();
-
-        if (!error && data) return normalizeScore(data);
-        if (error) console.warn('Supabase getScore fallback:', error.message || error);
-      } catch (err: any) {
-        console.warn('Supabase getScore network fallback:', err?.message || err);
-      }
-    }
-
-    const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
-    const match = scores.find(
-      (s) =>
-        s.event_id === eventId && s.judge_id === judgeId && s.participant_id === participantId
-    );
-    return match ? normalizeScore(match) : null;
+    const res = await this.getScoreForJudgeParticipantResult(eventId, judgeId, participantId);
+    return res.data;
   },
 
   async submitScore(scoreData: {
+    id?: string;
     event_id: string;
     judge_id: string;
     participant_id: string;
@@ -1894,23 +2495,32 @@ export const dbService = {
       submitted_at: string;
     };
   }): Promise<SupabaseScore> {
-    // 1. Verify Event exists
+    // 1. Verify Event exists & is active
     const event = await this.getEventById(scoreData.event_id);
-    if (!event) throw new Error('Event not found');
+    if (!event) throw new Error('Event not found.');
+    if (event.status !== 'active') {
+      const statusLabel =
+        event.status === 'ended' || event.status === 'archived'
+          ? 'Event has ended.'
+          : event.status === 'paused'
+          ? 'Event is paused.'
+          : `Event is ${event.status}.`;
+      throw new Error(`${statusLabel} Ballot submission rejected.`);
+    }
 
     // 2. Verify Judge assigned
     const judge = await this.getJudgeById(scoreData.judge_id);
-    if (!judge) throw new Error('Judge not found');
+    if (!judge) throw new Error('Judge not found.');
 
     const isAssigned =
       event.assigned_judges.includes(judge.id) ||
       (judge.assigned_events || []).includes(event.id) ||
       event.status === 'active';
     if (!isAssigned) {
-      throw new Error('Judge is not assigned to evaluate this event');
+      throw new Error('Judge is not assigned to evaluate this event.');
     }
 
-    // 3. Check if score already exists (Strict Immutability with 5-minute grace period support)
+    // 3. Check if score already exists (Strict Immutability with 5-minute server-clock grace period support)
     const existing = await this.getScoreForJudgeParticipant(
       scoreData.event_id,
       scoreData.judge_id,
@@ -1921,7 +2531,7 @@ export const dbService = {
     if (existing) {
       const org = await this.getOrganizationByOrgId(event.org_id);
       const isGraceAllowed = Boolean(org?.grace_period_enabled);
-      const diffMs = Date.now() - new Date(existing.created_at).getTime();
+      const diffMs = getServerNowMs() - new Date(existing.created_at).getTime();
       isWithinGrace = isGraceAllowed && diffMs <= 5 * 60 * 1000;
 
       if (!isWithinGrace) {
@@ -1932,32 +2542,31 @@ export const dbService = {
     }
 
     const criteriaMap = scoreData.score_data || scoreData.score_payload?.criteria || {};
-    const timestamp = new Date().toISOString();
+    const timestamp = new Date(getServerNowMs()).toISOString();
     const payloadJson = scoreData.score_payload || {
       criteria: criteriaMap,
       total_score: scoreData.total_score,
       submitted_at: timestamp,
     };
 
-    // 4. OPTIMISTIC WRITE: Update local cache immediately
-    const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
+    // 4. OPTIMISTIC WRITE: Keep snapshot so server rejections roll back cleanly
+    const scoresSnapshot = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
     let optimisticScore: SupabaseScore;
 
     if (existing && isWithinGrace) {
-      const idx = scores.findIndex((s) => s.id === existing.id);
       optimisticScore = normalizeScore({
         ...existing,
         score_data: criteriaMap,
         total_score: scoreData.total_score,
         score_payload: payloadJson,
       });
-      if (idx !== -1) {
-        scores[idx] = optimisticScore;
-      }
-      saveCache(STORAGE_KEYS.SCORES, scores, false);
+      const updated = scoresSnapshot.some((s) => s.id === existing.id)
+        ? scoresSnapshot.map((s) => (s.id === existing.id ? optimisticScore : s))
+        : [...scoresSnapshot, optimisticScore];
+      saveCache(STORAGE_KEYS.SCORES, updated, false);
     } else {
       optimisticScore = normalizeScore({
-        id: generateUUID(),
+        id: scoreData.id || generateUUID(),
         event_id: scoreData.event_id,
         judge_id: scoreData.judge_id,
         participant_id: scoreData.participant_id,
@@ -1966,13 +2575,12 @@ export const dbService = {
         score_payload: payloadJson,
         created_at: timestamp,
       });
-      scores.push(optimisticScore);
-      saveCache(STORAGE_KEYS.SCORES, scores, false);
+      saveCache(STORAGE_KEYS.SCORES, [...scoresSnapshot, optimisticScore], false);
     }
 
     invalidateCache(STORAGE_KEYS.SCORES);
 
-    // 5. BACKGROUND CLOUD SYNC
+    // 5. CLOUD SYNC
     if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         const scorePayload = {
@@ -2004,19 +2612,15 @@ export const dbService = {
           return synced;
         }
       } catch (err: any) {
-        if (err?.message?.includes('RLS Permission Denied') || err?.code === 'RLS Permission Denied') {
-          throw err;
-        }
         const orgBlock = parseOrgEnforcementError(err);
         if (orgBlock) {
+          saveCache(STORAGE_KEYS.SCORES, scoresSnapshot, false);
           eventBus.emit('org_enforcement', { code: orgBlock });
-          await queueScoreLocally(optimisticScore);
-          return optimisticScore;
+          throw err;
         }
-        // On expired/missing session token, STILL queue score locally so judge never loses a ballot.
-        if (err?.code === 'unauthorized') {
-          await queueScoreLocally(optimisticScore);
-          return optimisticScore;
+        if (isServerRejectionError(err)) {
+          saveCache(STORAGE_KEYS.SCORES, scoresSnapshot, false);
+          throw err;
         }
         console.warn('Offline mode: score ballot saved locally, deferring cloud sync:', err?.message || err);
         await queueScoreLocally(optimisticScore);
@@ -2039,6 +2643,7 @@ export const dbService = {
       scoresSnapshot.filter((s) => s.id !== scoreId),
       true
     );
+    invalidateCache(STORAGE_KEYS.SCORES);
     if (isSupabaseConfigured() && isOnlineNavigator()) {
       try {
         await callSecuredWriteRpc('score_delete', { p_score_id: scoreId });

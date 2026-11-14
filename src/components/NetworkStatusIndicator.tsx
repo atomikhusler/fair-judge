@@ -44,10 +44,10 @@ export function NetworkStatusIndicator() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed top-2 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none flex flex-col items-center select-none animate-in fade-in zoom-in-95 duration-200"
+      className="fixed top-2 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none flex flex-col items-center select-none animate-in fade-in zoom-in-95 duration-200 motion-reduce:animate-none"
     >
-      <div className="py-1 px-3 rounded-full bg-amber-500/95 text-white text-[11px] font-bold shadow-lg shadow-amber-900/30 flex items-center space-x-1.5 backdrop-blur-md">
-        <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+      <div className="py-1 px-3 rounded-full bg-amber-600 dark:bg-amber-500 text-white text-[11px] font-bold shadow-lg shadow-amber-900/30 flex items-center space-x-1.5">
+        <span className="w-2 h-2 rounded-full bg-white animate-pulse motion-reduce:animate-none" />
         <span>Working Offline - Changes will sync automatically</span>
       </div>
     </div>

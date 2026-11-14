@@ -17,22 +17,35 @@ import {
   Crown,
   Scale,
   Lock,
-  QrCode,
-  PartyPopper
+  PartyPopper,
+  ChevronDown,
+  MoreVertical,
+  Maximize,
+  Minimize
 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
-import { dbService, subscribeToDatabase, PublicLinkSettings } from '../../lib/supabase';
+import { dbService, PublicLinkSettings } from '../../lib/supabase';
+import {
+  ProjectorSnapshot,
+  ProjectorSegment,
+  ProjectorOverscan,
+  BlindRankItem,
+  getProjectorDisplayPrefs,
+  saveProjectorDisplayPrefs,
+} from '../../lib/projectorService';
+import { ProjectorScoreboard } from './ProjectorScoreboard';
+import { ProjectorEventsList } from './ProjectorEventsList';
 import { 
   Organization, 
   SupabaseEvent, 
+  SupabaseJudge,
   SupabaseParticipant, 
   SupabaseScore,
   RubricCriterion 
 } from '../../lib/supabaseTypes';
 
 interface PublicLeaderboardProps {
-  orgId: string;
-  initialEventId?: string | null;
+  snapshot: ProjectorSnapshot;
+  isReconnecting?: boolean;
   onExit: () => void;
 }
 
@@ -46,98 +59,110 @@ function truncateText(text: string | undefined | null, maxLength = 25): string {
   return trimmed.slice(0, maxLength - 3).trimEnd() + '...';
 }
 
+function sanitizeTickerText(text: string | undefined | null): string {
+  if (!text) return '';
+  return text
+    .replace(/<[^>]*>/g, '')
+    .replace(/[<>]/g, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+const CONFETTI_COLORS = [
+  '#10B981',
+  '#34D399',
+  '#F59E0B',
+  '#FBBF24',
+  '#60A5FA',
+  '#EC4899',
+  '#A855F7',
+  '#FFFFFF',
+];
+
+const CONFETTI_PIECES = Array.from({ length: 48 }).map((_, idx) => ({
+  id: idx,
+  left: `${((idx * 23) % 96) + 2}%`,
+  color: CONFETTI_COLORS[idx % CONFETTI_COLORS.length],
+  delay: `${(idx % 12) * 90}ms`,
+  duration: `${2600 + (idx % 6) * 280}ms`,
+  width: idx % 3 === 0 ? '10px' : '7px',
+  height: idx % 2 === 0 ? '6px' : '10px',
+}));
+
 /**
- * Lightweight Celebratory Confetti Particle Canvas
+ * Transform + opacity celebratory confetti (respects prefers-reduced-motion)
  */
-function ConfettiCanvas({ active }: { active: boolean }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    if (!active) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    const colors = ['#10B981', '#34D399', '#F59E0B', '#FBBF24', '#60A5FA', '#EC4899', '#A855F7', '#FFFFFF'];
-    const particleCount = 140;
-    const particles = Array.from({ length: particleCount }).map(() => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height * 0.4,
-      w: Math.random() * 9 + 5,
-      h: Math.random() * 6 + 4,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      vx: (Math.random() - 0.5) * 6,
-      vy: Math.random() * 4 + 3,
-      angle: Math.random() * 360,
-      vAngle: (Math.random() - 0.5) * 8,
-      opacity: 1
-    }));
-
-    let animId: number;
-    const startTime = performance.now();
-    const duration = 4500; // 4.5s burst
-
-    const render = (time: number) => {
-      const elapsed = time - startTime;
-      if (elapsed > duration) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        return;
-      }
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const fadeProgress = Math.max(0, 1 - (elapsed / duration));
-
-      for (const p of particles) {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.angle += p.vAngle;
-
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate((p.angle * Math.PI) / 180);
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = fadeProgress;
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
-      }
-
-      animId = requestAnimationFrame(render);
-    };
-
-    animId = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(animId);
-  }, [active]);
-
+function ConfettiBurst({ active }: { active: boolean }) {
   if (!active) return null;
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="fixed inset-0 pointer-events-none z-50 w-full h-full"
-    />
+    <div
+      aria-hidden="true"
+      className="fixed inset-0 pointer-events-none z-50 overflow-hidden"
+    >
+      {CONFETTI_PIECES.map((piece) => (
+        <span
+          key={piece.id}
+          className="fj-confetti-piece"
+          style={{
+            left: piece.left,
+            width: piece.width,
+            height: piece.height,
+            backgroundColor: piece.color,
+            animationDelay: piece.delay,
+            animationDuration: piece.duration,
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
 export function PublicLeaderboard({
-  orgId,
-  initialEventId,
+  snapshot,
+  isReconnecting = false,
   onExit,
 }: PublicLeaderboardProps) {
+  const orgId = snapshot.org?.org_id || '';
+
   // Theme State: 'black' (Deep Black default) vs 'white' (Stadium White)
   const [isStadiumWhite, setIsStadiumWhite] = useState<boolean>(false);
 
-  // Core Data
-  const [organization, setOrganization] = useState<Organization | null>(null);
-  const [events, setEvents] = useState<SupabaseEvent[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string>(initialEventId || '');
-  const [participants, setParticipants] = useState<SupabaseParticipant[]>([]);
-  const [scores, setScores] = useState<SupabaseScore[]>([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastSyncedTime, setLastSyncedTime] = useState<string>(new Date().toLocaleTimeString());
+  // Core Data (Snapshot-driven from projector_snapshot RPC)
+  const organization: Organization | null = snapshot.org;
+  const judges: SupabaseJudge[] = snapshot.judges;
+  const events: SupabaseEvent[] = useMemo(
+    () => (snapshot.events || []).filter((e) => e.status !== 'archived' && !e.is_archived),
+    [snapshot.events]
+  );
+  const participants: SupabaseParticipant[] = snapshot.participants;
+  const allSnapshotScores: SupabaseScore[] = snapshot.scores;
+
+  const initialPrefs = useMemo(() => getProjectorDisplayPrefs(), []);
+  const [selectedEventId, setSelectedEventId] = useState<string>(() => {
+    if (snapshot.scopedEventId) return snapshot.scopedEventId;
+    if (initialPrefs.selectedEventId) return initialPrefs.selectedEventId;
+    const active = events.find((e) => e.status === 'active') || events[0];
+    return active ? active.id : '';
+  });
+
+  // 3-Segment Switch + Menu + Event Pill Popup state
+  const [activeSegment, setActiveSegment] = useState<ProjectorSegment>(initialPrefs.segment);
+  const [isSegmentFading, setIsSegmentFading] = useState<boolean>(false);
+  const [overscanMargin, setOverscanMargin] = useState<ProjectorOverscan>(initialPrefs.overscan);
+  const [isEventPopupOpen, setIsEventPopupOpen] = useState<boolean>(false);
+  const [isSwitchMenuOpen, setIsSwitchMenuOpen] = useState<boolean>(false);
+  const [isControlsVisible, setIsControlsVisible] = useState<boolean>(true);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() =>
+    typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false
+  );
+
+  const eventPopupRef = useRef<HTMLDivElement>(null);
+  const switchBarRef = useRef<HTMLDivElement>(null);
+  const segmentFadeTimerRef = useRef<number | null>(null);
+  const controlsHideTimerRef = useRef<number | null>(null);
+
   const [publicSettings, setPublicSettings] = useState<PublicLinkSettings>(() =>
     dbService.getPublicSettings(orgId)
   );
@@ -145,9 +170,18 @@ export function PublicLeaderboard({
   // Confetti Particle System Trigger
   const [isConfettiActive, setIsConfettiActive] = useState<boolean>(false);
   const lastConfettiTriggerRef = useRef<number>(publicSettings.confettiTrigger || 0);
+  const lastConfettiAtRef = useRef<string | null>(
+    snapshot.org?.projector_confetti_at || null
+  );
 
-  // Rotation Window duration from settings or fallback to 60s
-  const rotationDuration = publicSettings.paginationTimer || 60;
+  // Rotation Window duration from server org setting, local settings, or fallback to 60s
+  const rotationDuration = Math.max(
+    15,
+    Math.min(
+      180,
+      Number(organization?.projector_carousel_interval || publicSettings.paginationTimer || 60)
+    )
+  );
 
   // Autonomous TV Carousel (rotates through events using rotationDuration)
   const [carouselCountdown, setCarouselCountdown] = useState<number>(rotationDuration);
@@ -160,7 +194,7 @@ export function PublicLeaderboard({
     status: 'offline' | 'online';
     text: string;
   }>({
-    show: !navigator.onLine,
+    show: false,
     status: navigator.onLine ? 'online' : 'offline',
     text: navigator.onLine ? 'Back to Online!' : 'Offline - Syncing...',
   });
@@ -188,47 +222,59 @@ export function PublicLeaderboard({
   const ledgerScrollRef = useRef<HTMLDivElement>(null);
   const isHoveredLedgerRef = useRef<boolean>(false);
 
-  // Trigger celebratory confetti function
+  // Trigger celebratory confetti function (respects prefers-reduced-motion)
   const fireConfetti = useCallback(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
     setIsConfettiActive(true);
     setTimeout(() => {
       setIsConfettiActive(false);
     }, 4500);
   }, []);
 
-  // -------------------------------------------------------------
-  // DATA FETCHING & QUOTA-SAFE REALTIME SUBSCRIPTION
-  // -------------------------------------------------------------
-  const loadData = useCallback(async (silent = false) => {
-    try {
-      if (!silent) setIsRefreshing(true);
-      const org = await dbService.getOrganizationByOrgId(orgId);
-      setOrganization(org);
+  // Keep selectedEventId valid when snapshot changes or pairing is scoped to 1 event
+  useEffect(() => {
+    if (snapshot.scopedEventId) {
+      setSelectedEventId(snapshot.scopedEventId);
+      return;
+    }
+    if (events.length === 0) {
+      setSelectedEventId('');
+      return;
+    }
+    if (!selectedEventId || !events.some((e) => e.id === selectedEventId)) {
+      const foundActive = events.find((e) => e.status === 'active') || events[0];
+      const nextId = foundActive ? foundActive.id : '';
+      setSelectedEventId(nextId);
+      if (nextId) saveProjectorDisplayPrefs({ selectedEventId: nextId });
+    }
+  }, [events, selectedEventId, snapshot.scopedEventId]);
 
-      const eList = await dbService.getEvents(orgId);
-      // Filter non-archived events
-      const validEvents = eList.filter((e) => e.status !== 'archived');
-      setEvents(validEvents);
+  // Scores filtered for currently selected event from snapshot
+  const scores = useMemo(() => {
+    if (!selectedEventId) return [];
+    return allSnapshotScores.filter((s) => s.event_id === selectedEventId);
+  }, [allSnapshotScores, selectedEventId]);
 
-      let activeId = selectedEventId;
-      if (!activeId || !validEvents.some((e) => e.id === activeId)) {
-        const foundActive = validEvents.find((e) => e.status === 'active') || validEvents[0];
-        activeId = foundActive ? foundActive.id : '';
-        setSelectedEventId(activeId);
-      }
+  // Trigger celebratory confetti when server org confetti timestamp advances
+  useEffect(() => {
+    const nextAt = organization?.projector_confetti_at || null;
+    if (!nextAt) return;
+    if (lastConfettiAtRef.current !== nextAt) {
+      lastConfettiAtRef.current = nextAt;
+      fireConfetti();
+    }
+  }, [organization?.projector_confetti_at, fireConfetti]);
 
-      const pList = await dbService.getParticipants(orgId);
-      setParticipants(pList);
-
-      if (activeId) {
-        const scList = await dbService.getScores(activeId);
-        setScores(scList);
-      }
-
+  // Sync local public settings & custom confetti events
+  useEffect(() => {
+    const syncLocalSettings = () => {
       const freshSettings = dbService.getPublicSettings(orgId);
       setPublicSettings(freshSettings);
-
-      // Check if confetti trigger timestamp changed
       if (
         freshSettings.confettiTrigger &&
         freshSettings.confettiTrigger > (lastConfettiTriggerRef.current || 0)
@@ -236,140 +282,166 @@ export function PublicLeaderboard({
         lastConfettiTriggerRef.current = freshSettings.confettiTrigger;
         fireConfetti();
       }
+    };
 
-      setLastSyncedTime(new Date().toLocaleTimeString());
-    } catch (err) {
-      console.warn('Leaderboard data fetch failed (using cached state):', err);
-    } finally {
-      if (!silent) {
-        setTimeout(() => setIsRefreshing(false), 400);
-      }
-    }
-  }, [orgId, selectedEventId, fireConfetti]);
-
-  // Initial load, DB change subscription & custom confetti event listener
-  useEffect(() => {
-    loadData();
-    const unsub = subscribeToDatabase(() => {
-      loadData(true);
-    });
-
-    // Custom window confetti event dispatched by SettingsDrawer
     const handleCustomConfetti = () => {
       fireConfetti();
     };
     window.addEventListener('fairjudge_confetti', handleCustomConfetti);
-
-    // Quota-safe background polling every 20 seconds; refetch immediately on visible
-    const pollInterval = setInterval(() => {
-      loadData(true);
-    }, 20000);
-
-    const handleVisibilityChange = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        loadData(true);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('storage', syncLocalSettings);
 
     return () => {
-      unsub();
       window.removeEventListener('fairjudge_confetti', handleCustomConfetti);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(pollInterval);
+      window.removeEventListener('storage', syncLocalSettings);
     };
-  }, [loadData, fireConfetti]);
+  }, [orgId, fireConfetti]);
 
-  // Update scores when selectedEventId switches
-  useEffect(() => {
-    if (selectedEventId) {
-      dbService.getScores(selectedEventId).then((sc) => {
-        setScores(sc);
-      });
-    }
-  }, [selectedEventId]);
+  // Switch segment with 200ms opacity crossfade
+  const switchToSegment = useCallback((nextSegment: ProjectorSegment) => {
+    setActiveSegment((prev) => {
+      if (prev === nextSegment) return prev;
+      saveProjectorDisplayPrefs({ segment: nextSegment });
+      if (segmentFadeTimerRef.current) window.clearTimeout(segmentFadeTimerRef.current);
+      setIsSegmentFading(true);
+      segmentFadeTimerRef.current = window.setTimeout(() => {
+        setIsSegmentFading(false);
+      }, 200);
+      return nextSegment;
+    });
+  }, []);
 
-  // Sync carousel duration if publicSettings changes
+  // Auto-fade 3-segment switch after 4s of inactivity; reveal on touch/mouse/key
+  const resetControlsHideTimer = useCallback(() => {
+    setIsControlsVisible(true);
+    if (controlsHideTimerRef.current) window.clearTimeout(controlsHideTimerRef.current);
+    if (isSwitchMenuOpen || isEventPopupOpen) return;
+    controlsHideTimerRef.current = window.setTimeout(() => {
+      setIsControlsVisible(false);
+    }, 4000);
+  }, [isSwitchMenuOpen, isEventPopupOpen]);
+
   useEffect(() => {
-    setCarouselCountdown(publicSettings.paginationTimer || 60);
-  }, [publicSettings.paginationTimer]);
+    resetControlsHideTimer();
+    const wake = () => resetControlsHideTimer();
+    window.addEventListener('mousemove', wake, { passive: true });
+    window.addEventListener('touchstart', wake, { passive: true });
+    window.addEventListener('pointerdown', wake, { passive: true });
+    return () => {
+      if (controlsHideTimerRef.current) window.clearTimeout(controlsHideTimerRef.current);
+      window.removeEventListener('mousemove', wake);
+      window.removeEventListener('touchstart', wake);
+      window.removeEventListener('pointerdown', wake);
+    };
+  }, [resetControlsHideTimer]);
+
+  // Left/Right arrow keyboard navigation between segments + Escape closes popups
+  useEffect(() => {
+    const order: ProjectorSegment[] = ['leaderboard', 'scoreboard', 'events'];
+    const handleKeyDown = (e: KeyboardEvent) => {
+      resetControlsHideTimer();
+      if (e.key === 'Escape') {
+        setIsEventPopupOpen(false);
+        setIsSwitchMenuOpen(false);
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        const nextIdx = (order.indexOf(activeSegment) + 1) % order.length;
+        switchToSegment(order[nextIdx]);
+      } else if (e.key === 'ArrowLeft') {
+        const nextIdx = (order.indexOf(activeSegment) - 1 + order.length) % order.length;
+        switchToSegment(order[nextIdx]);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSegment, switchToSegment, resetControlsHideTimer]);
+
+  // Close event popup or switch menu on outside click/tap
+  useEffect(() => {
+    if (!isEventPopupOpen && !isSwitchMenuOpen) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (isEventPopupOpen && eventPopupRef.current && !eventPopupRef.current.contains(target)) {
+        setIsEventPopupOpen(false);
+      }
+      if (isSwitchMenuOpen && switchBarRef.current && !switchBarRef.current.contains(target)) {
+        setIsSwitchMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [isEventPopupOpen, isSwitchMenuOpen]);
+
+  // Track fullscreen changes
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      if (segmentFadeTimerRef.current) window.clearTimeout(segmentFadeTimerRef.current);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {}
+  };
+
+  // Sync carousel duration immediately if Settings Carousel Interval changes
+  useEffect(() => {
+    setCarouselCountdown(rotationDuration);
+  }, [rotationDuration]);
 
   // -------------------------------------------------------------
-  // AUTONOMOUS TV BROADCAST CAROUSEL
+  // AUTONOMOUS TV BROADCAST CAROUSEL (paused if scoped to 1 event)
   // -------------------------------------------------------------
   useEffect(() => {
-    if (isCarouselPaused || events.length <= 1) return;
-    const duration = publicSettings.paginationTimer || 60;
+    if (snapshot.scopedEventId || isCarouselPaused || events.length <= 1) return;
 
     const timer = setInterval(() => {
-      // Pause only the countdown when hidden
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         return;
       }
 
       setCarouselCountdown((prev) => {
         if (prev <= 1) {
-          // Trigger smooth fade/wipe to next event
           setIsEventTransitioning(true);
           setTimeout(() => {
-            setEvents((currentEvents) => {
-              const currentIndex = currentEvents.findIndex((e) => e.id === selectedEventId);
-              const nextIndex = (currentIndex + 1) % currentEvents.length;
-              const nextEvent = currentEvents[nextIndex];
-              if (nextEvent) {
-                setSelectedEventId(nextEvent.id);
-              }
-              return currentEvents;
-            });
+            const currentIndex = events.findIndex((e) => e.id === selectedEventId);
+            const nextIndex = (currentIndex + 1) % events.length;
+            const nextEvent = events[nextIndex];
+            if (nextEvent) {
+              setSelectedEventId(nextEvent.id);
+              saveProjectorDisplayPrefs({ selectedEventId: nextEvent.id });
+            }
             setTimeout(() => {
               setIsEventTransitioning(false);
             }, 300);
           }, 350);
-          return duration;
+          return rotationDuration;
         }
         return prev - 1;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [events, selectedEventId, isCarouselPaused, publicSettings.paginationTimer]);
+  }, [events, selectedEventId, isCarouselPaused, rotationDuration, snapshot.scopedEventId]);
 
-  // -------------------------------------------------------------
-  // OFFLINE / ONLINE RECOVERY ENGINE
-  // -------------------------------------------------------------
+  // Clear unused network banner state effect (Reconnecting indicator handled via isReconnecting prop)
   useEffect(() => {
-    let onlineTimer: ReturnType<typeof setTimeout>;
-
-    const handleOffline = () => {
-      setNetworkBanner({
-        show: true,
-        status: 'offline',
-        text: 'Offline - Syncing...',
-      });
-    };
-
-    const handleOnline = () => {
-      setNetworkBanner({
-        show: true,
-        status: 'online',
-        text: 'Back to Online!',
-      });
-      loadData(true);
-      clearTimeout(onlineTimer);
-      onlineTimer = setTimeout(() => {
-        setNetworkBanner((prev) => ({ ...prev, show: false }));
-      }, 3000);
-    };
-
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('online', handleOnline);
-
-    return () => {
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('online', handleOnline);
-      clearTimeout(onlineTimer);
-    };
-  }, [loadData]);
+    setNetworkBanner((prev) => (prev.show ? { ...prev, show: false } : prev));
+  }, []);
 
   // Current active event
   const currentEvent = useMemo(() => {
@@ -394,16 +466,64 @@ export function PublicLeaderboard({
     return participants;
   }, [participants, currentEvent]);
 
-  // Ranked Standings
+  const isServerBlindForEvent = useMemo(() => {
+    if (!currentEvent) return false;
+    const hasStripped = scores.some(
+      (s) => s.total_score === undefined || s.total_score === null
+    );
+    const hasBlindRanks = (snapshot.blindRanks || []).some(
+      (r) => r.event_id === currentEvent.id
+    );
+    return (
+      hasStripped ||
+      (Boolean(organization?.projector_blind_mode) && hasBlindRanks)
+    );
+  }, [currentEvent, scores, snapshot.blindRanks, organization?.projector_blind_mode]);
+
+  // Ranked Standings (uses server blind_ranks when Blind Mode strips scores on server)
   const rankedStandings = useMemo(() => {
     if (!currentEvent) return [];
+    if (isServerBlindForEvent) {
+      const rankMap = new Map<string, BlindRankItem>();
+      for (const r of snapshot.blindRanks || []) {
+        if (r.event_id === currentEvent.id) {
+          rankMap.set(r.participant_id, r);
+        }
+      }
+      const rows = assignedParticipants.map((p) => {
+        const pScores = scores.filter((s) => s.participant_id === p.id);
+        const br = rankMap.get(p.id);
+        return {
+          ...p,
+          pScores,
+          rank: br ? br.rank : 0,
+          judgeCount: br ? br.judge_count : pScores.length,
+          avgScore: 0,
+        };
+      });
+      rows.sort((a, b) => {
+        if (a.rank > 0 && b.rank > 0) return a.rank - b.rank;
+        if (a.rank > 0) return -1;
+        if (b.rank > 0) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      return rows;
+    }
+
     return dbService.calculateRankings(
       assignedParticipants,
       scores,
       currentEvent.assigned_judges?.length || 0,
       organization?.tie_breaker_method || 'olympic'
     );
-  }, [assignedParticipants, scores, currentEvent, organization?.tie_breaker_method]);
+  }, [
+    isServerBlindForEvent,
+    snapshot.blindRanks,
+    assignedParticipants,
+    scores,
+    currentEvent,
+    organization?.tie_breaker_method,
+  ]);
 
   // -------------------------------------------------------------
   // AUTONOMOUS "NEW LEADER" DETECTION
@@ -455,6 +575,9 @@ export function PublicLeaderboard({
     scores.forEach((sc) => {
       if (seenScoreIdsRef.current.has(sc.id)) return;
       seenScoreIdsRef.current.add(sc.id);
+
+      // Server-enforced blind mode strips numeric scores — never inspect omitted scores
+      if (sc.total_score === undefined || sc.total_score === null) return;
 
       const criteriaData = sc.score_payload?.criteria || sc.score_data || {};
       const isPerfectMarks = rubricList.every((crit) => {
@@ -549,62 +672,38 @@ export function PublicLeaderboard({
   const rank2 = rankedStandings.find((s) => s.rank === 2);
   const rank3 = rankedStandings.find((s) => s.rank === 3);
 
-  // Score Secrecy (Blind Mode) check
-  const isBlindMode = !!publicSettings.blindMode;
-  const isSpotlightEnabled = publicSettings.spotlightMode !== false;
-
-  // If link revoked or paused
-  if (publicSettings.isRevoked) {
-    return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center select-none">
-        <div className="p-5 bg-red-500/10 border border-red-500/30 rounded-3xl mb-4 text-red-400">
-          <ShieldAlert className="w-12 h-12" />
-        </div>
-        <h2 className="text-2xl md:text-3xl font-black tracking-tight">Broadcast Access Revoked</h2>
-        <p className="text-sm text-zinc-400 max-w-md mt-2 mb-6 leading-relaxed">
-          The event organizer has closed this public broadcast feed. Please consult the stage desk.
-        </p>
-        <button
-          onClick={onExit}
-          className="px-6 py-3 bg-zinc-900 border border-zinc-800 text-sm font-bold rounded-2xl hover:bg-zinc-800 transition cursor-pointer"
-        >
-          Return to Terminal
-        </button>
-      </div>
-    );
-  }
-
-  if (publicSettings.isPaused) {
-    return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center select-none">
-        <div className="p-5 bg-amber-500/10 border border-amber-500/30 rounded-3xl mb-4 text-amber-400">
-          <EyeOff className="w-12 h-12" />
-        </div>
-        <h2 className="text-2xl md:text-3xl font-black tracking-tight">Live Broadcast Paused</h2>
-        <p className="text-sm text-zinc-400 max-w-md mt-2 mb-6 leading-relaxed">
-          The stage committee has momentarily held public standings. Official results will resume in seconds.
-        </p>
-        <button
-          onClick={onExit}
-          className="px-6 py-3 bg-zinc-900 border border-zinc-800 text-sm font-bold rounded-2xl hover:bg-zinc-800 transition cursor-pointer"
-        >
-          Exit Broadcast
-        </button>
-      </div>
-    );
-  }
+  // Score Secrecy (Blind Mode), Spotlight, & Broadcast Ticker (server org settings primary)
+  const isBlindMode = Boolean(
+    (organization?.projector_blind_mode ?? publicSettings.blindMode) ||
+      organization?.blind_judging_enabled ||
+      isServerBlindForEvent
+  );
+  const isSpotlightEnabled =
+    organization?.projector_spotlight_mode !== undefined
+      ? Boolean(organization.projector_spotlight_mode)
+      : publicSettings.spotlightMode !== false;
+  const sanitizedTicker = sanitizeTickerText(
+    organization?.projector_ticker_text !== undefined
+      ? organization.projector_ticker_text
+      : publicSettings.tickerText
+  );
 
   // Visual Theme Variables with high contrast protection
   const themeContainerClass = isStadiumWhite
     ? 'bg-zinc-50 text-zinc-950 font-sans selection:bg-black selection:text-white'
     : 'bg-zinc-950 text-white dark:text-white font-sans selection:bg-emerald-500 selection:text-black';
 
+  const overscanStyle = overscanMargin > 0 ? { padding: `${overscanMargin}%` } : undefined;
+
   return (
-    <div className={`relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden ${themeContainerClass} p-safe transition-colors duration-300`}>
+    <div
+      style={overscanStyle}
+      className={`relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden ${themeContainerClass} p-safe transition-colors duration-300`}
+    >
       {/* ============================================================ */}
       {/* 0. CELEBRATORY CONFETTI SYSTEM                               */}
       {/* ============================================================ */}
-      <ConfettiCanvas active={isConfettiActive} />
+      <ConfettiBurst active={isConfettiActive} />
 
       {/* ============================================================ */}
       {/* 1. CINEMATIC BACKGROUND GLOW (Deep Black Mode Only)          */}
@@ -783,10 +882,10 @@ export function PublicLeaderboard({
             </div>
           </div>
 
-          {/* Right: Autonomous Carousel Status, Event Selector & Live Indicator */}
-          <div className="flex items-center gap-2 md:gap-3">
+          {/* Right: Autonomous Carousel Status, Event Pill + Popup, 3-Segment Switch & Live Indicator */}
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap justify-end">
             {/* Carousel Status Badge with Pause/Play */}
-            {events.length > 1 && (
+            {!snapshot.scopedEventId && events.length > 1 && (
               <div
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl border font-mono text-[11px] font-bold ${
                   isStadiumWhite
@@ -809,26 +908,220 @@ export function PublicLeaderboard({
               </div>
             )}
 
-            {/* Event Dropdown */}
-            {events.length > 1 && (
-              <select
-                value={selectedEventId}
-                onChange={(e) => {
-                  setSelectedEventId(e.target.value);
-                  setCarouselCountdown(rotationDuration);
+            {/* Event Pill & Popup (hidden if pairing is scoped to a single event) */}
+            {!snapshot.scopedEventId && events.length > 1 && (
+              <div ref={eventPopupRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSwitchMenuOpen(false);
+                    setIsEventPopupOpen((v) => !v);
+                  }}
+                  aria-expanded={isEventPopupOpen}
+                  aria-haspopup="listbox"
+                  className={`h-10 px-3.5 rounded-xl text-xs font-bold border inline-flex items-center gap-2 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none ${
+                    isStadiumWhite
+                      ? 'bg-white text-zinc-950 border-stone-300 shadow-sm'
+                      : 'bg-zinc-900 text-white border-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      currentEvent?.status === 'active'
+                        ? 'bg-emerald-500'
+                        : currentEvent?.status === 'paused'
+                        ? 'bg-amber-500'
+                        : 'bg-zinc-400'
+                    }`}
+                  />
+                  <span className="max-w-[160px] truncate">{currentEvent?.name || 'Select Event'}</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+                      isEventPopupOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                {isEventPopupOpen && (
+                  <div
+                    role="listbox"
+                    aria-label="Select event"
+                    className={`absolute right-0 mt-2 w-72 max-h-[60vh] overflow-y-auto rounded-2xl border shadow-2xl z-50 divide-y ${
+                      isStadiumWhite
+                        ? 'bg-white border-stone-300 divide-stone-200 text-zinc-950'
+                        : 'bg-zinc-950 border-zinc-800 divide-zinc-800/80 text-white'
+                    }`}
+                  >
+                    {events.map((ev) => {
+                      const isSelected = ev.id === selectedEventId;
+                      const dotClass =
+                        ev.status === 'active'
+                          ? 'bg-emerald-500'
+                          : ev.status === 'paused'
+                          ? 'bg-amber-500'
+                          : ev.status === 'ended' || ev.status === 'archived'
+                          ? 'bg-zinc-500'
+                          : 'bg-sky-500';
+                      return (
+                        <button
+                          key={ev.id}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          onClick={() => {
+                            setSelectedEventId(ev.id);
+                            saveProjectorDisplayPrefs({ selectedEventId: ev.id });
+                            setCarouselCountdown(rotationDuration);
+                            setIsEventPopupOpen(false);
+                          }}
+                          className={`w-full px-3.5 py-3 text-left flex items-center justify-between gap-2 text-xs font-bold cursor-pointer ${
+                            isSelected
+                              ? isStadiumWhite
+                                ? 'bg-emerald-50 text-emerald-800'
+                                : 'bg-emerald-500/15 text-emerald-300'
+                              : isStadiumWhite
+                              ? 'hover:bg-stone-50'
+                              : 'hover:bg-zinc-900'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2.5 min-w-0">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
+                            <span className="truncate">{ev.name}</span>
+                          </span>
+                          <span className="text-[10px] font-mono uppercase opacity-70 shrink-0">
+                            {ev.status}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Slim 3-Segment Switch + Display Menu (auto-fades after 4s idle) */}
+            <div
+              ref={switchBarRef}
+              onMouseEnter={() => resetControlsHideTimer()}
+              className={`relative flex items-center gap-1 h-10 p-1 rounded-xl border transition-opacity duration-200 motion-reduce:transition-none ${
+                isControlsVisible || isSwitchMenuOpen
+                  ? 'opacity-100 pointer-events-auto'
+                  : 'opacity-0 pointer-events-none'
+              } ${
+                isStadiumWhite
+                  ? 'bg-white border-stone-300 text-zinc-950 shadow-sm'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-200'
+              }`}
+            >
+              {(
+                [
+                  { id: 'leaderboard', label: 'Leaderboard' },
+                  { id: 'scoreboard', label: 'Scoreboard' },
+                  { id: 'events', label: 'Events' },
+                ] as const
+              ).map((seg) => {
+                const isActive = activeSegment === seg.id;
+                return (
+                  <button
+                    key={seg.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => switchToSegment(seg.id)}
+                    className={`h-8 px-2.5 rounded-lg text-[11px] font-bold cursor-pointer whitespace-nowrap transition-opacity duration-150 motion-reduce:transition-none ${
+                      isActive
+                        ? 'bg-emerald-500 text-black'
+                        : isStadiumWhite
+                        ? 'text-zinc-700 hover:bg-stone-100'
+                        : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    {seg.label}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEventPopupOpen(false);
+                  setIsSwitchMenuOpen((v) => !v);
                 }}
-                className={`px-3 py-1.5 rounded-2xl text-xs font-bold border focus:outline-none cursor-pointer ${
-                  isStadiumWhite
-                    ? 'bg-white text-zinc-950 border-stone-300 font-black shadow-sm'
-                    : 'bg-zinc-900 text-white border-zinc-800 focus:border-emerald-500'
+                aria-expanded={isSwitchMenuOpen}
+                aria-label="Projector display menu"
+                className={`h-8 w-8 rounded-lg flex items-center justify-center cursor-pointer ${
+                  isStadiumWhite ? 'hover:bg-stone-100 text-zinc-700' : 'hover:bg-zinc-800 text-zinc-300'
                 }`}
               >
-                {events.map((ev) => (
-                  <option key={ev.id} value={ev.id}>
-                    {ev.name}
-                  </option>
-                ))}
-              </select>
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {isSwitchMenuOpen && (
+                <div
+                  className={`absolute right-0 top-12 w-64 rounded-2xl border shadow-2xl z-50 p-3 space-y-3 text-xs ${
+                    isStadiumWhite
+                      ? 'bg-white border-stone-300 text-zinc-950'
+                      : 'bg-zinc-950 border-zinc-800 text-white'
+                  }`}
+                >
+                  <div className="pb-2 border-b border-stone-200 dark:border-zinc-800">
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      Paired Screen
+                    </div>
+                    <div className="font-bold truncate mt-0.5">
+                      {snapshot.label || 'Projector Screen'}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={toggleFullscreen}
+                    className="w-full flex items-center justify-between py-1 font-semibold cursor-pointer"
+                  >
+                    <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+                    {isFullscreen ? (
+                      <Minimize className="w-4 h-4 text-zinc-400" />
+                    ) : (
+                      <Maximize className="w-4 h-4 text-zinc-400" />
+                    )}
+                  </button>
+
+                  <div className="space-y-1.5 pt-1 border-t border-stone-200 dark:border-zinc-800">
+                    <div className="text-[11px] font-semibold">Overscan Margin</div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([0, 2, 4] as const).map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            setOverscanMargin(pct);
+                            saveProjectorDisplayPrefs({ overscan: pct });
+                          }}
+                          className={`py-1.5 rounded-lg font-mono font-bold text-[11px] border cursor-pointer ${
+                            overscanMargin === pct
+                              ? 'bg-emerald-500 text-black border-emerald-500'
+                              : isStadiumWhite
+                              ? 'bg-stone-100 border-stone-200 text-zinc-700'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-300'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Subtle Reconnecting Dot (no full-screen banner) */}
+            {isReconnecting && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/15 border border-amber-500/30 rounded-2xl text-[11px] font-mono font-bold text-amber-500"
+                title="Connection issue — showing last synced standings"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span>Reconnecting</span>
+              </div>
             )}
 
             {/* Live Indicator */}
@@ -840,7 +1133,7 @@ export function PublicLeaderboard({
         </div>
 
         {/* Broadcast Carousel Progress Laser */}
-        {events.length > 1 && !isCarouselPaused && (
+        {!snapshot.scopedEventId && events.length > 1 && !isCarouselPaused && (
           <div className={`max-w-7xl mx-auto h-[2px] mt-1 overflow-hidden rounded-full ${
             isStadiumWhite ? 'bg-stone-200' : 'bg-zinc-800/40'
           }`}>
@@ -853,9 +1146,39 @@ export function PublicLeaderboard({
       </header>
 
       {/* ============================================================ */}
-      {/* 7. EVENT HEADER: [CATEGORY] — [EVENT TITLE]                  */}
+      {/* 7. SEGMENT CONTENT (200ms opacity crossfade)                 */}
       {/* ============================================================ */}
-      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-4 flex flex-col justify-start">
+      <main
+        className={`relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-4 flex flex-col justify-start transition-opacity duration-200 motion-reduce:transition-none ${
+          isSegmentFading ? 'opacity-0' : 'opacity-100'
+        }`}
+      >
+        {activeSegment === 'scoreboard' ? (
+          <ProjectorScoreboard
+            organization={organization}
+            currentEvent={currentEvent}
+            judges={judges}
+            participants={participants}
+            scores={allSnapshotScores}
+            blindRanks={snapshot.blindRanks}
+            isStadiumWhite={isStadiumWhite}
+            isBlindMode={isBlindMode}
+          />
+        ) : activeSegment === 'events' ? (
+          <ProjectorEventsList
+            events={events}
+            selectedEventId={selectedEventId}
+            onSelectEvent={(eventId) => {
+              if (!snapshot.scopedEventId) {
+                setSelectedEventId(eventId);
+                saveProjectorDisplayPrefs({ selectedEventId: eventId });
+              }
+              switchToSegment('leaderboard');
+            }}
+            isStadiumWhite={isStadiumWhite}
+          />
+        ) : (
+          <>
         {currentEvent && (
           <div
             className={`text-center space-y-1 mb-6 transition-opacity duration-300 ${
@@ -1261,12 +1584,14 @@ export function PublicLeaderboard({
             )}
           </div>
         </div>
+          </>
+        )}
       </main>
 
       {/* ============================================================ */}
       {/* 10. CUSTOM BROADCAST TICKER                                  */}
       {/* ============================================================ */}
-      {publicSettings.tickerText && publicSettings.tickerText.trim() && (
+      {sanitizedTicker && (
         <div className={`relative z-20 w-full overflow-hidden py-2 px-4 border-t border-b flex items-center shadow-sm ${
           isStadiumWhite
             ? 'bg-amber-100 border-amber-300 text-amber-950'
@@ -1278,39 +1603,7 @@ export function PublicLeaderboard({
           </div>
           <div className="overflow-hidden whitespace-nowrap flex-1 ml-4">
             <div className="inline-block animate-marquee font-mono text-xs md:text-sm font-bold tracking-wide">
-              {publicSettings.tickerText}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* 11. AUDIENCE SPECTATOR QR CODE (When Enabled)               */}
-      {/* ============================================================ */}
-      {publicSettings.showAppQr && (
-        <div className="fixed bottom-14 left-4 sm:left-8 z-40 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <div className={`p-3 rounded-2xl border shadow-2xl flex items-center gap-3 ${
-            isStadiumWhite
-              ? 'bg-white border-stone-300 text-zinc-950 shadow-slate-200'
-              : 'bg-zinc-950 border-zinc-800 text-white dark:text-white shadow-black'
-          }`}>
-            <div className="p-1.5 bg-white rounded-xl shadow-inner shrink-0">
-              <QRCodeSVG
-                value={typeof window !== 'undefined' ? window.location.href : 'https://fairjudge.app'}
-                size={52}
-                level="M"
-              />
-            </div>
-            <div className="text-left pr-1">
-              <div className="text-[9px] font-mono font-black uppercase tracking-widest text-emerald-500">
-                AUDIENCE LINK
-              </div>
-              <div className={`text-xs font-black leading-tight mt-0.5 ${isStadiumWhite ? 'text-zinc-950' : 'text-white'}`}>
-                Scan on Mobile
-              </div>
-              <div className={`text-[10px] font-mono ${isStadiumWhite ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                Live Leaderboard
-              </div>
+              {sanitizedTicker}
             </div>
           </div>
         </div>

@@ -5,7 +5,7 @@
  * Read-only: never alters scores, sync queues, drafts, or database state.
  */
 
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, dbService, getStoredSession } from './supabase';
 import { APP_VERSION } from '../config/version';
 import { stampLocal, safeName, downloadJson } from './downloadUtils';
 import { 
@@ -478,11 +478,11 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     return checks;
   }
 
-  // 2. Reachability & Latency
+  // 2. Reachability & Latency via RPC (does not depend on public table policies)
   const t0 = performance.now();
   try {
     const { error } = await runWithTimeout(async () => {
-      return await supabase.from('organizations').select('id').limit(1);
+      return await (supabase.rpc as any)('fj_server_time');
     }, 4000);
 
     const latency = Math.round(performance.now() - t0);
@@ -493,7 +493,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
         group: 'network_backend',
         label: 'Backend Reachability',
         status: 'problem',
-        plain: `Backend query failed: ${error.message}`,
+        plain: `Backend RPC failed: ${error.message}`,
         code: error.code || 'NET_ERR',
         ms: latency,
       });
@@ -597,76 +597,112 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     });
   }
 
-  // 4. Required Tables Readable (Parallel batch)
-  try {
-    const [eventsRes, judgesRes, partsRes, scoresRes] = await Promise.all([
-      supabase.from('events').select('id').limit(1),
-      supabase.from('judges').select('id').limit(1),
-      supabase.from('participants').select('id').limit(1),
-      supabase.from('scores').select('id').limit(1),
-    ]);
+  // 4. Required Tables Readable via Token-Checked Read RPCs
+  // 5. Required Columns Exist (checked from verified read_events payload)
+  const activeSession = getStoredSession();
+  const activeOrgId = activeSession?.org?.org_id;
+  if (activeSession?.sessionToken && activeOrgId) {
+    try {
+      const [eventsRes, judgesRes, partsRes] = await Promise.all([
+        dbService.getEventsResult(activeOrgId, true),
+        dbService.getJudgesResult(activeOrgId, true),
+        dbService.getParticipantsResult(activeOrgId, true),
+      ]);
 
-    const errors = [eventsRes.error, judgesRes.error, partsRes.error, scoresRes.error].filter(Boolean);
-    const fatalErr = errors.find((e) => e?.code === '42P01' || e?.code === '42501');
+      let scoresOk = true;
+      let scoresErr: string | null = null;
+      let scoresCode: string | undefined;
 
-    if (fatalErr) {
-      checks.push({
+      if (activeSession.role === 'organiser') {
+        const orgScoresRes = await dbService.getOrgScoresResult(activeOrgId, true);
+        scoresOk = orgScoresRes.ok;
+        scoresErr = orgScoresRes.error;
+        scoresCode = orgScoresRes.errorCode || undefined;
+      } else if (eventsRes.data.length > 0) {
+        const evtScoresRes = await dbService.getScoresResult(eventsRes.data[0].id, true);
+        scoresOk = evtScoresRes.ok;
+        scoresErr = evtScoresRes.error;
+        scoresCode = evtScoresRes.errorCode || undefined;
+      }
+
+      const firstErrRes = [eventsRes, judgesRes, partsRes].find((r) => !r.ok);
+      if (firstErrRes || !scoresOk) {
+        checks.push({
+          id: 'tables_readable',
+          group: 'network_backend',
+          label: 'Core Tables',
+          status: 'problem',
+          plain: `Database read RPC failed: ${firstErrRes?.error || scoresErr || 'unknown error'}`,
+          code: firstErrRes?.errorCode || scoresCode || 'RPC_READ_ERR',
+        });
+      } else {
+        checks.push({
+          id: 'tables_readable',
+          group: 'network_backend',
+          label: 'Core Tables',
+          status: 'ok',
+          plain: 'All 5 core application tables readable via verified RPCs',
+        });
+      }
+
+      const sampleEvt = eventsRes.data[0];
+      if (
+        sampleEvt &&
+        (!('is_locked' in sampleEvt) || !('status' in sampleEvt) || !('rubric_schema' in sampleEvt))
+      ) {
+        checks.push({
+          id: 'required_columns',
+          group: 'network_backend',
+          label: 'Schema Columns',
+          status: 'problem',
+          plain: 'Run the latest SQL update. Missing is_locked or rubric_schema column.',
+          code: '42703',
+        });
+      } else {
+        checks.push({
+          id: 'required_columns',
+          group: 'network_backend',
+          label: 'Schema Columns',
+          status: 'ok',
+          plain: 'All schema columns conform to version standard',
+        });
+      }
+    } catch (err: any) {
+      checks.push(
+        {
+          id: 'tables_readable',
+          group: 'network_backend',
+          label: 'Core Tables',
+          status: 'problem',
+          plain: 'Database read RPC check crashed during table probe',
+          code: err?.message,
+        },
+        {
+          id: 'required_columns',
+          group: 'network_backend',
+          label: 'Schema Columns',
+          status: 'ok',
+          plain: 'Schema column check completed',
+        }
+      );
+    }
+  } else {
+    checks.push(
+      {
         id: 'tables_readable',
         group: 'network_backend',
         label: 'Core Tables',
-        status: 'problem',
-        plain: `Database table error: ${fatalErr.message}`,
-        code: fatalErr.code,
-      });
-    } else {
-      checks.push({
-        id: 'tables_readable',
-        group: 'network_backend',
-        label: 'Core Tables',
-        status: 'ok',
-        plain: 'All 5 core application tables readable',
-      });
-    }
-  } catch (err: any) {
-    checks.push({
-      id: 'tables_readable',
-      group: 'network_backend',
-      label: 'Core Tables',
-      status: 'problem',
-      plain: 'Database query crashed during table probe',
-      code: err.message,
-    });
-  }
-
-  // 5. Required Columns Exist (e.g. events.is_locked)
-  try {
-    const { error } = await supabase.from('events').select('id, is_locked, status, rubric_schema').limit(1);
-    if (error && error.code === '42703') {
-      checks.push({
+        status: 'skipped',
+        plain: 'Sign in to verify authenticated organisation table reads',
+      },
+      {
         id: 'required_columns',
         group: 'network_backend',
         label: 'Schema Columns',
-        status: 'problem',
-        plain: 'Run the latest SQL update. Missing is_locked or rubric_schema column.',
-        code: '42703',
-      });
-    } else {
-      checks.push({
-        id: 'required_columns',
-        group: 'network_backend',
-        label: 'Schema Columns',
-        status: 'ok',
-        plain: 'All schema columns conform to version standard',
-      });
-    }
-  } catch {
-    checks.push({
-      id: 'required_columns',
-      group: 'network_backend',
-      label: 'Schema Columns',
-      status: 'ok',
-      plain: 'Schema column check completed',
-    });
+        status: 'skipped',
+        plain: 'Sign in to verify authenticated schema columns',
+      }
+    );
   }
 
   // 6. Security Hygiene (Epic 15.7 Step B2): org_secrets protected and passwords shielded
@@ -1197,14 +1233,16 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
 
   // 8. Queue State: Pending, Failed, Oldest Age
   try {
-    if (failedMutations.length > 0) {
+    const failedScores = pendingScores.filter((s) => s.syncStatus === 'failed');
+    const totalFailed = failedMutations.length + failedScores.length;
+    if (totalFailed > 0) {
       checks.push({
         id: 'queue_health',
         group: 'storage_offline',
         label: 'Sync Queue Health',
         status: 'problem',
-        plain: `${failedMutations.length} failed mutation(s) in sync queue. Retry or inspection needed.`,
-        code: 'QUEUE_MUTATION_FAILED',
+        plain: `${totalFailed} failed item(s) in sync queue (${failedScores.length} ballot(s), ${failedMutations.length} mutation(s)). Retry or inspection needed.`,
+        code: failedScores.length > 0 ? 'QUEUE_SCORE_FAILED' : 'QUEUE_MUTATION_FAILED',
       });
     } else {
       let oldestAgeMin = 0;
@@ -1305,27 +1343,30 @@ async function probeDataIntegrity(role: 'organiser' | 'judge'): Promise<SelfTest
   const checks: SelfTestCheckItem[] = [];
 
   if (role === 'organiser') {
-    // 1. Fetch available data snapshot
-    let events: SupabaseEvent[] = [];
-    let judges: SupabaseJudge[] = [];
-    let participants: SupabaseParticipant[] = [];
-    let scores: SupabaseScore[] = [];
+    // 1. Fetch available org-scoped data snapshot via token-checked RPCs
+    const activeOrgId = getStoredSession()?.org?.org_id || '';
+    let events: SupabaseEvent[] = activeOrgId ? dbService.getCachedEvents(activeOrgId) : [];
+    let judges: SupabaseJudge[] = activeOrgId ? dbService.getCachedJudges(activeOrgId) : [];
+    let participants: SupabaseParticipant[] = activeOrgId
+      ? dbService.getCachedParticipants(activeOrgId)
+      : [];
+    let scores: SupabaseScore[] = activeOrgId ? dbService.getCachedScores(activeOrgId) : [];
 
     try {
-      if (isSupabaseConfigured() && navigator.onLine) {
-        const [evts, jdgs, parts, scrs] = await Promise.all([
-          supabase.from('events').select('*').limit(50),
-          supabase.from('judges').select('*').limit(100),
-          supabase.from('participants').select('*').limit(200),
-          supabase.from('scores').select('id, event_id, judge_id, participant_id').limit(500),
+      if (isSupabaseConfigured() && navigator.onLine && activeOrgId) {
+        const [evtsRes, jdgsRes, partsRes, scrsRes] = await Promise.all([
+          dbService.getEventsResult(activeOrgId, false),
+          dbService.getJudgesResult(activeOrgId, false),
+          dbService.getParticipantsResult(activeOrgId, false),
+          dbService.getOrgScoresResult(activeOrgId, false),
         ]);
-        events = (evts.data as SupabaseEvent[]) || [];
-        judges = (jdgs.data as SupabaseJudge[]) || [];
-        participants = (parts.data as SupabaseParticipant[]) || [];
-        scores = (scrs.data as SupabaseScore[]) || [];
+        events = evtsRes.data;
+        judges = jdgsRes.data;
+        participants = partsRes.data;
+        scores = scrsRes.data;
       }
     } catch {
-      // Fallback to local offline cache if query fails
+      // Fallback to local offline cache if RPC fails
     }
 
     // 1. Rubric Schema Validity
@@ -2037,8 +2078,10 @@ export async function generateSelfTestReport(
     })),
     device,
     queue: {
-      pending: scores.length + mutations.length,
-      failed: failed.length,
+      pending:
+        scores.filter((s) => s.syncStatus !== 'failed').length +
+        mutations.filter((m) => m.syncStatus !== 'failed').length,
+      failed: failed.length + scores.filter((s) => s.syncStatus === 'failed').length,
       oldestAgeMin,
     },
     errors,

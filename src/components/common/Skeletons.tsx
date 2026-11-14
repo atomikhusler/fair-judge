@@ -91,5 +91,49 @@ export function TabSkeleton() {
   );
 }
 
-export default TabSkeleton;
+export function RouteShellSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading screen"
+      className="w-full min-h-[100dvh] bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col select-none"
+    >
+      {/* Top Shell Header Placeholder */}
+      <div className="w-full h-16 shrink-0 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800/80 px-4 flex items-center justify-between">
+        <div className="w-10 h-10 rounded-xl fj-skel" />
+        <div className="flex flex-col items-center space-y-1.5">
+          <div className="h-3.5 w-28 fj-skel rounded" />
+          <div className="h-2.5 w-20 fj-skel rounded" />
+        </div>
+        <div className="w-10 h-10 rounded-xl fj-skel" />
+      </div>
 
+      {/* Main Content Skeleton Cards */}
+      <div className="w-full max-w-2xl mx-auto flex-1 p-4 space-y-3.5">
+        <div className="h-11 w-full rounded-2xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 px-4 flex items-center">
+          <div className="h-3.5 w-44 fj-skel rounded" />
+        </div>
+
+        <div className="rounded-3xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-24 fj-skel rounded" />
+            <div className="h-5 w-16 fj-skel rounded-full" />
+          </div>
+          <div className="h-5 w-2/3 fj-skel rounded-lg" />
+          <div className="h-3.5 w-1/2 fj-skel rounded" />
+        </div>
+
+        <div className="rounded-3xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-28 fj-skel rounded" />
+            <div className="h-5 w-16 fj-skel rounded-full" />
+          </div>
+          <div className="h-5 w-3/4 fj-skel rounded-lg" />
+          <div className="h-3.5 w-2/5 fj-skel rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default TabSkeleton;

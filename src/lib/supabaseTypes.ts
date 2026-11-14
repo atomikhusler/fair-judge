@@ -35,6 +35,11 @@ export interface Organization {
   auto_advance_enabled?: boolean; // Default true (auto-slide to next on submit)
   grace_period_enabled?: boolean; // Default false (allow 5-minute score edit window)
   isolated_jury_enabled?: boolean; // Default false (hide global rankings and queue counters)
+  projector_blind_mode?: boolean; // Broadcast Control Room: Score Secrecy (server-enforced)
+  projector_spotlight_mode?: boolean; // Broadcast Control Room: Spotlight / Focus Mode
+  projector_ticker_text?: string; // Broadcast Control Room: Plain-text ticker (max 120 chars)
+  projector_carousel_interval?: number; // Broadcast Control Room: Carousel interval (15-180s)
+  projector_confetti_at?: string | null; // Broadcast Control Room: Last confetti trigger timestamp
   created_at: string;
 }
 

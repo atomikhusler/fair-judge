@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
 
@@ -25,6 +25,19 @@ export function PullToRefresh({
   const startYRef = useRef(0);
   const startXRef = useRef(0);
   const isDraggingRef = useRef(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const threshold = 64;
   const maxPull = 92;
@@ -116,7 +129,12 @@ export function PullToRefresh({
       } catch (err) {
         console.warn('PullToRefresh sync failed (using cached state):', err);
       } finally {
-        setTimeout(() => {
+        if (resetTimerRef.current) {
+          clearTimeout(resetTimerRef.current);
+        }
+        resetTimerRef.current = setTimeout(() => {
+          resetTimerRef.current = null;
+          if (!isMountedRef.current) return;
           setIsRefreshing(false);
           setPullDistance(0);
         }, 320);
@@ -138,14 +156,15 @@ export function PullToRefresh({
     >
       {/* Floating Refresh Spinner */}
       <div
-        className={`absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center justify-center transition-all ${
+        className={`absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none flex items-center justify-center transition-[transform,opacity] motion-reduce:transition-none ${
           isPulling ? 'duration-75' : 'duration-300 ease-out'
         }`}
         style={{
           top: 8,
-          transform: `translate3d(-50%, ${pullDistance}px, 0)`,
+          transform: `translate3d(-50%, ${pullDistance}px, 0) scale(${
+            pullDistance > 10 || isRefreshing ? Math.min(pullDistance / 42, 1) : 0.5
+          })`,
           opacity: pullDistance > 10 || isRefreshing ? 1 : 0,
-          scale: pullDistance > 10 || isRefreshing ? Math.min(pullDistance / 42, 1) : 0.5,
         }}
         aria-hidden="true"
       >
@@ -159,7 +178,7 @@ export function PullToRefresh({
           }`}
         >
           <RefreshCw
-            className={`w-4 h-4 stroke-[2.4] ${isRefreshing ? 'animate-spin' : ''}`}
+            className={`w-4 h-4 stroke-[2.4] ${isRefreshing ? 'animate-spin motion-reduce:animate-none' : ''}`}
             style={{
               transform: !isRefreshing ? `rotate(${pullDistance * 4.5}deg)` : undefined,
               transition: isPulling ? 'none' : 'transform 0.2s',

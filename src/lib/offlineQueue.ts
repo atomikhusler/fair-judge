@@ -1,5 +1,8 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { isSupabaseConfigured, callSecuredWriteRpc } from './supabase';
+import { invalidateCache } from './db/indexedDB';
+import { DB_TABLES } from './dbTables';
+import { blackBox } from './blackBox';
 import { APP_VERSION } from '../config/version';
 import { stampLocal, downloadJson } from './downloadUtils';
 import { parseOrgEnforcementError } from './orgEnforcement';
@@ -19,6 +22,7 @@ export interface PendingScoreRecord {
   queuedAt: string;
   syncStatus: 'pending' | 'syncing' | 'failed';
   retryCount?: number;
+  lastError?: string;
 }
 
 export type MutationOperation = 'INSERT' | 'UPDATE' | 'DELETE';
@@ -121,13 +125,15 @@ export async function queueMutationLocally(
   notifyQueueChange();
   requestBackgroundSync();
 
-  getPendingCount().then((count) => {
-    eventBus.emit('sync_status', {
-      status: 'offline',
-      pendingCount: count,
-      message: `${count} item${count > 1 ? 's' : ''} queued locally`,
-    });
-  });
+  getPendingCount()
+    .then((count) => {
+      eventBus.emit('sync_status', {
+        status: 'offline',
+        pendingCount: count,
+        message: `${count} item${count > 1 ? 's' : ''} queued locally`,
+      });
+    })
+    .catch(() => {});
 
   return id;
 }
@@ -162,12 +168,28 @@ export async function getPendingMutationsCount(): Promise<number> {
   }
 }
 
-// Flush all queued non-score mutations (events, participants, judges, orgs) to Supabase
-export async function flushOfflineMutationsToSupabase(): Promise<{
+export interface OfflineFlushResult {
   syncedCount: number;
   failedCount: number;
   authRequired?: boolean;
-}> {
+}
+
+let activeMutationsFlush: Promise<OfflineFlushResult> | null = null;
+let activeQueueFlush: Promise<OfflineFlushResult> | null = null;
+let pendingQueueFlushRequested = false;
+
+// Flush all queued non-score mutations (events, participants, judges, orgs) to Supabase
+export function flushOfflineMutationsToSupabase(): Promise<OfflineFlushResult> {
+  if (activeMutationsFlush) {
+    return activeMutationsFlush;
+  }
+  activeMutationsFlush = runFlushOfflineMutationsOnce().finally(() => {
+    activeMutationsFlush = null;
+  });
+  return activeMutationsFlush;
+}
+
+async function runFlushOfflineMutationsOnce(): Promise<OfflineFlushResult> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { syncedCount: 0, failedCount: 0 };
   }
@@ -296,6 +318,11 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
         item.lastError = `ORG_NOT_ALLOWED: ${orgBlock}`;
         if (orgBlock === 'SUSPENDED' || orgBlock === 'DELETED') {
           item.syncStatus = 'failed';
+          blackBox.recordError(
+            'console_error',
+            `Offline ${item.table}:${item.operation} blocked (${orgBlock})`,
+            'offlineQueue.mutations'
+          );
         }
         await db.put('pending_mutations', item);
         failedCount++;
@@ -370,6 +397,11 @@ export async function flushOfflineMutationsToSupabase(): Promise<{
 
       if (item.retryCount >= 3 || isRls || isRosterLockedDelete) {
         item.syncStatus = 'failed';
+        blackBox.recordError(
+          'console_error',
+          `Offline ${item.table}:${item.operation} failed: ${item.lastError}`,
+          'offlineQueue.mutations'
+        );
       }
 
       await db.put('pending_mutations', item);
@@ -445,13 +477,15 @@ export async function queueScoreLocally(score: any): Promise<string> {
   notifyQueueChange();
   requestBackgroundSync();
 
-  getPendingCount().then((count) => {
-    eventBus.emit('sync_status', {
-      status: 'offline',
-      pendingCount: count,
-      message: `${count} item${count > 1 ? 's' : ''} queued locally`,
-    });
-  });
+  getPendingCount()
+    .then((count) => {
+      eventBus.emit('sync_status', {
+        status: 'offline',
+        pendingCount: count,
+        message: `${count} item${count > 1 ? 's' : ''} queued locally`,
+      });
+    })
+    .catch(() => {});
 
   return id;
 }
@@ -503,6 +537,41 @@ export async function getFailedMutations(): Promise<PendingMutationRecord[]> {
   }
 }
 
+// Get failed score ballots for bug log, diagnostics, and judge UI
+export async function getFailedScores(): Promise<PendingScoreRecord[]> {
+  try {
+    const db = await getOfflineDB();
+    const all = await db.getAll('pending_scores');
+    return all.filter((s) => s.syncStatus === 'failed');
+  } catch {
+    return [];
+  }
+}
+
+// Retry a failed score manually from UI
+export async function retryFailedScore(id: string): Promise<void> {
+  try {
+    const db = await getOfflineDB();
+    const item = await db.get('pending_scores', id);
+    if (item) {
+      item.syncStatus = 'pending';
+      item.retryCount = 0;
+      delete item.lastError;
+      await db.put('pending_scores', item);
+      notifyQueueChange();
+      requestBackgroundSync().catch(() => {});
+      flushOfflineQueueToSupabase().catch(() => {});
+    }
+  } catch (err) {
+    console.warn('Error retrying failed score:', err);
+  }
+}
+
+// Discard a failed score manually from UI
+export async function discardFailedScore(id: string): Promise<void> {
+  await removePendingScore(id);
+}
+
 // Retry a failed mutation manually from UI
 export async function retryFailedMutation(id: string): Promise<void> {
   try {
@@ -514,8 +583,8 @@ export async function retryFailedMutation(id: string): Promise<void> {
       delete item.lastError;
       await db.put('pending_mutations', item);
       notifyQueueChange();
-      requestBackgroundSync();
-      flushOfflineQueueToSupabase();
+      requestBackgroundSync().catch(() => {});
+      flushOfflineQueueToSupabase().catch(() => {});
     }
   } catch (err) {
     console.warn('Error retrying failed mutation:', err);
@@ -527,12 +596,112 @@ export async function discardFailedMutation(id: string): Promise<void> {
   await removePendingMutation(id);
 }
 
+async function handleScoreSyncError(
+  db: IDBPDatabase<FairJudgeOfflineDB>,
+  item: PendingScoreRecord,
+  err: any
+): Promise<{ authRequired?: boolean; rpcUnavailable?: boolean; newlyFailed?: boolean }> {
+  if (err?.code === 'unauthorized') {
+    return { authRequired: true };
+  }
+  if (err?.code === 'rpc_unavailable') {
+    return { rpcUnavailable: true };
+  }
+  const orgBlock = parseOrgEnforcementError(err);
+  if (orgBlock) {
+    eventBus.emit('org_enforcement', { code: orgBlock });
+    item.lastError = `ORG_NOT_ALLOWED: ${orgBlock}`;
+    let newlyFailed = false;
+    if (orgBlock === 'SUSPENDED' || orgBlock === 'DELETED') {
+      item.syncStatus = 'failed';
+      newlyFailed = true;
+      blackBox.recordError(
+        'console_error',
+        `Offline ballot sync blocked (${orgBlock})`,
+        'offlineQueue.scores'
+      );
+    }
+    await db.put('pending_scores', item).catch(() => {});
+    return { newlyFailed };
+  }
+
+  const errMsg = String(err?.message || err || 'Server rejected ballot');
+  const lowerMsg = errMsg.toLowerCase();
+  const isPermanentReject = Boolean(
+    err?.code === '42501' ||
+      err?.code === 'forbidden' ||
+      err?.code === 'not_found' ||
+      err?.code === 'ROSTER_LOCKED' ||
+      err?.code === 'RLS Permission Denied' ||
+      err?.code === '23505' ||
+      err?.code === '23503' ||
+      err?.code === '23502' ||
+      err?.code === '22P02' ||
+      errMsg.includes('RLS Permission Denied') ||
+      lowerMsg.includes('permission denied') ||
+      lowerMsg.includes('row-level security') ||
+      lowerMsg.includes('not assigned') ||
+      lowerMsg.includes('event has ended') ||
+      lowerMsg.includes('event is paused') ||
+      lowerMsg.includes('ballot submission rejected')
+  );
+  const isServerReturned = Boolean(err?.code || isPermanentReject);
+
+  if (!isServerReturned) {
+    // Transient network issue: keep pending with 0 strikes
+    return {};
+  }
+
+  item.retryCount = (item.retryCount || 0) + 1;
+  item.lastError = errMsg;
+  let newlyFailed = false;
+  if (isPermanentReject || item.retryCount >= 3) {
+    item.syncStatus = 'failed';
+    newlyFailed = true;
+    blackBox.recordError(
+      'console_error',
+      `Offline ballot rejected: ${errMsg}`,
+      'offlineQueue.scores'
+    );
+  }
+  await db.put('pending_scores', item).catch(() => {});
+  return { newlyFailed };
+}
+
 // Sync all pending scores and mutations to Supabase with OCC Deduplication & Batched Upsert
-export async function flushOfflineQueueToSupabase(): Promise<{
-  syncedCount: number;
-  failedCount: number;
-  authRequired?: boolean;
-}> {
+export function flushOfflineQueueToSupabase(): Promise<OfflineFlushResult> {
+  if (activeQueueFlush) {
+    pendingQueueFlushRequested = true;
+    return activeQueueFlush;
+  }
+
+  activeQueueFlush = (async () => {
+    let aggregateSynced = 0;
+    let lastResult: OfflineFlushResult = { syncedCount: 0, failedCount: 0 };
+
+    do {
+      pendingQueueFlushRequested = false;
+      lastResult = await runFlushOfflineQueueOnce();
+      aggregateSynced += lastResult.syncedCount;
+      if (lastResult.authRequired) {
+        pendingQueueFlushRequested = false;
+        break;
+      }
+    } while (pendingQueueFlushRequested);
+
+    return {
+      syncedCount: aggregateSynced,
+      failedCount: lastResult.failedCount,
+      authRequired: lastResult.authRequired,
+    };
+  })().finally(() => {
+    activeQueueFlush = null;
+  });
+
+  return activeQueueFlush;
+}
+
+async function runFlushOfflineQueueOnce(): Promise<OfflineFlushResult> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { syncedCount: 0, failedCount: 0 };
   }
@@ -541,8 +710,8 @@ export async function flushOfflineQueueToSupabase(): Promise<{
   const mutationResult = await flushOfflineMutationsToSupabase();
   let authRequired = Boolean(mutationResult.authRequired);
 
-  // 2. Flush pending scores (ballots) with OCC deduplication and batched upsert
-  const rawScores = await getPendingScores();
+  // 2. Flush pending scores (ballots) with OCC deduplication and batched upsert (skip permanently failed items)
+  const rawScores = (await getPendingScores()).filter((s) => s.syncStatus !== 'failed');
   let scoreSynced = 0;
   let scoreFailed = 0;
 
@@ -591,14 +760,32 @@ export async function flushOfflineQueueToSupabase(): Promise<{
       await Promise.all(dedupedScores.map((item) => removePendingScore(item.id)));
       scoreSynced += dedupedScores.length;
     } catch (batchErr: any) {
-      if (batchErr?.code === 'unauthorized') {
+      const db = await getOfflineDB();
+
+      if (dedupedScores.length === 1) {
+        // Avoid firing an identical duplicate single-item RPC on 1-item batch failure
+        const res = await handleScoreSyncError(db, dedupedScores[0], batchErr);
+        if (res.authRequired) {
+          authRequired = true;
+        } else if (!res.rpcUnavailable) {
+          scoreFailed++;
+          if (res.newlyFailed) {
+            eventBus.emit('toast', {
+              type: 'error',
+              title: 'Ballot Sync Rejected',
+              message: '1 offline ballot was rejected by the server and kept for review.',
+            });
+          }
+        }
+      } else if (batchErr?.code === 'unauthorized') {
         authRequired = true;
       } else if (batchErr?.code === 'rpc_unavailable') {
         // Keep all scores safely pending in IndexedDB
       } else {
         console.warn('Batched score upsert encountered error, falling back to granular safe sync:', batchErr?.message || batchErr);
 
-        // Granular fallback in case one score has an RLS immutability conflict
+        // Granular fallback in case one score has an RLS/permission/event conflict
+        let newlyFailedScores = 0;
         for (const item of dedupedScores) {
           try {
             const payloadJson = {
@@ -621,27 +808,26 @@ export async function flushOfflineQueueToSupabase(): Promise<{
             await removePendingScore(item.id);
             scoreSynced++;
           } catch (err: any) {
-            if (err?.code === 'unauthorized') {
+            const res = await handleScoreSyncError(db, item, err);
+            if (res.authRequired) {
               authRequired = true;
               break;
             }
-            if (err?.code === 'rpc_unavailable') {
+            if (res.rpcUnavailable) {
               break;
             }
-            if (err?.message?.includes('RLS Permission Denied')) {
-              await removePendingScore(item.id);
-              scoreSynced++;
-              continue;
+            if (res.newlyFailed) {
+              newlyFailedScores++;
             }
-            const orgBlock = parseOrgEnforcementError(err);
-            if (orgBlock) {
-              eventBus.emit('org_enforcement', { code: orgBlock });
-              scoreFailed++;
-              continue;
-            }
-            console.warn(`Retryable error syncing offline score ${item.id}:`, err?.message || err);
             scoreFailed++;
           }
+        }
+        if (newlyFailedScores > 0) {
+          eventBus.emit('toast', {
+            type: 'error',
+            title: 'Ballot Sync Rejected',
+            message: `${newlyFailedScores} offline ballot${newlyFailedScores > 1 ? 's were' : ' was'} rejected by the server and kept for review.`,
+          });
         }
       }
     }
@@ -652,12 +838,23 @@ export async function flushOfflineQueueToSupabase(): Promise<{
   const remainingCount = await getPendingCount();
 
   if (totalSynced > 0) {
+    // Invalidate SWR cache timestamps so mounted screens refresh authoritative server rows
+    await invalidateCache(scoreSynced > 0 && mutationResult.syncedCount === 0 ? 'fairjudge_supabase_scores' : undefined);
     eventBus.emit('toast', {
       type: 'success',
       title: 'Synced to Cloud',
       message: `Synchronized ${totalSynced} offline change${totalSynced > 1 ? 's' : ''}.`,
     });
-    eventBus.emit('cache_updated', { table: 'all' });
+    eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fairjudge_db_change', {
+          detail: {
+            table: scoreSynced > 0 && mutationResult.syncedCount === 0 ? DB_TABLES.SCORES : DB_TABLES.ALL,
+          },
+        })
+      );
+    }
   }
 
   eventBus.emit('sync_status', {
@@ -691,17 +888,23 @@ export function initOfflineSyncListener(): () => void {
 
   const onlineHandler = () => {
     console.log('[Fair Judge] Device came online. Flushing local offline mutations & ballots to Supabase...');
-    flushOfflineQueueToSupabase().then(({ syncedCount }) => {
-      if (syncedCount > 0) {
-        console.log(`[Fair Judge] Successfully synchronized ${syncedCount} queued mutations.`);
-      }
-    });
+    flushOfflineQueueToSupabase()
+      .then(({ syncedCount }) => {
+        if (syncedCount > 0) {
+          console.log(`[Fair Judge] Successfully synchronized ${syncedCount} queued mutations.`);
+        }
+      })
+      .catch((err) => {
+        console.warn('[Fair Judge] Auto-sync on online failed:', err);
+      });
   };
 
   const swMessageHandler = (event: MessageEvent) => {
     if (event.data && event.data.type === 'TRIGGER_BACKGROUND_SYNC') {
       console.log('[Fair Judge] BackgroundSync triggered from Service Worker.');
-      flushOfflineQueueToSupabase();
+      flushOfflineQueueToSupabase().catch((err) => {
+        console.warn('[Fair Judge] SW background sync failed:', err);
+      });
     }
   };
 
@@ -712,7 +915,7 @@ export function initOfflineSyncListener(): () => void {
 
   // Initial check on load
   if (typeof navigator !== 'undefined' && navigator.onLine) {
-    flushOfflineQueueToSupabase();
+    flushOfflineQueueToSupabase().catch(() => {});
   }
 
   return () => {
@@ -764,6 +967,9 @@ export async function exportDiagnosticLog(): Promise<Record<string, any>> {
     }
   } catch {}
 
+  const failedScores = scores.filter((s) => s.syncStatus === 'failed').length;
+  const failedMutations = mutations.filter((m) => m.syncStatus === 'failed').length;
+
   return {
     app: 'Fair Judge',
     version: APP_VERSION,
@@ -771,8 +977,10 @@ export async function exportDiagnosticLog(): Promise<Record<string, any>> {
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
     storagePersisted,
     queueSummary: {
-      totalPendingScores: scores.length,
-      totalPendingMutations: mutations.length,
+      totalPendingScores: scores.filter((s) => s.syncStatus !== 'failed').length,
+      totalPendingMutations: mutations.filter((m) => m.syncStatus !== 'failed').length,
+      totalFailedScores: failedScores,
+      totalFailedMutations: failedMutations,
       isQueueHealthy: scores.length === 0 && mutations.length === 0,
     },
     pendingScores: redactedScores,

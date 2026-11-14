@@ -15,13 +15,19 @@ import {
 import { Html5Qrcode } from 'html5-qrcode';
 import { dbService, supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { authService } from '../../lib/authService';
-import { SupabaseJudge, SupabaseEvent } from '../../lib/supabaseTypes';
+import { SupabaseJudge, SupabaseEvent, Organization } from '../../lib/supabaseTypes';
 import { showToast, toast } from '../common/ToastProvider';
 import { sanitizeAuthError } from './authSanitizer';
 import { parseQrCodeFromImageFile, extractJudgeCredentials } from '../../lib/qrCodeParser';
 
 interface JudgeAuthProps {
-  onJudgeLogin: (orgId: string, judge: SupabaseJudge, assignedEvents: SupabaseEvent[], sessionToken?: string) => void;
+  onJudgeLogin: (
+    orgId: string,
+    judge: SupabaseJudge,
+    assignedEvents: SupabaseEvent[],
+    sessionToken?: string,
+    org?: Organization
+  ) => void;
   onBack: () => void;
 }
 
@@ -131,7 +137,8 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
           verified.judge.org_id.toUpperCase(),
           verified.judge,
           verified.assignedEvents,
-          verified.sessionToken
+          verified.sessionToken,
+          verified.org
         );
         return;
       }
@@ -210,7 +217,8 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
         verified.judge.org_id.toUpperCase(),
         verified.judge,
         verified.assignedEvents,
-        verified.sessionToken
+        verified.sessionToken,
+        verified.org
       );
     } catch (err: any) {
       console.warn('Judge authentication notice:', err);

@@ -57,10 +57,8 @@ export const authService = {
     let rpcAssignedEvents: SupabaseEvent[] | null = null;
     let rpcOrg: Organization | undefined;
 
-    // 1. ONLINE VALIDATION: Server-side `judge_login` RPC first
+    // 1. ONLINE VALIDATION: Server-side `judge_login` RPC only
     if (isSupabaseConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
-      let useLegacySelectFallback = false;
-
       try {
         const { data: rpcData, error: rpcError } = await supabase.rpc('judge_login', {
           p_org_id: cleanOrgId || null,
@@ -72,10 +70,11 @@ export const authService = {
         if (rpcError) {
           const msg = (rpcError.message || '').toLowerCase();
           if (rpcError.code === 'PGRST202' || rpcError.code === '42883' || msg.includes('judge_login')) {
-            useLegacySelectFallback = true;
-          } else {
-            throw rpcError;
+            throw new Error(
+              'Authentication service unavailable: judge_login RPC is missing. Run the latest SQL migration.'
+            );
           }
+          throw rpcError;
         } else {
           const res = rpcData as any;
           if (!res || !res.ok || !res.judge) {
@@ -119,77 +118,13 @@ export const authService = {
       } catch (cloudErr: any) {
         if (
           cloudErr.message?.includes('Authentication Failed') ||
+          cloudErr.message?.includes('Authentication service unavailable') ||
           cloudErr.message?.includes('organization is suspended') ||
           cloudErr.message?.includes('organization has been removed')
         ) {
           throw cloudErr;
         }
-        console.warn('judge_login RPC notice, evaluating fallback:', cloudErr);
-        if (!useLegacySelectFallback) {
-          // Network or transient error: fall through to offline cache check below
-        }
-      }
-
-      // Transitional fallback only when `judge_login` RPC is not yet deployed in Supabase
-      if (!authenticatedJudge && useLegacySelectFallback) {
-        try {
-          let query = supabase.from('judges').select('*').eq('pin', cleanPin);
-          if (cleanOrgId) {
-            query = query.ilike('org_id', cleanOrgId);
-          }
-
-          const { data, error } = await query;
-
-          if (!error && data && data.length > 0) {
-            const match = data.find((j: any) => {
-              const pinMatches =
-                String(j.pin || '').trim().toLowerCase() === cleanPin.toLowerCase() ||
-                String(j.judge_pin || '').trim().toLowerCase() === cleanPin.toLowerCase();
-              if (!pinMatches) return false;
-
-              if (cleanJudgeId) {
-                const idMatches =
-                  String(j.id || '').toLowerCase() === cleanJudgeId.toLowerCase() ||
-                  String(j.judge_id || '').toLowerCase() === cleanJudgeId.toLowerCase() ||
-                  String(j.name || '').toLowerCase() === cleanJudgeId.toLowerCase();
-                if (!idMatches) return false;
-              }
-
-              if (cleanOrgId && String(j.org_id || '').toUpperCase() !== cleanOrgId) return false;
-
-              if (cleanEventId) {
-                const eventColMatches = String((j as any).event_id || '') === cleanEventId;
-                const assignedArrayMatches = Array.isArray(j.assigned_events) && j.assigned_events.includes(cleanEventId);
-                if (!eventColMatches && !assignedArrayMatches) return false;
-              }
-              return true;
-            });
-
-            if (match) {
-              authenticatedJudge = {
-                ...match,
-                pin: cleanPin,
-                judge_pin: cleanPin,
-                assigned_events: Array.isArray(match.assigned_events) ? match.assigned_events : [],
-              };
-              targetOrgId = match.org_id;
-
-              const currentCached = getHotCache<SupabaseJudge[]>(STORAGE_KEYS.JUDGES, []);
-              if (!currentCached.some((j) => j.id === authenticatedJudge!.id)) {
-                await setIndexedDBCache(STORAGE_KEYS.JUDGES, [authenticatedJudge, ...currentCached], true);
-              }
-            } else {
-              throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
-            }
-          } else if (!error && (!data || data.length === 0)) {
-            throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
-          }
-        } catch (legacyErr: any) {
-          if (legacyErr.message?.includes('Authentication Failed')) {
-            throw legacyErr;
-          }
-          console.warn('Zero-trust cloud verification network issue, evaluating local cache:', legacyErr);
-        }
+        console.warn('judge_login RPC network notice, evaluating local cache:', cloudErr);
       }
     }
 

@@ -33,15 +33,23 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     });
   } else {
     // In dev mode, unregister any existing service worker and purge caches to prevent stale react chunk collisions
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      for (const reg of registrations) {
-        reg.unregister();
-      }
-    });
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((registrations) => {
+        for (const reg of registrations) {
+          reg.unregister().catch(() => {});
+        }
+      })
+      .catch(() => {});
     if ('caches' in window) {
-      caches.keys().then((keys) => {
-        keys.forEach((key) => caches.delete(key));
-      });
+      caches
+        .keys()
+        .then((keys) => {
+          keys.forEach((key) => {
+            caches.delete(key).catch(() => {});
+          });
+        })
+        .catch(() => {});
     }
   }
 }

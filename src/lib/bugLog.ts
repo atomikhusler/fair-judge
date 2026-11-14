@@ -9,7 +9,7 @@ import {
   SelfTestReportJSON,
 } from './selfTest';
 import { blackBox, BlackBoxEntry } from './blackBox';
-import { exportDiagnosticLog, getFailedMutations } from './offlineQueue';
+import { exportDiagnosticLog, getFailedMutations, getFailedScores } from './offlineQueue';
 
 export interface BugLogSummary {
   verdict: string;
@@ -139,18 +139,31 @@ export async function buildFullBugLog(
     queueLog = { error: 'Failed to export offline queue diagnostics' };
   }
 
-  // 6. Gather failed mutations (STRICTLY NO PAYLOADS)
+  // 6. Gather failed mutations & failed score ballots (STRICTLY NO PAYLOADS)
   let failedMutations: SanitizedFailedMutation[] = [];
   try {
-    const rawFailed = await getFailedMutations();
-    failedMutations = rawFailed.map((m) => ({
-      id: m.id,
-      table: m.table,
-      op: m.operation,
-      lastError: m.lastError || '',
-      retryCount: m.retryCount || 0,
-      createdAt: m.queuedAt,
-    }));
+    const [rawFailed, rawFailedScores] = await Promise.all([
+      getFailedMutations().catch(() => []),
+      getFailedScores().catch(() => []),
+    ]);
+    failedMutations = [
+      ...rawFailed.map((m) => ({
+        id: m.id,
+        table: m.table,
+        op: m.operation,
+        lastError: m.lastError || '',
+        retryCount: m.retryCount || 0,
+        createdAt: m.queuedAt,
+      })),
+      ...rawFailedScores.map((s) => ({
+        id: s.id,
+        table: 'scores',
+        op: 'UPSERT',
+        lastError: s.lastError || 'Server rejected ballot',
+        retryCount: s.retryCount || 0,
+        createdAt: s.queuedAt,
+      })),
+    ];
   } catch {
     failedMutations = [];
   }

@@ -26,6 +26,7 @@ export interface ToastPayload {
 }
 
 import type { OrgBlockCode } from './orgEnforcement';
+import type { Organization } from './supabaseTypes';
 
 export interface EventBusMap {
   cache_updated: CacheUpdatedPayload;
@@ -100,6 +101,33 @@ class EventBus {
 }
 
 export const eventBus = new EventBus();
+
+export function areOrganizationsEqual(a: Organization, b: Organization): boolean {
+  if (a === b) return true;
+  return (
+    a.id === b.id &&
+    a.org_id === b.org_id &&
+    a.name === b.name &&
+    a.email === b.email &&
+    a.verification_status === b.verification_status &&
+    a.rejection_reason === b.rejection_reason &&
+    a.suspended === b.suspended &&
+    a.suspended_reason === b.suspended_reason &&
+    a.deleted_at === b.deleted_at &&
+    a.tie_breaker_enabled === b.tie_breaker_enabled &&
+    a.tie_breaker_method === b.tie_breaker_method &&
+    a.blind_judging_enabled === b.blind_judging_enabled &&
+    a.auto_advance_enabled === b.auto_advance_enabled &&
+    a.grace_period_enabled === b.grace_period_enabled &&
+    a.isolated_jury_enabled === b.isolated_jury_enabled &&
+    a.projector_blind_mode === b.projector_blind_mode &&
+    a.projector_spotlight_mode === b.projector_spotlight_mode &&
+    a.projector_ticker_text === b.projector_ticker_text &&
+    a.projector_carousel_interval === b.projector_carousel_interval &&
+    a.projector_confetti_at === b.projector_confetti_at &&
+    JSON.stringify(a.custom_participant_fields || []) === JSON.stringify(b.custom_participant_fields || [])
+  );
+}
 
 /**
  * Fast content-based equality check for arrays of records.

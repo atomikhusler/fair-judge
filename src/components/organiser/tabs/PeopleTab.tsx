@@ -36,6 +36,8 @@ import {
 } from 'lucide-react';
 import { dbService, subscribeToDatabase, generateUUID } from '../../../lib/supabase';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
+import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
+import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
 import { 
   Organization, 
@@ -305,12 +307,21 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   // Custom Framer-Style Delete Confirmation Modal State (Directive 3)
   const [deleteModalState, setDeleteModalState] = useState<{
     isOpen: boolean;
-    type: 'participant' | 'judge';
+    type: 'participant' | 'judge' | 'custom_field';
     id: string;
     name: string;
     isOngoingWarning?: boolean;
     eventNames?: string[];
   } | null>(null);
+
+  const [readError, setReadError] = useState<string | null>(null);
+  const [isRetryingRead, setIsRetryingRead] = useState(false);
+  const readErrorRef = useRef<string | null>(null);
+  const loadRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    readErrorRef.current = readError;
+  }, [readError]);
 
   const [customFields, setCustomFields] = useState<CustomParticipantField[]>(
     organization.custom_participant_fields || []
@@ -320,24 +331,66 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     setCustomFields(organization.custom_participant_fields || []);
   }, [organization.custom_participant_fields]);
 
+  const loadData = useCallback(
+    async (force: boolean = false) => {
+      const reqId = ++loadRequestIdRef.current;
+      if (force) setIsRetryingRead(true);
 
-  // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
+      try {
+        const [rosterRes, eventsRes] = await Promise.all([
+          dbService.getOrgRosterCredentialsResult(organization.org_id, force),
+          dbService.getEventsResult(organization.org_id, force),
+        ]);
+
+        if (reqId !== loadRequestIdRef.current) return;
+
+        setParticipants((prev) =>
+          areRecordsEqual(prev, rosterRes.data.participants) ? prev : rosterRes.data.participants
+        );
+        setJudges((prev) =>
+          areRecordsEqual(prev, rosterRes.data.judges) ? prev : rosterRes.data.judges
+        );
+        setEvents((prev) => (areRecordsEqual(prev, eventsRes.data) ? prev : eventsRes.data));
+
+        const firstFailure = [rosterRes, eventsRes].find((r) => !r.ok);
+        if (firstFailure) {
+          setReadError(firstFailure.error || 'Showing cached data. Unable to reach server.');
+        } else {
+          setReadError(null);
+        }
+      } catch (err: any) {
+        if (reqId !== loadRequestIdRef.current) return;
+        setReadError(err?.message || 'Showing cached data. Unable to reach server.');
+      } finally {
+        if (force && reqId === loadRequestIdRef.current) {
+          setIsRetryingRead(false);
+        }
+      }
+    },
+    [organization.org_id]
+  );
+
+  // Pure Event-Driven Architecture: Subscribe to eventBus & database updates with coordinated reads
   useEffect(() => {
+    setParticipants(dbService.getCachedParticipants(organization.org_id));
+    setJudges(dbService.getCachedJudges(organization.org_id));
+    setEvents(dbService.getCachedEvents(organization.org_id));
+
     const unsubBus = eventBus.on('cache_updated', (payload) => {
       const table = payload?.table;
-      if (!table || table === 'participants' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.PARTICIPANTS)) {
         setParticipants((prev) => {
           const next = dbService.getCachedParticipants(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'judges' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.JUDGES)) {
         setJudges((prev) => {
           const next = dbService.getCachedJudges(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'events' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.EVENTS)) {
         setEvents((prev) => {
           const next = dbService.getCachedEvents(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
@@ -345,39 +398,46 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       }
     });
 
-    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
-    dbService.getParticipants(organization.org_id);
-    dbService.getJudges(organization.org_id);
-    dbService.getEvents(organization.org_id);
+    const unsubDb = subscribeToDatabase((table) => {
+      if (matchesDbTable(table, DB_TABLES.PARTICIPANTS, DB_TABLES.JUDGES, DB_TABLES.EVENTS)) {
+        void loadData(false);
+      }
+    });
 
-    return () => unsubBus();
-  }, [organization.org_id]);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && readErrorRef.current) {
+        void loadData(true);
+      }
+    };
+    const handleOnline = () => {
+      if (readErrorRef.current) {
+        void loadData(true);
+      }
+    };
 
-  const refreshFromCache = useCallback(() => {
-    setParticipants(dbService.getCachedParticipants(organization.org_id));
-    setJudges(dbService.getCachedJudges(organization.org_id));
-    setEvents(dbService.getCachedEvents(organization.org_id));
-  }, [organization.org_id]);
-  const loadData = refreshFromCache;
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleOnline);
+
+    void loadData(false);
+
+    return () => {
+      unsubBus();
+      unsubDb();
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [organization.org_id, loadData]);
 
   // ========================================================
   // CUSTOM HEADERS MANAGEMENT (Delete/Remove Custom Headers)
   // ========================================================
-  const handleDeleteCustomField = async (fieldId: string, fieldName: string) => {
-    const confirmed = window.confirm(`Remove custom field "${fieldName}" from participants?`);
-    if (!confirmed) return;
-
-    const updated = customFields.filter((cf) => cf.id !== fieldId);
-    setCustomFields(updated);
-    try {
-      await dbService.updateOrganization(organization.org_id, {
-        custom_participant_fields: updated,
-      });
-      setUploadNotice({ type: 'success', msg: `Removed custom header "${fieldName}".` });
-      setTimeout(() => setUploadNotice(null), 3000);
-    } catch (err) {
-      console.error('Failed to delete custom header:', err);
-    }
+  const handleDeleteCustomField = (fieldId: string, fieldName: string) => {
+    setDeleteModalState({
+      isOpen: true,
+      type: 'custom_field',
+      id: fieldId,
+      name: fieldName,
+    });
   };
 
   // ========================================================
@@ -429,7 +489,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   // Export current participants roster with Participant ID
   const handleExportParticipantsExcel = () => {
     if (participants.length === 0) {
-      alert('No participants found to export.');
+      showToast('No participants found to export.', 'warning');
       return;
     }
 
@@ -475,7 +535,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     // Strict Excel Check: only .xlsx accepted
     const fileName = file.name.toLowerCase();
     if (!fileName.endsWith('.xlsx')) {
-      alert('Strict Excel Policy: Please upload a valid .xlsx file. CSV and legacy formats are not supported.');
+      showToast('Strict Excel Policy: Please upload a valid .xlsx file. CSV and legacy formats are not supported.', 'error');
       if (e.target) e.target.value = '';
       return;
     }
@@ -850,11 +910,11 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
   const handleSaveParticipant = async () => {
     if (!participantForm.name.trim()) {
-      alert('Full Name is required.');
+      showToast('Full Name is required.', 'warning');
       return;
     }
     if (!participantForm.school.trim()) {
-      alert('School / Institution is required.');
+      showToast('School / Institution is required.', 'warning');
       return;
     }
 
@@ -878,9 +938,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
         clearParticipantDraft();
       }
       setShowParticipantModal(false);
-      await loadData();
-    } catch (err) {
+      await loadData(true);
+    } catch (err: any) {
       console.error('Failed to save participant:', err);
+      showToast(err?.message || 'Failed to save competitor.', 'error');
     }
   };
 
@@ -956,21 +1017,37 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     if (!deleteModalState) return;
     const { type, id, name, isOngoingWarning } = deleteModalState;
     try {
-      if (type === 'participant') {
+      if (type === 'custom_field') {
+        const prevFields = customFields;
+        const updated = customFields.filter((cf) => cf.id !== id);
+        setCustomFields(updated);
+        try {
+          await dbService.updateOrganization(organization.org_id, {
+            custom_participant_fields: updated,
+          });
+          setUploadNotice({ type: 'success', msg: `Removed custom header "${name}".` });
+          setTimeout(() => setUploadNotice(null), 3000);
+          showToast(`Removed custom field "${name}".`);
+        } catch (err: any) {
+          setCustomFields(prevFields);
+          throw err;
+        }
+      } else if (type === 'participant') {
         await dbService.deleteParticipant(id, isOngoingWarning);
         showToast(
           isOngoingWarning
             ? `Participant "${name}" deleted and pulled from active rosters.`
             : `Participant "${name}" deleted.`
         );
+        await loadData(true);
       } else {
         await dbService.deleteJudge(id);
         showToast(`Judge "${name}" deleted.`);
+        await loadData(true);
       }
-      await loadData();
     } catch (err: any) {
       console.error('Failed to delete roster record:', err);
-      showToast(err.message || 'Failed to delete record.', 'error');
+      showToast(err?.message || 'Failed to delete record.', 'error');
     } finally {
       setDeleteModalState(null);
     }
@@ -1001,15 +1078,15 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
   const handleSaveJudge = async () => {
     if (!judgeForm.name.trim()) {
-      alert('Judge Full Name is required.');
+      showToast('Judge Full Name is required.', 'warning');
       return;
     }
     if (!judgeForm.judge_id.trim()) {
-      alert('Judge ID Code is required.');
+      showToast('Judge ID Code is required.', 'warning');
       return;
     }
     if (!judgeForm.pin.trim() || judgeForm.pin.trim().length < 4) {
-      alert('A valid 4-Digit PIN is required.');
+      showToast('A valid 4-Digit PIN is required.', 'warning');
       return;
     }
 
@@ -1029,9 +1106,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
         );
       }
       setShowJudgeModal(false);
-      await loadData();
-    } catch (err) {
+      await loadData(true);
+    } catch (err: any) {
       console.error('Failed to save judge:', err);
+      showToast(err?.message || 'Failed to save judge.', 'error');
     }
   };
 
@@ -1063,8 +1141,12 @@ export function PeopleTab({ organization }: PeopleTabProps) {
         // User cancelled or share failed
       }
     } else {
-      navigator.clipboard.writeText(shareData.text);
-      alert('Credentials copied to clipboard!');
+      try {
+        await navigator.clipboard.writeText(shareData.text);
+        showToast('Credentials copied to clipboard!');
+      } catch {
+        showToast('Clipboard unavailable.', 'warning');
+      }
     }
   };
 
@@ -1073,7 +1155,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   // ========================================================
   const handleTriggerPrint = () => {
     if (judges.length === 0) {
-      alert('No judges found to print badges for.');
+      showToast('No judges found to print badges for.', 'warning');
       return;
     }
 
@@ -1296,6 +1378,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       setTimeout(() => {
         printWin.print();
       }, 250);
+    } else {
+      showToast('Pop-up blocked. Allow pop-ups to print badges.', 'warning');
     }
   };
 
@@ -1428,7 +1512,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* ======================================================== */}
       <div className="print:hidden flex-1 overflow-y-auto px-4 pt-2 pb-32 relative">
         {/* Pinned Sticky Control Header directly under main app header */}
-        <div className="sticky top-0 z-40 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md pb-3 pt-1 -mx-4 px-4 border-b border-stone-200/80 dark:border-zinc-800/80 space-y-2.5">
+        <div className="sticky top-0 z-40 bg-stone-50 dark:bg-black pb-3 pt-1 -mx-4 px-4 border-b border-stone-200 dark:border-zinc-800 space-y-2.5">
           {/* Sticky Search Bar + Desktop Action Trigger */}
           <div className="flex items-center gap-3 w-full">
             <div className="relative flex-1">
@@ -1442,7 +1526,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     ? `Search by name, school, or ${categoryLabel.toLowerCase()}...`
                     : 'Search judges by name, PIN, or ID...'
                 }
-                className="w-full min-h-[44px] pl-10 pr-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all shadow-xs"
+                className="w-full min-h-[44px] pl-10 pr-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors motion-reduce:transition-none shadow-xs"
               />
               {searchQuery && (
                 <button
@@ -1465,7 +1549,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   handleOpenAddJudge();
                 }
               }}
-              className={`hidden md:flex items-center gap-2 h-11 px-4 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`hidden md:flex items-center gap-2 h-11 px-4 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform cursor-pointer whitespace-nowrap shrink-0 ${
                 activeSubTab === 'participants'
                   ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20'
                   : 'bg-amber-600 hover:bg-amber-500 shadow-amber-900/20'
@@ -1484,7 +1568,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 setActiveSubTab('participants');
                 setSearchQuery('');
               }}
-              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform ${
+              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform ${
                 activeSubTab === 'participants'
                   ? 'bg-white dark:bg-zinc-950 text-stone-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
                   : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1500,7 +1584,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 setActiveSubTab('judges');
                 setSearchQuery('');
               }}
-              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform ${
+              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform ${
                 activeSubTab === 'judges'
                   ? 'bg-white dark:bg-zinc-950 text-stone-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
                   : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1511,6 +1595,15 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             </button>
           </div>
         </div>
+
+        {readError && (
+          <ReadRetryBanner
+            message={readError}
+            isRetrying={isRetryingRead}
+            onRetry={() => loadData(true)}
+            className="mt-3"
+          />
+        )}
 
         {/* Compact Action Cards (Zero-Bloat) */}
         {activeSubTab === 'participants' ? (
@@ -1625,7 +1718,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 <button
                   type="button"
                   onClick={() => setShowColumnsConfig(!showColumnsConfig)}
-                  className="w-full min-h-[42px] px-3.5 py-2 flex items-center justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/50 transition-all cursor-pointer"
+                  className="w-full min-h-[42px] px-3.5 py-2 flex items-center justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/50 transition-colors motion-reduce:transition-none cursor-pointer"
                 >
                   <div className="flex items-center space-x-2">
                     <Sliders className="w-3.5 h-3.5 text-indigo-500" />
@@ -1697,7 +1790,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                           <button
                             type="button"
                             onClick={() => handleSelectCategoryPreference('Class/Grade')}
-                            className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors motion-reduce:transition-none ${
                               categoryLabel === 'Class/Grade'
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-stone-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
@@ -1708,7 +1801,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                           <button
                             type="button"
                             onClick={() => handleSelectCategoryPreference('Age Group')}
-                            className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors motion-reduce:transition-none ${
                               categoryLabel === 'Age Group'
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-stone-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
@@ -1757,7 +1850,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     <div
                       key={p.id}
                       style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
-                      className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm flex items-start justify-between space-x-3 transition-all hover:border-stone-300 dark:hover:border-zinc-700"
+                      className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm flex items-start justify-between space-x-3 transition-colors motion-reduce:transition-none hover:border-stone-300 dark:hover:border-zinc-700"
                     >
                       <div className="flex items-start space-x-3 min-w-0 flex-1">
                         <div className="min-w-0 flex-1">
@@ -1854,7 +1947,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                             type="button"
                             onClick={() => handleOpenQrModal(j)}
                             title="Click to view large QR Code"
-                            className="p-1.5 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 hover:border-amber-500 transition-all cursor-pointer group active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
+                            className="p-1.5 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 hover:border-amber-500 cursor-pointer group active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
                           >
                             <QRCodeSVG
                               value={qrPayload}
@@ -1868,14 +1961,18 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                           {/* Copy Credentials Button */}
                           <button
                             type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(
-                                `Fair Judge Credentials\nOrg ID: ${organization.org_id}\nJudge ID: ${j.judge_id || j.id.slice(0, 6)}\nPIN: ${j.pin}\n\nScan QR or sign in with PIN.`
-                              );
-                              setCopiedJudgePin(j.id);
-                              setTimeout(() => setCopiedJudgePin(null), 2000);
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(
+                                  `Fair Judge Credentials\nOrg ID: ${organization.org_id}\nJudge ID: ${j.judge_id || j.id.slice(0, 6)}\nPIN: ${j.pin}\n\nScan QR or sign in with PIN.`
+                                );
+                                setCopiedJudgePin(j.id);
+                                setTimeout(() => setCopiedJudgePin(null), 2000);
+                              } catch {
+                                showToast('Clipboard unavailable.', 'warning');
+                              }
                             }}
-                            className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center space-x-1 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
+                            className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center space-x-1 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
                           >
                             {copiedJudgePin === j.id ? (
                               <>
@@ -1956,10 +2053,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* EXCEL STAGING PREVIEW MODAL (Directive 2 UI Overhaul)     */}
       {/* ======================================================== */}
       {showStagingModal && (
-        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 pointer-events-auto animate-in fade-in">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-3 sm:p-4 pointer-events-auto animate-in fade-in motion-reduce:animate-none">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 motion-reduce:animate-none">
             {/* Sleek Sticky Rounded Header */}
-            <div className="sticky top-0 z-10 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md p-4 sm:p-5 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
+            <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 p-4 sm:p-5 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
                   <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
@@ -2028,7 +2125,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                                 className="relative flex items-center justify-center cursor-pointer group"
                                 title="Partial conflict: Click to view comparison"
                               >
-                                <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-black shadow-xs shadow-amber-500/50 animate-pulse">
+                                <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-black shadow-xs shadow-amber-500/50 animate-pulse motion-reduce:animate-none">
                                   ?
                                 </span>
                               </button>
@@ -2079,7 +2176,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             </div>
 
             {/* Sleek Sticky Rounded Footer */}
-            <div className="sticky bottom-0 z-10 p-4 sm:p-5 border-t border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shrink-0">
+            <div className="sticky bottom-0 z-10 p-4 sm:p-5 border-t border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-white dark:bg-zinc-950 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -2087,7 +2184,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   setStagedRows([]);
                   setActiveConflictRow(null);
                 }}
-                className="min-h-[44px] px-5 rounded-2xl border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-all active:scale-[0.98] cursor-pointer"
+                className="min-h-[44px] px-5 rounded-2xl border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-transform motion-reduce:transition-none active:scale-[0.98] cursor-pointer"
               >
                 Cancel
               </button>
@@ -2095,7 +2192,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 type="button"
                 disabled={isImporting || stagedRows.filter((r) => r.isValid).length === 0}
                 onClick={handleConfirmImport}
-                className="min-h-[44px] px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-wider shadow-md shadow-emerald-500/25 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                className="min-h-[44px] px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-wider shadow-md shadow-emerald-500/25 active:scale-[0.98] transition-transform motion-reduce:transition-none disabled:opacity-50 cursor-pointer flex items-center gap-2"
               >
                 {isImporting ? (
                   <span>Processing Batch...</span>
@@ -2115,8 +2212,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
       {/* Partial Conflict Ergonomic Mini-Popup (Directive 2) */}
       {activeConflictRow && activeConflictRow.conflictExisting && (
-        <div className="fixed inset-0 z-[250] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[250] bg-black/75 flex items-center justify-center p-4 animate-in fade-in motion-reduce:animate-none">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none">
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-zinc-800">
               <div className="flex items-center gap-2.5">
                 <span className="w-6 h-6 rounded-full bg-amber-500 text-black font-black text-xs flex items-center justify-center shadow-xs shadow-amber-500/50">
@@ -2172,7 +2269,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   );
                   setActiveConflictRow(null);
                 }}
-                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold border transition-colors motion-reduce:transition-none cursor-pointer ${
                   activeConflictRow.conflictResolution === 'keep_existing'
                     ? 'bg-zinc-800 text-white border-zinc-700'
                     : 'border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900'
@@ -2192,7 +2289,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   );
                   setActiveConflictRow(null);
                 }}
-                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md ${
+                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold transition-colors motion-reduce:transition-none cursor-pointer shadow-md ${
                   activeConflictRow.conflictResolution === 'update_db'
                     ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/20'
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -2209,9 +2306,9 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* FULL-SCREEN PARTICIPANT CREATION WIZARD                  */}
       {/* ======================================================== */}
       {showParticipantModal && (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none">
           {/* Sticky Top Header */}
-          <div className="sticky top-0 z-10 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
+          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
             <button
               type="button"
               onClick={() => setShowParticipantModal(false)}
@@ -2325,9 +2422,9 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* FULL-SCREEN JUDGE CREATION WIZARD                        */}
       {/* ======================================================== */}
       {showJudgeModal && (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none">
           {/* Sticky Top Header */}
-          <div className="sticky top-0 z-10 bg-stone-50/95 dark:bg-black/95 backdrop-blur-md px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
+          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
             <button
               type="button"
               onClick={() => setShowJudgeModal(false)}
@@ -2417,8 +2514,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* 1. CLEAN SHOW QR MODAL (Only Judge Name, QR, Branding)   */}
       {/* ======================================================== */}
       {showQrModal && selectedJudgeForQr && (
-        <div className="fixed inset-0 z-[120] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xs w-full p-6 text-center shadow-2xl space-y-4 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xs w-full p-6 text-center shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none">
             {/* Top: Judge's Name (Bold, Top) with Close X */}
             <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-zinc-800/80">
               <h3 className="text-base font-extrabold text-zinc-900 dark:text-white truncate">
@@ -2468,7 +2565,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 setShowQrModal(false);
                 setSelectedJudgeForQr(null);
               }}
-              className="w-full min-h-[40px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+              className="w-full min-h-[40px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-bold transition-transform motion-reduce:transition-none active:scale-95 cursor-pointer shadow-sm"
             >
               Done
             </button>
@@ -2480,8 +2577,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* 2. JUDGE DOSSIER & DETAILS MODAL (Eye Icon Triggered)    */}
       {/* ======================================================== */}
       {showJudgeDetailsModal && selectedJudgeForDetails && (
-        <div className="fixed inset-0 z-[120] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 text-left shadow-2xl space-y-4 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 text-left shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none">
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-zinc-800">
               <div className="flex items-center space-x-3">
@@ -2587,14 +2684,18 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <div className="pt-2 flex items-center space-x-2">
               <button
                 type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(
-                    `Fair Judge Credentials\nOrg ID: ${organization.org_id}\nJudge ID: ${selectedJudgeForDetails.judge_id || selectedJudgeForDetails.id.slice(0, 6)}\nPIN: ${selectedJudgeForDetails.pin}\n\nScan QR or sign in with PIN.`
-                  );
-                  setCopiedJudgePin(selectedJudgeForDetails.id);
-                  setTimeout(() => setCopiedJudgePin(null), 2000);
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      `Fair Judge Credentials\nOrg ID: ${organization.org_id}\nJudge ID: ${selectedJudgeForDetails.judge_id || selectedJudgeForDetails.id.slice(0, 6)}\nPIN: ${selectedJudgeForDetails.pin}\n\nScan QR or sign in with PIN.`
+                    );
+                    setCopiedJudgePin(selectedJudgeForDetails.id);
+                    setTimeout(() => setCopiedJudgePin(null), 2000);
+                  } catch {
+                    showToast('Clipboard unavailable.', 'warning');
+                  }
                 }}
-                className="flex-1 min-h-[42px] px-3 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-stone-700 dark:text-zinc-200 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                className="flex-1 min-h-[42px] px-3 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-stone-700 dark:text-zinc-200 text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors motion-reduce:transition-none cursor-pointer"
               >
                 {copiedJudgePin === selectedJudgeForDetails.id ? (
                   <>
@@ -2614,7 +2715,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   setShowJudgeDetailsModal(false);
                   setSelectedJudgeForDetails(null);
                 }}
-                className="min-h-[42px] px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-bold transition-all cursor-pointer shadow-sm"
+                className="min-h-[42px] px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-bold transition-colors motion-reduce:transition-none cursor-pointer shadow-sm"
               >
                 Close
               </button>
@@ -2627,8 +2728,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* 3. STANDARDIZED DELETION CONFIRMATION MODAL (Directive 3) */}
       {/* ======================================================== */}
       {deleteModalState && deleteModalState.isOpen && (
-        <div className="fixed inset-0 z-[120] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none">
             {deleteModalState.isOngoingWarning ? (
               <>
                 <div className="flex items-center space-x-3 text-amber-500">
@@ -2653,14 +2754,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   <button
                     type="button"
                     onClick={() => setDeleteModalState(null)}
-                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
+                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmDelete}
-                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Proceed &amp; Remove</span>
@@ -2675,7 +2776,11 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
-                      {deleteModalState.type === 'participant' ? 'Remove Participant?' : 'Remove Judge?'}
+                      {deleteModalState.type === 'custom_field'
+                        ? 'Remove Custom Field?'
+                        : deleteModalState.type === 'participant'
+                        ? 'Remove Participant?'
+                        : 'Remove Judge?'}
                     </h3>
                     <p className="text-xs text-red-600 dark:text-red-400 font-mono">
                       Permanent removal
@@ -2684,24 +2789,38 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 </div>
 
                 <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                  Permanently remove <strong className="text-zinc-900 dark:text-white">{deleteModalState.name}</strong> from the official competition roster? This action cannot be undone.
+                  {deleteModalState.type === 'custom_field' ? (
+                    <>
+                      Remove custom field <strong className="text-zinc-900 dark:text-white">{deleteModalState.name}</strong> from participants?
+                    </>
+                  ) : (
+                    <>
+                      Permanently remove <strong className="text-zinc-900 dark:text-white">{deleteModalState.name}</strong> from the official competition roster? This action cannot be undone.
+                    </>
+                  )}
                 </p>
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <button
                     type="button"
                     onClick={() => setDeleteModalState(null)}
-                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
+                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmDelete}
-                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5"
                   >
                     <Trash2 className="w-4 h-4" />
-                    <span>{deleteModalState.type === 'participant' ? 'Remove Participant' : 'Remove Judge'}</span>
+                    <span>
+                      {deleteModalState.type === 'custom_field'
+                        ? 'Remove Field'
+                        : deleteModalState.type === 'participant'
+                        ? 'Remove Participant'
+                        : 'Remove Judge'}
+                    </span>
                   </button>
                 </div>
               </>

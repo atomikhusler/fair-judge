@@ -35,6 +35,7 @@ export function SuperAdminSetupModal({
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(current.anonKey || '');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,16 +83,19 @@ export function SuperAdminSetupModal({
   };
 
   const handleReset = () => {
-    if (confirm('Clear stored Supabase credentials from this browser?')) {
-      clearSupabaseCredentials();
-      setSupabaseUrl('');
-      setSupabaseAnonKey('');
-      showToast('Credentials cleared.', 'info');
+    if (!confirmingReset) {
+      setConfirmingReset(true);
+      return;
     }
+    clearSupabaseCredentials();
+    setSupabaseUrl('');
+    setSupabaseAnonKey('');
+    setConfirmingReset(false);
+    showToast('Credentials cleared.', 'info');
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 animate-in fade-in duration-200 motion-reduce:animate-none">
       <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-6 md:p-8 shadow-2xl shadow-black relative overflow-hidden text-zinc-100">
         {/* Subtle emerald radial glow */}
         <div className="absolute top-0 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
@@ -156,7 +160,7 @@ export function SuperAdminSetupModal({
                 value={supabaseUrl}
                 onChange={(e) => setSupabaseUrl(e.target.value)}
                 required
-                className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all rounded-xl text-xs font-mono text-white placeholder-zinc-500 outline-none"
+                className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-colors motion-reduce:transition-none rounded-xl text-xs font-mono text-white placeholder-zinc-500 outline-none"
               />
             </div>
           </div>
@@ -176,7 +180,7 @@ export function SuperAdminSetupModal({
                 value={supabaseAnonKey}
                 onChange={(e) => setSupabaseAnonKey(e.target.value)}
                 required
-                className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all rounded-xl text-xs font-mono text-white placeholder-zinc-500 outline-none"
+                className="w-full h-11 pl-10 pr-4 bg-zinc-900/80 border border-zinc-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-colors motion-reduce:transition-none rounded-xl text-xs font-mono text-white placeholder-zinc-500 outline-none"
               />
             </div>
             <p className="text-[10px] text-zinc-500 mt-1">
@@ -186,7 +190,7 @@ export function SuperAdminSetupModal({
 
           {/* Error Message */}
           {error && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-start gap-2 animate-in fade-in duration-200">
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-start gap-2 animate-in fade-in duration-200 motion-reduce:animate-none">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
               <span className="leading-relaxed">{error}</span>
             </div>
@@ -197,21 +201,36 @@ export function SuperAdminSetupModal({
             <button
               type="submit"
               disabled={isSaving}
-              className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-transform motion-reduce:transition-none shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               <span>{isSaving ? 'Saving...' : 'Save Configuration & Connect'}</span>
             </button>
 
             {!isFirstBoot && (
-              <button
-                type="button"
-                onClick={handleReset}
-                className="px-4 h-11 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-red-400 border border-zinc-800 rounded-xl text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                {confirmingReset && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingReset(false)}
+                    className="px-3 h-11 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-xl text-xs font-medium transition-colors motion-reduce:transition-none cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className={`px-4 h-11 border rounded-xl text-xs font-medium transition-colors motion-reduce:transition-none flex items-center justify-center gap-1.5 cursor-pointer ${
+                    confirmingReset
+                      ? 'bg-red-600 hover:bg-red-500 text-white border-red-500'
+                      : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-red-400 border-zinc-800'
+                  }`}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{confirmingReset ? 'Confirm Reset' : 'Reset'}</span>
+                </button>
+              </div>
             )}
           </div>
         </form>

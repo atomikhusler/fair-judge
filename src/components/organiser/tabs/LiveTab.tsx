@@ -36,6 +36,8 @@ import {
   PendingMutationRecord 
 } from '../../../lib/offlineQueue';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
+import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
+import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { showToast } from '../../common/ToastProvider';
 import { triggerHaptic } from '../../../lib/haptics';
 import { getOrgEnforcementMessage, parseOrgEnforcementError } from '../../../lib/orgEnforcement';
@@ -254,7 +256,7 @@ export const EventCard = React.memo(function EventCard({
   return (
     <div
       style={{ contentVisibility: 'auto', containIntrinsicSize: '80px' }}
-      className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm transition-all duration-200 hover:border-stone-300 dark:hover:border-zinc-700"
+      className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 shadow-sm transition-colors duration-200 motion-reduce:transition-none hover:border-stone-300 dark:hover:border-zinc-700"
     >
       {/* ---------------- TOP ROW: [CATEGORY] Pill & Lock Button (Left) | [STATUS] Badge (Right) ---------------- */}
       <div className="flex items-center justify-between gap-2">
@@ -272,7 +274,7 @@ export const EventCard = React.memo(function EventCard({
               e.stopPropagation();
               onToggleLock(event);
             }}
-            className={`min-h-[44px] min-w-[44px] px-2.5 flex items-center justify-center rounded-xl border transition-all ${
+            className={`min-h-[44px] min-w-[44px] px-2.5 flex items-center justify-center rounded-xl border transition-colors motion-reduce:transition-none ${
               event.status === 'ended' || event.status === 'archived'
                 ? 'opacity-60 cursor-not-allowed border-stone-200/40 dark:border-zinc-800 text-stone-400 dark:text-zinc-500'
                 : event.is_locked
@@ -370,7 +372,7 @@ export const EventCard = React.memo(function EventCard({
             <button
               type="button"
               onClick={(e) => onStart(event, e)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Start</span>
@@ -383,7 +385,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onPause(event, e)}
-                className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+                className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
               >
                 <Pause className="w-3.5 h-3.5 fill-current" />
                 <span>Pause</span>
@@ -391,7 +393,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onOpenEndConfirm(event, e)}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>End</span>
@@ -405,7 +407,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onResume(event, e)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Resume</span>
@@ -413,7 +415,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onOpenEndConfirm(event, e)}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>End</span>
@@ -747,7 +749,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     dbService.getCachedJudges(organization.org_id)
   );
   const [allScores, setAllScores] = useState<SupabaseScore[]>(() =>
-    dbService.getCachedScores()
+    dbService.getCachedScores(organization.org_id)
   );
   // 2. Command Bar & Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -764,6 +766,14 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   // 4. Double-Confirmation Modal State for Ending Session & Unlocking Live Event
   const [confirmingEvent, setConfirmingEvent] = useState<SupabaseEvent | null>(null);
   const [unlockConfirmEvent, setUnlockConfirmEvent] = useState<SupabaseEvent | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [isRetryingRead, setIsRetryingRead] = useState(false);
+  const readErrorRef = useRef<string | null>(null);
+  const loadRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    readErrorRef.current = readError;
+  }, [readError]);
 
   const refreshFailedMutations = useCallback(async () => {
     try {
@@ -774,56 +784,141 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
     }
   }, []);
 
-  // Pure Event-Driven Architecture: Subscribe to eventBus cache updates with zero-flash hydration
+  const loadData = useCallback(
+    async (force: boolean = false) => {
+      const reqId = ++loadRequestIdRef.current;
+      if (force) setIsRetryingRead(true);
+
+      try {
+        const [eventsRes, participantsRes, judgesRes, scoresRes] = await Promise.all([
+          dbService.getEventsResult(organization.org_id, force),
+          dbService.getParticipantsResult(organization.org_id, force),
+          dbService.getJudgesResult(organization.org_id, force),
+          dbService.getOrgScoresResult(organization.org_id, force),
+        ]);
+
+        if (reqId !== loadRequestIdRef.current) return;
+
+        setEvents((prev) => (areRecordsEqual(prev, eventsRes.data) ? prev : eventsRes.data));
+        setAllParticipants((prev) =>
+          areRecordsEqual(prev, participantsRes.data) ? prev : participantsRes.data
+        );
+        setJudges((prev) => (areRecordsEqual(prev, judgesRes.data) ? prev : judgesRes.data));
+        setAllScores((prev) => (areRecordsEqual(prev, scoresRes.data) ? prev : scoresRes.data));
+
+        const firstFailure = [eventsRes, participantsRes, judgesRes, scoresRes].find((r) => !r.ok);
+        if (firstFailure) {
+          setReadError(firstFailure.error || 'Showing cached data. Unable to reach server.');
+        } else {
+          setReadError(null);
+        }
+      } catch (err: any) {
+        if (reqId !== loadRequestIdRef.current) return;
+        setReadError(err?.message || 'Showing cached data. Unable to reach server.');
+      } finally {
+        if (force && reqId === loadRequestIdRef.current) {
+          setIsRetryingRead(false);
+        }
+      }
+    },
+    [organization.org_id]
+  );
+
+  // Pure Event-Driven Architecture: Subscribe to eventBus + Realtime with zero-flash hydration
   useEffect(() => {
-    const unsubBus = eventBus.on('cache_updated', (payload) => {
-      const table = payload?.table;
-      if (!table || table === 'events' || table === 'all') {
+    setEvents(dbService.getCachedEvents(organization.org_id));
+    setAllParticipants(dbService.getCachedParticipants(organization.org_id));
+    setJudges(dbService.getCachedJudges(organization.org_id));
+    setAllScores(dbService.getCachedScores(organization.org_id));
+
+    const syncFromCache = (table?: string) => {
+      if (!table || matchesDbTable(table, DB_TABLES.EVENTS)) {
         setEvents((prev) => {
           const next = dbService.getCachedEvents(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'participants' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.PARTICIPANTS)) {
         setAllParticipants((prev) => {
           const next = dbService.getCachedParticipants(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'judges' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.JUDGES)) {
         setJudges((prev) => {
           const next = dbService.getCachedJudges(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
-      if (!table || table === 'scores' || table === 'all') {
+      if (!table || matchesDbTable(table, DB_TABLES.SCORES)) {
         setAllScores((prev) => {
-          const next = dbService.getCachedScores();
+          const next = dbService.getCachedScores(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
+      }
+    };
+
+    const unsubBus = eventBus.on('cache_updated', (payload) => {
+      syncFromCache(payload?.table);
+    });
+
+    const unsubDb = subscribeToDatabase((table) => {
+      if (
+        matchesDbTable(
+          table,
+          DB_TABLES.EVENTS,
+          DB_TABLES.PARTICIPANTS,
+          DB_TABLES.JUDGES,
+          DB_TABLES.SCORES
+        )
+      ) {
+        void loadData(false);
       }
     });
 
     const unsubscribeQueue = subscribeToQueueChanges(() => {
-      getPendingCount().then((count) => {
-        setPendingScoresCount(count);
-      });
-      refreshFailedMutations();
+      getPendingCount()
+        .then((count) => {
+          setPendingScoresCount(count);
+        })
+        .catch(() => {});
+      void refreshFailedMutations();
     });
 
-    // Quiet SWR background verification (checks 5-minute TTL without blocking or showing loaders)
-    dbService.getEvents(organization.org_id);
-    dbService.getParticipants(organization.org_id);
-    dbService.getJudges(organization.org_id);
-    dbService.getAllScores();
-    getPendingCount().then((count) => setPendingScoresCount(count));
-    refreshFailedMutations();
+    const handleVisibilityOrOnline = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      if (readErrorRef.current) {
+        void loadData(true);
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleVisibilityOrOnline);
+    }
+
+    // Coordinated initial background/foreground read
+    void loadData(false);
+    getPendingCount()
+      .then((count) => setPendingScoresCount(count))
+      .catch(() => {});
+    void refreshFailedMutations();
 
     return () => {
       unsubBus();
+      unsubDb();
       unsubscribeQueue();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleVisibilityOrOnline);
+      }
     };
-  }, [organization.org_id, refreshFailedMutations]);
+  }, [organization.org_id, loadData, refreshFailedMutations]);
 
   // Modal Scroll Lock & Escape Key: Ensure body does not scroll while confirm modal or alert popover is open
   useEffect(() => {
@@ -961,13 +1056,14 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
             : item
         )
       );
-    } catch (err) {
+    } catch (err: any) {
       const code = parseOrgEnforcementError(err);
       if (code === 'NOT_VERIFIED') {
         triggerHaptic('warning');
         showToast(getOrgEnforcementMessage('NOT_VERIFIED'), 'warning', 4500);
       } else if (!code) {
         console.error('Failed to start session:', err);
+        showToast(err?.message || 'Failed to start session.', 'error');
       }
     }
   }, []);
@@ -988,8 +1084,12 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
             : item
         )
       );
-    } catch (err) {
-      console.error('Failed to pause session:', err);
+    } catch (err: any) {
+      const code = parseOrgEnforcementError(err);
+      if (!code) {
+        console.error('Failed to pause session:', err);
+        showToast(err?.message || 'Failed to pause session.', 'error');
+      }
     }
   }, [computeEventElapsedSeconds]);
 
@@ -1010,13 +1110,14 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
             : item
         )
       );
-    } catch (err) {
+    } catch (err: any) {
       const code = parseOrgEnforcementError(err);
       if (code === 'NOT_VERIFIED') {
         triggerHaptic('warning');
         showToast(getOrgEnforcementMessage('NOT_VERIFIED'), 'warning', 4500);
       } else if (!code) {
         console.error('Failed to resume session:', err);
+        showToast(err?.message || 'Failed to resume session.', 'error');
       }
     }
   }, []);
@@ -1042,8 +1143,12 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
             : item
         )
       );
-    } catch (err) {
-      console.error('Failed to end session:', err);
+    } catch (err: any) {
+      const code = parseOrgEnforcementError(err);
+      if (!code) {
+        console.error('Failed to end session:', err);
+        showToast(err?.message || 'Failed to end session.', 'error');
+      }
     } finally {
       setConfirmingEvent(null);
     }
@@ -1251,6 +1356,16 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
       {/* ======================================================== */}
       {/* PART 3: THE EXPANDABLE EVENT CARDS (Accordion Logic)     */}
       {/* ======================================================== */}
+      {readError && (
+        <div className="mb-3">
+          <ReadRetryBanner
+            message={readError}
+            isRetrying={isRetryingRead}
+            onRetry={() => void loadData(true)}
+          />
+        </div>
+      )}
+
       <div className="mt-4 space-y-3.5">
         {filteredEvents.length === 0 ? (
           <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-8 text-center shadow-sm">
@@ -1467,20 +1582,28 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                         <button
                           type="button"
                           onClick={async () => {
-                            await retryFailedMutation(m.id);
-                            await refreshFailedMutations();
+                            try {
+                              await retryFailedMutation(m.id);
+                              await refreshFailedMutations();
+                            } catch (err: any) {
+                              showToast(err?.message || 'Retry failed.', 'error');
+                            }
                           }}
-                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-stone-900 text-white dark:bg-zinc-100 dark:text-black hover:opacity-90 transition-opacity cursor-pointer"
+                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-stone-900 text-white dark:bg-zinc-100 dark:text-black hover:opacity-90 transition-opacity motion-reduce:transition-none cursor-pointer"
                         >
                           Retry
                         </button>
                         <button
                           type="button"
                           onClick={async () => {
-                            await discardFailedMutation(m.id);
-                            await refreshFailedMutations();
+                            try {
+                              await discardFailedMutation(m.id);
+                              await refreshFailedMutations();
+                            } catch (err: any) {
+                              showToast(err?.message || 'Discard failed.', 'error');
+                            }
                           }}
-                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer"
+                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors motion-reduce:transition-none cursor-pointer"
                         >
                           Discard
                         </button>

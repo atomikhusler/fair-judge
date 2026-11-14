@@ -276,8 +276,18 @@ export function useAnnouncements(role: 'organiser' | 'judge', orgId?: string | n
   const [activeRows, setActiveRows] = useState<PlatformAnnouncement[]>([]);
   const [inboxState, setInboxState] = useState(() => getInboxAnnouncementsForClient(role, orgId));
   const lastFetchAtRef = useRef<number>(0);
+  const inflightRefreshRef = useRef<Promise<void> | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const syncLocalInbox = useCallback(() => {
+    if (!isMountedRef.current) return;
     setInboxState(getInboxAnnouncementsForClient(role, orgId));
   }, [role, orgId]);
 
@@ -285,6 +295,8 @@ export function useAnnouncements(role: 'organiser' | 'judge', orgId?: string | n
     async (force = false) => {
       const now = Date.now();
       if (!force && now - lastFetchAtRef.current < 3000) return;
+      if (inflightRefreshRef.current) return inflightRefreshRef.current;
+
       lastFetchAtRef.current = now;
 
       if (!isSupabaseConfigured() || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
@@ -292,22 +304,30 @@ export function useAnnouncements(role: 'organiser' | 'judge', orgId?: string | n
         return;
       }
 
-      try {
-        const cleanOrg = orgId?.trim() || null;
-        const { data, error } = await supabase.rpc('get_active_announcements', {
-          p_org_id: cleanOrg,
-        });
-        if (!error && Array.isArray(data)) {
-          const matched = (data as PlatformAnnouncement[]).filter((item) =>
-            matchesAnnouncementAudience(item, role, cleanOrg)
-          );
-          upsertInboxArchive(matched);
-          setActiveRows(matched);
-          setInboxState(getInboxAnnouncementsForClient(role, cleanOrg));
+      const task = (async () => {
+        try {
+          const cleanOrg = orgId?.trim() || null;
+          const { data, error } = await supabase.rpc('get_active_announcements', {
+            p_org_id: cleanOrg,
+          });
+          if (!isMountedRef.current) return;
+          if (!error && Array.isArray(data)) {
+            const matched = (data as PlatformAnnouncement[]).filter((item) =>
+              matchesAnnouncementAudience(item, role, cleanOrg)
+            );
+            upsertInboxArchive(matched);
+            setActiveRows(matched);
+            setInboxState(getInboxAnnouncementsForClient(role, cleanOrg));
+          }
+        } catch {
+          syncLocalInbox();
+        } finally {
+          inflightRefreshRef.current = null;
         }
-      } catch {
-        syncLocalInbox();
-      }
+      })();
+
+      inflightRefreshRef.current = task;
+      return task;
     },
     [role, orgId, syncLocalInbox]
   );

@@ -861,5 +861,37 @@
   }
 }
 
+/* Epic 15.12.1 Transform + Opacity Only Confetti */
+@keyframes fjConfettiFall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -8vh, 0) rotate(0deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--fj-drift, 24px), 108vh, 0) rotate(var(--fj-rot, 540deg));
+  }
+}
 
+.fj-confetti-piece {
+  position: fixed;
+  top: 0;
+  will-change: transform, opacity;
+  animation-name: fjConfettiFall;
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
 
+@media (prefers-reduced-motion: reduce) {
+  .fj-confetti-piece {
+    animation: none !important;
+    display: none !important;
+  }
+}

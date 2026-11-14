@@ -22,7 +22,7 @@ import {
   generateSelfTestReport,
   downloadReportFile
 } from '../../lib/selfTest';
-import { getFailedMutations, downloadDiagnosticLog } from '../../lib/offlineQueue';
+import { getFailedMutations, getFailedScores, downloadDiagnosticLog } from '../../lib/offlineQueue';
 import { blackBox } from '../../lib/blackBox';
 import { buildFullBugLog } from '../../lib/bugLog';
 import { downloadJson } from '../../lib/downloadUtils';
@@ -144,11 +144,14 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
     };
   }, []);
 
-  // Passive check: detect failed mutations for initial orange LED signal
+  // Passive check: detect failed mutations or failed scores for initial orange LED signal
   useEffect(() => {
-    getFailedMutations()
-      .then((muts) => {
-        if (muts && muts.length > 0) {
+    Promise.all([
+      getFailedMutations().catch(() => []),
+      getFailedScores().catch(() => []),
+    ])
+      .then(([muts, failedScores]) => {
+        if ((muts && muts.length > 0) || (failedScores && failedScores.length > 0)) {
           setHasFailedQueueItems(true);
         }
       })
@@ -320,13 +323,21 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
         setTestRunning(false);
       }
 
+      if (wakePhaseTimerRef.current) {
+        clearTimeout(wakePhaseTimerRef.current);
+        wakePhaseTimerRef.current = null;
+      }
+
       if (newPos === 'sleep') {
         setWakeStage('sleeping');
         setAnnouncement('Terminal in sleep mode');
       } else if (newPos === 'about') {
         setWakeStage('blinking');
         setAnnouncement('Terminal awake: About Fair Judge');
-        setTimeout(() => setWakeStage('awake'), 240);
+        wakePhaseTimerRef.current = setTimeout(() => {
+          wakePhaseTimerRef.current = null;
+          setWakeStage('awake');
+        }, 240);
       } else if (newPos === 'test') {
         setWakeStage('awake');
         setAnnouncement('Initiating Fair Judge hardware self-test');

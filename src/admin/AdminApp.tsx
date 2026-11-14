@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import {
   Lock,
   RefreshCw,
@@ -45,9 +45,11 @@ import { MoreView } from './MoreView';
 import { useTheme } from '../lib/theme';
 import { PullToRefresh } from '../components/common/PullToRefresh';
 import { triggerHaptic } from '../lib/haptics';
+import { lazyWithRetry } from '../lib/lazyWithRetry';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
-const OrgDetail = lazy(() => import('./orgs/OrgDetail'));
-const InboxDetail = lazy(() => import('./inbox/InboxDetail'));
+const OrgDetail = lazyWithRetry(() => import('./orgs/OrgDetail'), 'admin_org_detail');
+const InboxDetail = lazyWithRetry(() => import('./inbox/InboxDetail'), 'admin_inbox_detail');
 
 interface AdminAppProps {
   onExit: () => void;
@@ -88,6 +90,11 @@ export function AdminApp({ onExit }: AdminAppProps) {
   const highlightTimerRef = useRef<number | null>(null);
   const lastActivityWriteRef = useRef<number>(0);
   const lastRefreshAtRef = useRef<number>(0);
+  const overviewErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    overviewErrorRef.current = overviewError;
+  }, [overviewError]);
 
   useEffect(() => {
     return () => {
@@ -330,7 +337,8 @@ export function AdminApp({ onExit }: AdminAppProps) {
 
       if (
         (typeof navigator === 'undefined' || navigator.onLine) &&
-        Date.now() - lastRefreshAtRef.current > STALE_VISIBLE_REFRESH_MS
+        (Boolean(overviewErrorRef.current) ||
+          Date.now() - lastRefreshAtRef.current > STALE_VISIBLE_REFRESH_MS)
       ) {
         void handleManualRefresh();
       }
@@ -539,16 +547,24 @@ export function AdminApp({ onExit }: AdminAppProps) {
           >
             {route.orgId ? (
               <div key={route.orgId} className="min-h-full admin-push-forward">
-                <Suspense fallback={detailSuspenseFallback}>
-                  <OrgDetail
-                    orgId={route.orgId}
-                    cachedOrg={cachedOrg}
-                    isOnline={isOnline}
-                    refreshNonce={refreshNonce}
-                    onBack={goUp}
-                    onOrgMutated={handleOrgMutated}
-                  />
-                </Suspense>
+                <ErrorBoundary
+                  variant="inline"
+                  title="Could not load organiser details"
+                  subtitle="A network or rendering issue interrupted this panel"
+                  resetKeys={[route.orgId, refreshNonce]}
+                  onRetry={() => setRefreshNonce((n) => n + 1)}
+                >
+                  <Suspense fallback={detailSuspenseFallback}>
+                    <OrgDetail
+                      orgId={route.orgId}
+                      cachedOrg={cachedOrg}
+                      isOnline={isOnline}
+                      refreshNonce={refreshNonce}
+                      onBack={goUp}
+                      onOrgMutated={handleOrgMutated}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
               </div>
             ) : (
               <div className="hidden md:flex flex-1 items-center justify-center p-6">
@@ -606,16 +622,24 @@ export function AdminApp({ onExit }: AdminAppProps) {
           >
             {route.reportId ? (
               <div key={route.reportId} className="min-h-full admin-push-forward">
-                <Suspense fallback={detailSuspenseFallback}>
-                  <InboxDetail
-                    reportId={route.reportId}
-                    cachedSummary={cachedReport}
-                    isOnline={isOnline}
-                    refreshNonce={refreshNonce}
-                    onBack={goUp}
-                    onReportUpdated={handleReportUpdated}
-                  />
-                </Suspense>
+                <ErrorBoundary
+                  variant="inline"
+                  title="Could not load inbox report"
+                  subtitle="A network or rendering issue interrupted this panel"
+                  resetKeys={[route.reportId, refreshNonce]}
+                  onRetry={() => setRefreshNonce((n) => n + 1)}
+                >
+                  <Suspense fallback={detailSuspenseFallback}>
+                    <InboxDetail
+                      reportId={route.reportId}
+                      cachedSummary={cachedReport}
+                      isOnline={isOnline}
+                      refreshNonce={refreshNonce}
+                      onBack={goUp}
+                      onReportUpdated={handleReportUpdated}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
               </div>
             ) : (
               <div className="hidden md:flex flex-1 items-center justify-center p-6">

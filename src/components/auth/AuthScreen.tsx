@@ -11,7 +11,13 @@ export type AuthView = 'gateway' | 'organiser' | 'judge';
 
 interface AuthScreenProps {
   onOrganiserLogin: (org: Organization, sessionToken?: string, mustChange?: boolean) => void;
-  onJudgeLogin: (orgId: string, judge: SupabaseJudge, assignedEvents: SupabaseEvent[], sessionToken?: string) => void;
+  onJudgeLogin: (
+    orgId: string,
+    judge: SupabaseJudge,
+    assignedEvents: SupabaseEvent[],
+    sessionToken?: string,
+    org?: Organization
+  ) => void;
   onOpenAdmin?: () => void;
   initialView?: AuthView;
 }
@@ -32,7 +38,10 @@ export function AuthScreen({ onOrganiserLogin, onJudgeLogin, onOpenAdmin, initia
       {/* Main Container Area */}
       <div className="w-full flex-1 flex flex-col items-center justify-center relative z-10 py-6">
         {authView === 'gateway' && (
-          <Gateway onSelectRole={(role) => setAuthView(role)} onOpenAdmin={onOpenAdmin} />
+          <Gateway
+            onSelectRole={(role) => setAuthView(role)}
+            onOpenAdmin={onOpenAdmin}
+          />
         )}
 
         {authView === 'organiser' && (

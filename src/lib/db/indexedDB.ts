@@ -6,6 +6,7 @@
 
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { eventBus } from '../eventBus';
+import { normalizeDbTableName } from '../dbTables';
 
 export interface CacheEntry<T = any> {
   key: string;
@@ -51,6 +52,8 @@ export function getCacheDB(): Promise<IDBPDatabase<FairJudgeCacheDB>> {
   return dbPromise;
 }
 
+const MAX_LOCAL_MIRROR_CHARS = 250_000;
+
 /**
  * Primes the in-memory hot mirror from IndexedDB and migrates any legacy localStorage caches
  */
@@ -60,8 +63,22 @@ export async function initCacheStorage(): Promise<void> {
   try {
     const db = await getCacheDB();
     const allEntries = await db.getAll('cache_store');
+    let hydratedNewData = false;
+
     allEntries.forEach((entry) => {
-      hotMemoryCache.set(entry.key, entry);
+      const existing = hotMemoryCache.get(entry.key);
+      // Never clobber fresh in-memory writes that occurred while IDB was opening
+      if (!existing || (existing.timestamp === 0 && entry.data !== undefined)) {
+        hotMemoryCache.set(entry.key, {
+          key: entry.key,
+          data: entry.data,
+          // Restored cold entries are display-ready (0ms UI hydration) but not fresh for SWR skip
+          timestamp: 0,
+        });
+        if (!existing) {
+          hydratedNewData = true;
+        }
+      }
     });
 
     // Check for legacy localStorage data and migrate asynchronously
@@ -79,18 +96,21 @@ export async function initCacheStorage(): Promise<void> {
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            // Only migrate if not already in IndexedDB
             if (!hotMemoryCache.has(key)) {
               await setIndexedDBCache(key, parsed, true);
+              hydratedNewData = true;
             }
           }
         }
-      } catch (e) {
+      } catch {
         // Safe skip
       }
     }
 
     isInitialized = true;
+    if (hydratedNewData) {
+      eventBus.emit('cache_updated', { table: 'all' });
+    }
   } catch (err) {
     console.warn('Failed to initialize IndexedDB cache engine:', err);
     isInitialized = true;
@@ -110,7 +130,8 @@ export function getHotCache<T>(key: string, defaultVal: T): T {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed !== undefined && parsed !== null) {
-        hotMemoryCache.set(key, { key, data: parsed, timestamp: Date.now() });
+        // Timestamp 0: gives instant display hydration on boot without faking SWR freshness
+        hotMemoryCache.set(key, { key, data: parsed, timestamp: 0 });
         return parsed as T;
       }
     }
@@ -122,11 +143,16 @@ export function getHotCache<T>(key: string, defaultVal: T): T {
  * Marks a logical cache key (e.g. per-org cacheKey) as freshly verified
  */
 export function touchCacheTimestamp(key: string): void {
-  cacheTimestamps.set(key, Date.now());
+  const now = Date.now();
+  cacheTimestamps.set(key, now);
+  const entry = hotMemoryCache.get(key);
+  if (entry) {
+    entry.timestamp = now;
+  }
 }
 
 /**
- * Check if the cached key is still fresh (younger than 5 minutes)
+ * Check if the cached key is still fresh within this session (younger than 5 minutes)
  */
 export function isCacheFresh(key: string): boolean {
   const ts = cacheTimestamps.get(key) ?? hotMemoryCache.get(key)?.timestamp ?? 0;
@@ -161,10 +187,19 @@ export async function setIndexedDBCache<T>(
   // 1. Immediate in-memory hot mirror write
   hotMemoryCache.set(key, entry);
 
-  // Synchronous backup in localStorage for instant zero-latency recovery on page reloads
+  // Bounded synchronous backup in localStorage so large datasets never starve session/draft quota
   try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
+    const serialized = JSON.stringify(data);
+    if (serialized.length <= MAX_LOCAL_MIRROR_CHARS) {
+      localStorage.setItem(key, serialized);
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+  }
 
   // 2. Asynchronous write to IndexedDB
   try {
@@ -176,8 +211,7 @@ export async function setIndexedDBCache<T>(
 
   // 3. Emit EventBus update if not silent
   if (!silent) {
-    let tableName = key.replace('fairjudge_supabase_', '');
-    if (tableName === 'orgs') tableName = 'organizations';
+    const tableName = normalizeDbTableName(key);
     eventBus.emit('cache_updated', { table: tableName, data });
   }
 }
@@ -186,7 +220,6 @@ export async function setIndexedDBCache<T>(
  * Asynchronously reads data from IndexedDB
  */
 export async function getIndexedDBCache<T>(key: string, defaultVal: T): Promise<T> {
-  // If in hot cache, return immediately
   const hot = hotMemoryCache.get(key);
   if (hot && hot.data !== undefined) {
     return hot.data as T;
@@ -196,7 +229,7 @@ export async function getIndexedDBCache<T>(key: string, defaultVal: T): Promise<
     const db = await getCacheDB();
     const entry = await db.get('cache_store', key);
     if (entry && entry.data !== undefined) {
-      hotMemoryCache.set(key, entry);
+      hotMemoryCache.set(key, { key: entry.key, data: entry.data, timestamp: 0 });
       return entry.data as T;
     }
   } catch (err) {
@@ -207,7 +240,7 @@ export async function getIndexedDBCache<T>(key: string, defaultVal: T): Promise<
 }
 
 /**
- * Invalidate cache entry or entire cache
+ * Invalidate cache entry (plus prefixed sub-keys) or entire cache
  */
 export async function invalidateCache(key?: string): Promise<void> {
   if (key) {
@@ -217,10 +250,11 @@ export async function invalidateCache(key?: string): Promise<void> {
         cacheTimestamps.delete(trackedKey);
       }
     }
-    const entry = hotMemoryCache.get(key);
-    if (entry) {
-      entry.timestamp = 0;
-      hotMemoryCache.set(key, entry);
+    for (const [hotKey, entry] of hotMemoryCache.entries()) {
+      if (hotKey === key || hotKey.startsWith(`${key}_`)) {
+        entry.timestamp = 0;
+        hotMemoryCache.set(hotKey, entry);
+      }
     }
     try {
       const db = await getCacheDB();

@@ -17,11 +17,14 @@ import {
 import { Organization } from '../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase, getStoredSession, setStoredSession, invalidateCache } from '../../lib/supabase';
 import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
-import { eventBus } from '../../lib/eventBus';
+import { eventBus, areOrganizationsEqual } from '../../lib/eventBus';
+import { DB_TABLES, matchesDbTable } from '../../lib/dbTables';
 import { SettingsDrawer } from './SettingsDrawer';
 import { AccountModal } from './AccountModal';
 import { PullToRefresh } from '../common/PullToRefresh';
 import { TabProgressFallback } from '../common/Skeletons';
+import { ErrorBoundary } from '../common/ErrorBoundary';
+import { ReadRetryBanner } from '../common/ReadRetryBanner';
 import { triggerHaptic } from '../../lib/haptics';
 import { lazyWithRetry } from '../../lib/lazyWithRetry';
 import { useAnnouncements } from '../../lib/announcements';
@@ -42,37 +45,14 @@ export type OrganiserNavTab = 'live' | 'events' | 'people' | 'insights';
 interface OrganiserDashboardProps {
   organization: Organization;
   onLogout: () => void;
-  onOpenPublicView: (eventId?: string) => void;
   onSwitchToJudgeView?: () => void;
   mustChangePassword?: boolean;
   onPasswordChanged?: () => void;
 }
 
-function areOrganizationsEqual(a: Organization, b: Organization): boolean {
-  if (a === b) return true;
-  return (
-    a.id === b.id &&
-    a.org_id === b.org_id &&
-    a.name === b.name &&
-    a.email === b.email &&
-    a.verification_status === b.verification_status &&
-    a.rejection_reason === b.rejection_reason &&
-    a.suspended === b.suspended &&
-    a.suspended_reason === b.suspended_reason &&
-    a.deleted_at === b.deleted_at &&
-    a.tie_breaker_enabled === b.tie_breaker_enabled &&
-    a.tie_breaker_method === b.tie_breaker_method &&
-    a.blind_judging_enabled === b.blind_judging_enabled &&
-    a.auto_advance_enabled === b.auto_advance_enabled &&
-    a.grace_period_enabled === b.grace_period_enabled &&
-    a.isolated_jury_enabled === b.isolated_jury_enabled
-  );
-}
-
 export function OrganiserDashboard({
   organization: initialOrg,
   onLogout,
-  onOpenPublicView,
   mustChangePassword = false,
   onPasswordChanged,
 }: OrganiserDashboardProps) {
@@ -92,18 +72,35 @@ export function OrganiserDashboard({
     refreshAnnouncements,
   } = useAnnouncements('organiser', organization.org_id);
   const [blockedMode, setBlockedMode] = useState<'suspended' | 'deleted' | null>(null);
+  const [orgLoadError, setOrgLoadError] = useState<string | null>(null);
+  const [isRetryingOrg, setIsRetryingOrg] = useState(false);
+  const [tabRetryNonce, setTabRetryNonce] = useState(0);
 
   const verificationStatus = organization.verification_status || 'pending';
 
   // Stable refs for mutable values to prevent dependency cycling & infinite loops
+  const organizationRef = useRef(organization);
   const orgIdRef = useRef(organization.org_id);
   const statusRef = useRef(organization.verification_status);
   const onLogoutRef = useRef(onLogout);
+  const orgLoadErrorRef = useRef<string | null>(null);
 
   useEffect(() => {
+    orgLoadErrorRef.current = orgLoadError;
+  }, [orgLoadError]);
+
+  useEffect(() => {
+    organizationRef.current = organization;
     orgIdRef.current = organization.org_id;
     statusRef.current = organization.verification_status;
-  }, [organization.org_id, organization.verification_status]);
+  }, [organization]);
+
+  useEffect(() => {
+    if (!areOrganizationsEqual(organizationRef.current, initialOrg)) {
+      organizationRef.current = initialOrg;
+      setOrganization(initialOrg);
+    }
+  }, [initialOrg]);
 
   useEffect(() => {
     onLogoutRef.current = onLogout;
@@ -131,40 +128,61 @@ export function OrganiserDashboard({
     }
   }, []);
 
-  // Sync organization status with deduplication and stable callback reference
-  const syncOrganizationStatus = useCallback(async () => {
+  // Sync organization status with deduplication and explicit ReadResult classification
+  const syncOrganizationStatus = useCallback(async (force: boolean = false) => {
     const currentOrgId = orgIdRef.current;
     if (!currentOrgId) return;
 
     try {
-      const freshOrg = await dbService.getOrganizationByOrgId(currentOrgId);
-      if (!freshOrg) {
-        // Organization was deleted by Admin/Security Team
+      const res = await dbService.getOrganizationByOrgIdResult(currentOrgId, force);
+
+      if (res.unauthorized || (res.ok && res.notFound)) {
+        // Organization was deleted or session access was revoked
         onLogoutRef.current();
         return;
       }
 
-      setOrganization((prev) => {
-        if (areOrganizationsEqual(prev, freshOrg)) {
-          return prev;
-        }
+      if (!res.ok) {
+        setOrgLoadError(
+          res.error || 'Could not refresh organisation status. Showing cached data.'
+        );
+        return;
+      }
+
+      setOrgLoadError(null);
+      const freshOrg = res.data;
+      if (!freshOrg) return;
+
+      if (!areOrganizationsEqual(organizationRef.current, freshOrg)) {
+        organizationRef.current = freshOrg;
+        setOrganization(freshOrg);
         setStoredSession({
           role: 'organiser',
           org: freshOrg,
           sessionToken: getStoredSession()?.sessionToken,
         });
-        return freshOrg;
-      });
+      }
 
       // Only transition banner dismiss state when verification_status actually changed
       if (freshOrg.verification_status !== statusRef.current) {
         statusRef.current = freshOrg.verification_status;
         setIsBannerDismissed(false);
       }
-    } catch (err) {
-      console.warn('Could not sync organization status:', err);
+    } catch (err: any) {
+      setOrgLoadError(
+        err?.message || 'Could not refresh organisation status. Showing cached data.'
+      );
     }
   }, []);
+
+  const handleRetryOrgLoad = useCallback(async () => {
+    setIsRetryingOrg(true);
+    try {
+      await syncOrganizationStatus(true);
+    } finally {
+      setIsRetryingOrg(false);
+    }
+  }, [syncOrganizationStatus]);
 
   // Open AccountModal automatically when forced temporary password change is required
   useEffect(() => {
@@ -187,28 +205,50 @@ export function OrganiserDashboard({
     return unsub;
   }, []);
 
-  // Singleton Supabase Realtime subscription lifecycle - mounts once and cleans up on unmount
+  // Singleton Supabase Realtime subscription + visibility/online retry
   useEffect(() => {
-    syncOrganizationStatus();
+    void syncOrganizationStatus(false);
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const unsub = subscribeToDatabase((table) => {
       // Debounce and only trigger organization status check if organization changed
-      if (table === 'organizations') {
+      if (matchesDbTable(table, DB_TABLES.ORGANIZATIONS)) {
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
-          syncOrganizationStatus();
+          void syncOrganizationStatus(false);
         }, 300);
       }
     });
 
+    const handleVisibilityOrOnline = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      if (orgLoadErrorRef.current) {
+        void syncOrganizationStatus(true);
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleVisibilityOrOnline);
+    }
+
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       unsub();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleVisibilityOrOnline);
+      }
     };
   }, [syncOrganizationStatus]);
 
   const handleUpdateOrganization = (updated: Organization) => {
+    organizationRef.current = updated;
     setOrganization(updated);
     setStoredSession({
       role: 'organiser',
@@ -222,14 +262,14 @@ export function OrganiserDashboard({
     invalidateCache();
     await flushOfflineQueueToSupabase();
     await Promise.all([
-      syncOrganizationStatus(),
+      syncOrganizationStatus(true),
       refreshAnnouncements(),
       dbService.getEvents(organization.org_id, true),
       dbService.getParticipants(organization.org_id, true),
       dbService.getJudges(organization.org_id, true),
-      dbService.getAllScores(true),
+      dbService.getOrgScores(organization.org_id, true),
     ]);
-    eventBus.emit('cache_updated', { table: 'all' });
+    eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
   };
 
   // Tab definitions
@@ -424,7 +464,6 @@ export function OrganiserDashboard({
         onClose={() => setIsDrawerOpen(false)}
         organization={organization}
         onUpdateOrganization={handleUpdateOrganization}
-        onOpenPublicView={onOpenPublicView}
       />
 
       {/* ======================================================== */}
@@ -442,6 +481,16 @@ export function OrganiserDashboard({
         />
       ) : null}
 
+      {orgLoadError && (
+        <div className="shrink-0 max-w-4xl w-full mx-auto px-3 sm:px-4 pt-2 z-20">
+          <ReadRetryBanner
+            message={orgLoadError}
+            isRetrying={isRetryingOrg}
+            onRetry={() => void handleRetryOrgLoad()}
+          />
+        </div>
+      )}
+
       {/* ======================================================== */}
       {/* MAIN VIEW CONTENT AREA (With Pull-To-Refresh Sync)       */}
       {/* ======================================================== */}
@@ -451,43 +500,49 @@ export function OrganiserDashboard({
       >
         <div
           key={activeTab}
-          className="w-full h-full flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out will-change-transform"
+          className="w-full h-full flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out motion-reduce:animate-none will-change-transform"
         >
-          <React.Suspense fallback={<TabProgressFallback />}>
-            {/* Tab 1: Live Control Room */}
-            {activeTab === 'live' && (
-              <LiveTab
-                organization={organization}
-                onOpenPublicView={onOpenPublicView}
-              />
-            )}
+          <ErrorBoundary
+            variant="inline"
+            title="Could not render this tab"
+            subtitle="Tap Retry to reload this organiser workspace section"
+            resetKeys={[activeTab, organization.org_id, tabRetryNonce]}
+            onRetry={() => setTabRetryNonce((n) => n + 1)}
+          >
+            <React.Suspense fallback={<TabProgressFallback />}>
+              {/* Tab 1: Live Control Room */}
+              {activeTab === 'live' && (
+                <LiveTab
+                  organization={organization}
+                />
+              )}
 
-            {/* Tab 2: Events Engine & Management View */}
-            {activeTab === 'events' && (
-              <EventsTab
-                organization={organization}
-                onOpenPublicView={onOpenPublicView}
-                onNavigateToLiveControl={() => setActiveTab('live')}
-              />
-            )}
+              {/* Tab 2: Events Engine & Management View */}
+              {activeTab === 'events' && (
+                <EventsTab
+                  organization={organization}
+                  onNavigateToLiveControl={() => setActiveTab('live')}
+                />
+              )}
 
-            {/* Tab 3: People View */}
-            {activeTab === 'people' && (
-              <PeopleTab organization={organization} />
-            )}
+              {/* Tab 3: People View */}
+              {activeTab === 'people' && (
+                <PeopleTab organization={organization} />
+              )}
 
-            {/* Tab 4: Insights View */}
-            {activeTab === 'insights' && (
-              <InsightsTab organization={organization} />
-            )}
-          </React.Suspense>
+              {/* Tab 4: Insights View */}
+              {activeTab === 'insights' && (
+                <InsightsTab organization={organization} />
+              )}
+            </React.Suspense>
+          </ErrorBoundary>
         </div>
       </PullToRefresh>
 
       {/* ======================================================== */}
       {/* 4. THE 4-TAB BOTTOM NAVIGATION SHELL (Framer-Grade)     */}
       {/* ======================================================== */}
-      <nav className="fixed bottom-0 left-0 w-full h-[8dvh] min-h-[64px] pb-safe bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl border-t border-stone-200 dark:border-zinc-800/80 flex items-center justify-around px-2 sm:px-6 select-none z-40">
+      <nav className="fixed bottom-0 left-0 w-full h-[8dvh] min-h-[64px] pb-safe bg-white dark:bg-zinc-950 border-t border-stone-200 dark:border-zinc-800/80 flex items-center justify-around px-2 sm:px-6 select-none z-40">
         {navTabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
@@ -499,14 +554,14 @@ export function OrganiserDashboard({
                 triggerHaptic('tap');
                 setActiveTab(tab.id);
               }}
-              className={`flex-1 min-h-[44px] flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-300 ease-out hover:-translate-y-0.5 active:scale-[0.97] active:translate-y-0 cursor-pointer ${
+              className={`flex-1 min-h-[44px] flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-transform duration-150 motion-reduce:transition-none hover:-translate-y-0.5 active:scale-[0.97] active:translate-y-0 cursor-pointer ${
                 isActive
                   ? 'text-emerald-600 dark:text-emerald-400 font-bold'
                   : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
               }`}
             >
               <div
-                className={`p-1 rounded-xl transition-all duration-200 ${
+                className={`p-1 rounded-xl transition-colors duration-150 motion-reduce:transition-none ${
                   isActive ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : ''
                 }`}
               >

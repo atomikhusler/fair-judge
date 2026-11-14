@@ -1,5 +1,24 @@
 import React from 'react';
 
+const RELOAD_PREFIX = 'fj_reload_';
+
+/**
+ * Clears all lazy-chunk reload guards so manual Retry can re-attempt loading chunks cleanly.
+ */
+export function clearLazyReloadFlags(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(RELOAD_PREFIX)) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => sessionStorage.removeItem(k));
+  } catch {}
+}
+
 /**
  * Robust Lazy Loader with Automatic Retry & Chunk Invalidation (Phase 15.7)
  * Handles transient network dropouts, dev server restarts, and PWA cache updates.
@@ -11,7 +30,7 @@ export function lazyWithRetry<T extends React.ComponentType<any>>(
   intervalMs: number = 400
 ): React.LazyExoticComponent<T> {
   return React.lazy(() => {
-    const reloadKey = `fj_reload_${chunkKey}`;
+    const reloadKey = `${RELOAD_PREFIX}${chunkKey}`;
 
     return new Promise<{ default: T }>((resolve, reject) => {
       const execute = (remainingAttempts: number) => {
@@ -33,9 +52,14 @@ export function lazyWithRetry<T extends React.ComponentType<any>>(
                 error?.name === 'TypeError';
 
               if (isChunkError && typeof window !== 'undefined') {
-                const hasReloaded = sessionStorage.getItem(reloadKey);
+                let hasReloaded = false;
+                try {
+                  hasReloaded = Boolean(sessionStorage.getItem(reloadKey));
+                } catch {}
                 if (!hasReloaded) {
-                  sessionStorage.setItem(reloadKey, 'true');
+                  try {
+                    sessionStorage.setItem(reloadKey, 'true');
+                  } catch {}
                   try {
                     if ('caches' in window) {
                       const names = await caches.keys();

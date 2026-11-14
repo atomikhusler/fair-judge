@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="theme-color" content="#000000" />
     <script>
       // Gracefully prevent unhandled errors when Vite client HMR is disabled in preview environment
       window.addEventListener('error', function (event) {
@@ -24,7 +25,7 @@
         }
         return _origConsoleError.apply(console, args);
       };
-      // System Theme Detection: On boot before manual user override, check prefers-color-scheme
+      // System Theme Detection: Apply saved or system theme before JS/CSS runs
       (function() {
         try {
           var stored = localStorage.getItem('fair-judge-theme');
@@ -37,6 +38,7 @@
             isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
           }
           var root = document.documentElement;
+          var bgColor = isDark ? '#000000' : '#fafaf9';
           if (isDark) {
             root.classList.add('dark');
             root.classList.remove('light');
@@ -48,6 +50,9 @@
             root.setAttribute('data-theme', 'light');
             root.style.colorScheme = 'light';
           }
+          root.style.backgroundColor = bgColor;
+          var metaTheme = document.querySelector('meta[name="theme-color"]');
+          if (metaTheme) metaTheme.setAttribute('content', bgColor);
         } catch (e) {}
       })();
     </script>
@@ -58,7 +63,6 @@
     <meta property="og:description" content="Mobile-first digital judging terminal and competition scoring ledger with offline resilience." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="theme-color" content="#000000" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

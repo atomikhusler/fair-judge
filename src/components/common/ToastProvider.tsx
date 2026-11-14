@@ -211,7 +211,7 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
           : 'transform 260ms cubic-bezier(0.32, 0.72, 0, 1), opacity 200ms cubic-bezier(0.32, 0.72, 0, 1)',
         willChange: 'transform, opacity',
       }}
-      className={`absolute bottom-0 left-0 right-0 w-full max-w-sm mx-auto select-none rounded-2xl bg-zinc-900/95 dark:bg-zinc-950/95 border border-zinc-800 shadow-[0_16px_40px_rgba(0,0,0,0.7)] backdrop-blur-xl p-3.5 flex items-center gap-3.5 transition-shadow ${
+      className={`absolute bottom-0 left-0 right-0 w-full max-w-sm mx-auto select-none rounded-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 shadow-[0_16px_40px_rgba(0,0,0,0.7)] p-3.5 flex items-center gap-3.5 motion-reduce:transition-none ${
         isFront ? 'cursor-grab active:cursor-grabbing hover:border-zinc-700' : 'cursor-default'
       }`}
     >
