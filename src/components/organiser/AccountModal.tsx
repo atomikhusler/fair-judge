@@ -18,7 +18,6 @@ import {
   XCircle,
   Send,
   Mail,
-  Scale,
   MessageCircle,
   Coffee,
   ExternalLink,
@@ -34,6 +33,7 @@ import { useToast } from '../common/ToastProvider';
 import { BackupSheet } from './backup/BackupSheet';
 import { RestoreSheet } from './backup/RestoreSheet';
 import { triggerHaptic } from '../../lib/haptics';
+import { BrandBadge } from '../shared/BrandBadge';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -807,11 +807,9 @@ export function AccountModal({
               {/* Brand Anchor */}
               <div className="p-4 flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center shadow-sm">
-                    <Scale className="w-5 h-5 stroke-[2.2]" />
-                  </div>
+                  <BrandBadge size="sm" role="organiser" motion="still" />
                   <div>
-                    <span className="text-sm font-bold text-zinc-900 dark:text-white block font-mono">
+                    <span className="text-sm font-bold text-zinc-900 dark:text-white block font-sans">
                       Fair Judge
                     </span>
                     <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono">

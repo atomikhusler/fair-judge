@@ -1,6 +1,6 @@
 import { STORAGE_KEYS, getStoredSession } from './supabase';
 import { getHotCache, setIndexedDBCache } from './db/indexedDB';
-import { getOfflineDB } from './offlineQueue';
+import { scrubOfflineOutboxSecrets } from './offlineQueue';
 import { blackBox } from './blackBox';
 import { Organization, SupabaseJudge, SupabaseParticipant } from './supabaseTypes';
 
@@ -104,18 +104,8 @@ export async function scrubCachedPasswords(): Promise<number> {
       } catch {}
     }
 
-    // 5. Scrub pending_mutations in offlineQueue
-    try {
-      const db = await getOfflineDB();
-      const allMutations = await db.getAll('pending_mutations');
-      for (const mut of allMutations) {
-        if (mut.table === 'organizations' && mut.payload && mut.payload.password) {
-          scrubbedCount++;
-          delete mut.payload.password;
-          await db.put('pending_mutations', mut);
-        }
-      }
-    } catch {}
+    // 5. Scrub organization passwords inside unified outbox store
+    scrubbedCount += await scrubOfflineOutboxSecrets();
 
     if (scrubbedCount > 0) {
       blackBox.recordError('security', `scrubbed ${scrubbedCount} cached secrets/PII`, 'authScrubber');

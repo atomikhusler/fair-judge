@@ -10,9 +10,9 @@ import {
   Eye, 
   EyeOff, 
   ChevronLeft,
-  ShieldCheck,
-  Scale
+  ShieldCheck
 } from 'lucide-react';
+import { BrandBadge } from '../shared/BrandBadge';
 import { dbService } from '../../lib/supabase';
 import { authService } from '../../lib/authService';
 import { Organization } from '../../lib/supabaseTypes';
@@ -158,13 +158,11 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
 
       {/* Persistent Shrinked App Logo & Centered Header Anchor */}
       <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
-        <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 dark:text-emerald-400 flex items-center justify-center mb-1.5 shadow-sm shadow-emerald-500/10">
-          <ShieldCheck className="w-5 h-5 stroke-[2.2]" />
-        </div>
+        <BrandBadge size="sm" role="organiser" motion="still" className="mb-1.5" />
         <h1 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider font-mono">
           Organiser Portal
         </h1>
-        <span className="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+        <span className="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-400 font-sans">
           Fair Judge
         </span>
       </div>

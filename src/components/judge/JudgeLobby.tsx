@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  Scale,
   CircleUser, 
   Lock, 
   PauseCircle, 
@@ -28,6 +27,7 @@ import { showToast } from '../common/ToastProvider';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
 import { APP_VERSION } from '../../config/version';
 import { SignatureHardware } from '../shared/SignatureHardware';
+import { TippingScaleIcon } from '../shared/BrandBadge';
 import {
   useAnnouncements,
 } from '../../lib/announcements';
@@ -304,13 +304,13 @@ export function JudgeLobby({
             ariaLabel="Fair Judge Notifications"
             buttonClassName="relative w-11 h-11 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-sm shrink-0 active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer"
           >
-            <Scale className="w-5 h-5 stroke-[2.2]" />
+            <TippingScaleIcon motion="still" className="w-5 h-5" />
           </NotificationBell>
         </div>
 
         {/* Center (Stacked): Fair Judge (Bold) on top, {organization.name} (Small, uppercase, muted) underneath */}
         <div className="flex flex-col items-center justify-center text-center px-2 min-w-0">
-          <span className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight leading-none">
+          <span className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight leading-none font-sans">
             Fair Judge
           </span>
           <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mt-1 truncate max-w-[160px] sm:max-w-xs">

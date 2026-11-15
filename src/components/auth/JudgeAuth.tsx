@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Gavel, 
   ArrowRight, 
   Loader2, 
   AlertCircle, 
@@ -12,6 +11,7 @@ import {
   Building2,
   UserCheck
 } from 'lucide-react';
+import { BrandBadge } from '../shared/BrandBadge';
 import { Html5Qrcode } from 'html5-qrcode';
 import { dbService, supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { authService } from '../../lib/authService';
@@ -261,13 +261,11 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
 
       {/* Shrinked App Logo & Persistent Centered Header Anchor */}
       <div className="flex flex-col items-center justify-center text-center mb-6 pt-1">
-        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center mb-1.5 shadow-sm shadow-amber-500/10">
-          <Gavel className="w-5 h-5" />
-        </div>
+        <BrandBadge size="sm" role="judge" motion="still" className="mb-1.5" />
         <h1 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider font-mono">
           Judge Terminal
         </h1>
-        <span className="text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+        <span className="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-400 font-sans">
           Fair Judge
         </span>
       </div>

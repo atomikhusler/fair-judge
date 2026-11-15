@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { dbService, subscribeToDatabase, generateUUID } from '../../../lib/supabase';
 import { registerSyncCadence } from '../../../lib/syncEngine';
+import { saveDraft, getDraftSync, removeDraft, hydrateDraftMirror } from '../../../lib/offlineQueue';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
@@ -837,12 +838,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   // ========================================================
   const participantDraftKey = `fj_draft_participant_${organization.org_id}`;
 
+  useEffect(() => {
+    void hydrateDraftMirror();
+  }, []);
+
   const loadParticipantDraft = useCallback(() => {
     try {
-      const raw = localStorage.getItem(participantDraftKey);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (parsed.version === 1 && Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
+      const parsed = getDraftSync<any>(participantDraftKey);
+      if (parsed && parsed.version === 1 && Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
         return parsed.form;
       }
     } catch {}
@@ -850,12 +853,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   }, [participantDraftKey]);
 
   const clearParticipantDraft = useCallback(() => {
-    try {
-      localStorage.removeItem(participantDraftKey);
-    } catch {}
+    void removeDraft(participantDraftKey);
   }, [participantDraftKey]);
 
-  // Debounced auto-save participant draft when adding
+  // Debounced auto-save participant draft into unified outbox when adding
   useEffect(() => {
     if (!showParticipantModal || editingParticipant) return;
     const isDirty = Boolean(
@@ -867,16 +868,11 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     if (!isDirty) return;
 
     const timer = setTimeout(() => {
-      try {
-        localStorage.setItem(
-          participantDraftKey,
-          JSON.stringify({
-            version: 1,
-            form: participantForm,
-            timestamp: Date.now(),
-          })
-        );
-      } catch {}
+      void saveDraft(participantDraftKey, {
+        version: 1,
+        form: participantForm,
+        timestamp: Date.now(),
+      });
     }, 400);
 
     return () => clearTimeout(timer);

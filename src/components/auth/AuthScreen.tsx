@@ -26,7 +26,7 @@ export function AuthScreen({ onOrganiserLogin, onJudgeLogin, onOpenAdmin, initia
   const [authView, setAuthView] = useState<AuthView>(initialView);
 
   return (
-    <div className="min-h-[100dvh] w-full flex flex-col justify-between bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 p-4 md:p-6 relative overflow-x-hidden transition-colors duration-500 selection:bg-emerald-500 selection:text-black">
+    <div className="min-h-[100dvh] w-full flex flex-col justify-between bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 p-4 md:p-6 relative overflow-x-hidden transition-colors duration-300 motion-reduce:transition-none selection:bg-emerald-500 selection:text-black">
       {/* Top Bar with Theme Toggle in normal flow */}
       <div className="w-full max-w-md mx-auto flex justify-end pt-[max(env(safe-area-inset-top),0.5rem)] pb-3">
         <ThemeToggleButton />

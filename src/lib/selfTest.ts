@@ -9,10 +9,12 @@ import { supabase, isSupabaseConfigured, dbService, getStoredSession } from './s
 import { APP_VERSION } from '../config/version';
 import { stampLocal, safeName, downloadJson } from './downloadUtils';
 import { 
+  getOfflineDB,
   getPendingScores, 
   getPendingMutations, 
   getFailedMutations, 
-  getPendingCount 
+  getPendingCount,
+  getPendingDrafts,
 } from './offlineQueue';
 import { blackBox } from './blackBox';
 import { runGoldenTests } from './goldenTests';
@@ -1012,19 +1014,8 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
 
   // 3. IndexedDB Stores & Row Counts
   try {
-    const queueDbOpen = new Promise<boolean>((resolve) => {
-      const req = indexedDB.open('fairjudge_offline_queue_v3');
-      req.onsuccess = () => {
-        const db = req.result;
-        const hasScores = db.objectStoreNames.contains('pending_scores');
-        const hasMuts = db.objectStoreNames.contains('pending_mutations');
-        db.close();
-        resolve(hasScores && hasMuts);
-      };
-      req.onerror = () => resolve(false);
-    });
-
-    const isIntact = await queueDbOpen;
+    const db = await getOfflineDB();
+    const isIntact = Boolean(db && db.objectStoreNames.contains('outbox'));
     if (!isIntact) {
       checks.push({
         id: 'idb_integrity',
@@ -1328,15 +1319,17 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
     });
   }
 
-  // 9. Stale Drafts
+  // 9. Stale Drafts (unified outbox + any unmigrated localStorage draft keys)
   try {
-    let staleDraftCount = 0;
+    const outboxDrafts = await getPendingDrafts().catch(() => []);
+    const seenDraftKeys = new Set(outboxDrafts.map((d) => d.entityId));
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && (k.startsWith('draft_score_') || k.startsWith('fj_draft_'))) {
-        staleDraftCount++;
+        seenDraftKeys.add(k);
       }
     }
+    const staleDraftCount = seenDraftKeys.size;
     if (staleDraftCount > 5) {
       checks.push({
         id: 'stale_drafts',

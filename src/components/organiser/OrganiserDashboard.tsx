@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Menu, 
   CircleUser, 
-  Scale, 
   Radio, 
   CalendarDays, 
   Users, 
@@ -33,6 +32,7 @@ import { AnnouncementBanner } from '../common/AnnouncementBanner';
 import { OrgBlockedScreen } from '../common/OrgBlockedScreen';
 import { showToast } from '../common/ToastProvider';
 import { getOrgEnforcementMessage } from '../../lib/orgEnforcement';
+import { BrandBadge } from '../shared/BrandBadge';
 
 // Code Splitting: Asynchronously load organiser tabs with auto-retry resilience
 const LiveTab = lazyWithRetry(() => import('./tabs/LiveTab').then((m) => ({ default: m.LiveTab })), 'live');
@@ -327,10 +327,8 @@ export function OrganiserDashboard({
         <div className="flex-1 min-w-0 flex flex-col items-center justify-center text-center px-2">
           {/* Top Line: App Logo + Fair Judge */}
           <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shadow-sm shadow-emerald-500/20">
-              <Scale className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
-            </div>
-            <span className="text-base sm:text-lg font-black tracking-tight text-zinc-900 dark:text-white">
+            <BrandBadge size="xs" role="organiser" motion="still" strokeWidth={2.4} />
+            <span className="text-base sm:text-lg font-black tracking-tight text-zinc-900 dark:text-white font-sans">
               Fair Judge
             </span>
           </div>

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { NetworkStatusIndicator } from './components/NetworkStatusIndicator';
 import { ToastProvider, showToast } from './components/common/ToastProvider';
@@ -32,6 +32,7 @@ import { resetSignatureHardwareSession } from './components/shared/SignatureHard
 import { resetLastTestResult } from './lib/selfTest';
 import { RouteShellSkeleton } from './components/common/Skeletons';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { BrandBadge } from './components/shared/BrandBadge';
 import {
   SessionReverifyModal,
   SessionReverifySuccessPayload,
@@ -79,37 +80,6 @@ function getBootSplashMode(): BootSplashMode {
     return 'skip';
   }
   return 'short';
-}
-
-function TippingScaleIcon({
-  mode = 'rock',
-  className = 'w-8 h-8 relative z-10',
-}: {
-  mode?: 'damped' | 'rock';
-  className?: string;
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={className}
-    >
-      {/* Static center vertical pillar & base */}
-      <path d="M12 3v18" />
-      <path d="M7 21h10" />
-      {/* Animated horizontal beam & pans pivoting on fulcrum (12, 5) */}
-      <g className={`fj-scale-beam ${mode === 'damped' ? 'fj-scale-damped' : 'fj-scale-rock'}`}>
-        <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
-        <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-        <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-      </g>
-    </svg>
-  );
 }
 
 function AnimatedEllipsis() {
@@ -185,6 +155,52 @@ export default function App() {
   } | null>(null);
   const isSigningOutRef = useRef(false);
   const signOutTimersRef = useRef<{ wait?: number; fade?: number }>({});
+  const splashCoreRef = useRef<HTMLDivElement>(null);
+  const splashBadgeRef = useRef<HTMLDivElement>(null);
+
+  // Lock document scroll while full-screen splashes/overlays are active to prevent handoff scrollbar flicker
+  useLayoutEffect(() => {
+    const hasOverlay = Boolean(isBooting || authSplash || signOutOverlay);
+    document.documentElement.classList.toggle('fj-splash-lock', hasOverlay);
+    return () => {
+      document.documentElement.classList.remove('fj-splash-lock');
+    };
+  }, [isBooting, authSplash, signOutOverlay]);
+
+  // Measure Gateway BrandBadge coordinates so the splash docks pixel-for-pixel into Gateway
+  useLayoutEffect(() => {
+    if (!isBooting || bootMode !== 'full') return;
+
+    const alignSplashToGateway = () => {
+      const coreEl = splashCoreRef.current;
+      const badgeRestEl = splashBadgeRef.current;
+      const gatewayAnchorEl = document.querySelector<HTMLElement>('[data-fj-brand-anchor="gateway"]');
+      if (!coreEl || !badgeRestEl || !gatewayAnchorEl) return;
+
+      coreEl.style.transform = 'none';
+      const restRect = badgeRestEl.getBoundingClientRect();
+      const anchorRect = gatewayAnchorEl.getBoundingClientRect();
+
+      const restCx = restRect.left + restRect.width / 2;
+      const restCy = restRect.top + restRect.height / 2;
+      const anchorCx = anchorRect.left + anchorRect.width / 2;
+      const anchorCy = anchorRect.top + anchorRect.height / 2;
+
+      const coreShiftX = anchorCx - restCx;
+      const coreShiftY = anchorCy - restCy;
+
+      coreEl.style.transform = `translate3d(${coreShiftX}px, ${coreShiftY}px, 0)`;
+      coreEl.style.setProperty('--fj-hero-dx', `${window.innerWidth / 2 - anchorCx}px`);
+      coreEl.style.setProperty('--fj-hero-dy', `${window.innerHeight / 2 - anchorCy}px`);
+      coreEl.style.setProperty('--fj-hero-scale', '1.35');
+    };
+
+    alignSplashToGateway();
+    window.addEventListener('resize', alignSplashToGateway);
+    return () => {
+      window.removeEventListener('resize', alignSplashToGateway);
+    };
+  }, [isBooting, bootMode]);
 
   // Instant App Hydration
   useEffect(() => {
@@ -724,7 +740,7 @@ export default function App() {
   return (
     <ToastProvider>
       {/* ======================================================== */}
-      {/* DIRECTIVE 2: GPU-ACCELERATED COLD BOOT SPLASH SCREEN     */}
+      {/* GPU-ACCELERATED COLD BOOT SPLASH -> SEAMLESS HANDOFF     */}
       {/* ======================================================== */}
       {isBooting && (
         <div
@@ -734,9 +750,7 @@ export default function App() {
             bootMode === 'full'
               ? 'duration-[450ms] ease-[cubic-bezier(0.32,0.72,0,1)]'
               : 'duration-[150ms] ease-out'
-          } motion-reduce:duration-100 will-change-opacity ${
-            isBootFading ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'
-          }`}
+          } motion-reduce:duration-100 ${isBootFading ? 'will-change-opacity opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
         >
           {/* Subtle Ambient Radial Glow (pure gradient, zero filter/backdrop blur) */}
           <div
@@ -747,30 +761,36 @@ export default function App() {
             }}
           />
 
-          {/* Dead Center Brand Core */}
+          {/* Shared-Element Brand Core aligned to Gateway anchor */}
           <div
-            className={`relative flex flex-col items-center text-center px-6 max-w-sm w-full transition-[transform,opacity] ${
-              bootMode === 'full' ? 'duration-[450ms]' : 'duration-[150ms]'
-            } ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none motion-reduce:transform-none will-change-transform will-change-opacity ${
-              isBootFading
-                ? 'scale-95 -translate-y-4 opacity-0 motion-reduce:scale-100 motion-reduce:translate-y-0 motion-reduce:opacity-100'
-                : 'scale-100 translate-y-0 opacity-100'
-            }`}
+            ref={splashCoreRef}
+            className="relative flex flex-col items-center justify-center text-center px-6 max-w-xl w-full"
           >
-            {/* Branded Emerald Rounded-Square Badge with 3-Act Choreography */}
-            <div
-              className={`w-16 h-16 rounded-2xl mb-5 bg-emerald-500/12 dark:bg-emerald-500/15 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center relative z-10 shadow-xl shadow-emerald-500/15 dark:shadow-emerald-500/20 ${
-                bootMode === 'full' ? 'fj-badge-dock' : ''
-              }`}
-            >
-              <TippingScaleIcon mode={bootMode === 'full' ? 'damped' : 'rock'} />
+            {/* Resting badge wrapper measured for exact 1:1 Gateway coordinate lock */}
+            <div ref={splashBadgeRef} className="mb-4 relative z-10">
+              <BrandBadge
+                size="lg"
+                role="organiser"
+                motion={bootMode === 'full' ? 'damped' : 'rock'}
+                className={bootMode === 'full' ? 'fj-badge-dock' : ''}
+                onAnimationEnd={
+                  bootMode === 'full'
+                    ? (e) => e.currentTarget.classList.add('fj-motion-settled')
+                    : undefined
+                }
+              />
             </div>
 
-            {/* Revealed once badge docks into place */}
+            {/* Revealed beneath docked badge with identical Gateway typography */}
             <h1
-              className={`text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-white font-sans ${
+              className={`text-3xl md:text-4xl font-extrabold tracking-tight text-zinc-900 dark:text-white font-sans ${
                 bootMode === 'full' ? 'fj-boot-title-reveal' : ''
               }`}
+              onAnimationEnd={
+                bootMode === 'full'
+                  ? (e) => e.currentTarget.classList.add('fj-motion-settled')
+                  : undefined
+              }
             >
               Fair Judge
             </h1>
@@ -778,6 +798,11 @@ export default function App() {
               className={`text-[11px] sm:text-xs font-mono font-bold uppercase tracking-[0.18em] sm:tracking-[0.22em] text-zinc-600 dark:text-zinc-400 whitespace-nowrap mt-2.5 ${
                 bootMode === 'full' ? 'fj-boot-tagline-reveal' : ''
               }`}
+              onAnimationEnd={
+                bootMode === 'full'
+                  ? (e) => e.currentTarget.classList.add('fj-motion-settled')
+                  : undefined
+              }
             >
               MANAGE &amp; EVALUATE FAIRLY
             </p>
@@ -785,26 +810,23 @@ export default function App() {
         </div>
       )}
 
-      {/* Target 1: Transient Auth Splash (Theme-aware Light & AMOLED Dark, zero stutter) */}
+      {/* Transient Auth Splash (Theme-aware Light & AMOLED Dark, Unified BrandBadge) */}
       {authSplash && (
         <div
           role="status"
           aria-live="polite"
-          className={`fixed inset-0 z-[999] bg-stone-50 dark:bg-black flex flex-col items-center justify-center text-zinc-900 dark:text-white px-6 transition-opacity duration-[450ms] motion-reduce:transition-none will-change-opacity ${
-            authSplash.isFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          className={`fixed inset-0 z-[999] bg-stone-50 dark:bg-black flex flex-col items-center justify-center text-zinc-900 dark:text-white px-6 overflow-hidden transition-opacity duration-[450ms] motion-reduce:transition-none ${
+            authSplash.isFading ? 'will-change-opacity opacity-0 pointer-events-none' : 'opacity-100'
           }`}
         >
           <div className="flex flex-col items-center text-center max-w-sm w-full">
-            <div
-              className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-xl ${
-                session?.role === 'judge'
-                  ? 'bg-amber-500/12 dark:bg-amber-500/15 border border-amber-500/30 dark:border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-amber-500/15 dark:shadow-amber-500/20'
-                  : 'bg-emerald-500/12 dark:bg-emerald-500/15 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-emerald-500/15 dark:shadow-emerald-500/20'
-              }`}
-            >
-              <TippingScaleIcon mode="rock" />
-            </div>
-            <p className="text-base sm:text-lg font-semibold text-zinc-800 dark:text-zinc-100 tracking-tight">
+            <BrandBadge
+              size="lg"
+              role={session?.role === 'judge' ? 'judge' : 'organiser'}
+              motion="rock"
+              className="mb-5"
+            />
+            <p className="text-base sm:text-lg font-semibold text-zinc-800 dark:text-zinc-100 tracking-tight font-sans">
               Signing in
               <AnimatedEllipsis />
             </p>
@@ -812,26 +834,23 @@ export default function App() {
         </div>
       )}
 
-      {/* Smooth Server-Aware Sign-Out Overlay */}
+      {/* Smooth Server-Aware Sign-Out Overlay (Unified BrandBadge) */}
       {signOutOverlay && (
         <div
           role="status"
           aria-live="polite"
-          className={`fixed inset-0 z-[999] bg-stone-50 dark:bg-black flex flex-col items-center justify-center text-zinc-900 dark:text-white px-6 transition-opacity duration-[450ms] motion-reduce:transition-none will-change-opacity ${
-            signOutOverlay.isFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          className={`fixed inset-0 z-[999] bg-stone-50 dark:bg-black flex flex-col items-center justify-center text-zinc-900 dark:text-white px-6 overflow-hidden transition-opacity duration-[450ms] motion-reduce:transition-none ${
+            signOutOverlay.isFading ? 'will-change-opacity opacity-0 pointer-events-none' : 'opacity-100'
           }`}
         >
           <div className="flex flex-col items-center text-center max-w-sm w-full">
-            <div
-              className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-xl ${
-                signOutOverlay.role === 'judge'
-                  ? 'bg-amber-500/12 dark:bg-amber-500/15 border border-amber-500/30 dark:border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-amber-500/15 dark:shadow-amber-500/20'
-                  : 'bg-emerald-500/12 dark:bg-emerald-500/15 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-emerald-500/15 dark:shadow-emerald-500/20'
-              }`}
-            >
-              <TippingScaleIcon mode="rock" />
-            </div>
-            <p className="text-base sm:text-lg font-semibold text-zinc-800 dark:text-zinc-100 tracking-tight">
+            <BrandBadge
+              size="lg"
+              role={signOutOverlay.role}
+              motion="rock"
+              className="mb-5"
+            />
+            <p className="text-base sm:text-lg font-semibold text-zinc-800 dark:text-zinc-100 tracking-tight font-sans">
               Signing out
               <AnimatedEllipsis />
             </p>
@@ -841,7 +860,7 @@ export default function App() {
 
       <NetworkStatusIndicator />
       <Suspense fallback={<RouteShellSkeleton />}>
-        <div className="w-full h-full animate-in fade-in slide-in-from-bottom-2 duration-[250ms] ease-out motion-reduce:animate-none will-change-transform">
+        <div className="w-full h-full animate-in fade-in duration-[250ms] ease-out motion-reduce:animate-none">
           {renderScreenContent()}
         </div>
       </Suspense>

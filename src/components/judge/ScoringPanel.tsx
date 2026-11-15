@@ -29,6 +29,11 @@ import {
   discardFailedScore,
   subscribeToQueueChanges,
   PendingScoreRecord,
+  saveDraft,
+  getDraft,
+  getDraftSync,
+  removeDraft,
+  hydrateDraftMirror,
 } from '../../lib/offlineQueue';
 import {
   SupabaseJudge,
@@ -686,13 +691,16 @@ export function ScoringPanel({
     [activeEvent.id, judge.id]
   );
 
+  useEffect(() => {
+    void hydrateDraftMirror();
+  }, []);
+
   const loadScoreDraft = useCallback(
-    (participantId: string): Record<string, number | null> | null => {
+    async (participantId: string): Promise<Record<string, number | null> | null> => {
       try {
-        const raw = localStorage.getItem(getScoreDraftKey(participantId));
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (parsed.version === 1 && Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
+        const key = getScoreDraftKey(participantId);
+        const parsed = getDraftSync<any>(key) ?? (await getDraft<any>(key));
+        if (parsed && parsed.version === 1 && Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
           return parsed.scoresMap;
         }
       } catch {}
@@ -703,14 +711,12 @@ export function ScoringPanel({
 
   const clearScoreDraft = useCallback(
     (participantId: string) => {
-      try {
-        localStorage.removeItem(getScoreDraftKey(participantId));
-      } catch {}
+      void removeDraft(getScoreDraftKey(participantId));
     },
     [getScoreDraftKey]
   );
 
-  // Debounced auto-save score draft (timer tracked in ref)
+  // Debounced auto-save score draft into unified outbox (timer tracked in ref)
   useEffect(() => {
     if (draftTimerRef.current) {
       clearTimeout(draftTimerRef.current);
@@ -736,7 +742,7 @@ export function ScoringPanel({
             scoresMap,
             timestamp: Date.now(),
           };
-          localStorage.setItem(storageKey, JSON.stringify(draft));
+          void saveDraft(storageKey, draft);
         }
       } catch {}
     }, 300);
@@ -814,7 +820,7 @@ export function ScoringPanel({
 
     dbService
       .getScoreForJudgeParticipant(activeEvent.id, judge.id, participantId)
-      .then((score) => {
+      .then(async (score) => {
         if (
           isCancelled ||
           !isMountedRef.current ||
@@ -862,7 +868,16 @@ export function ScoringPanel({
           }
 
           const isEventEditable = activeEvent.status !== 'ended' && activeEvent.status !== 'archived';
-          const draft = isEventEditable ? loadScoreDraft(participantId) : null;
+          const draft = isEventEditable ? await loadScoreDraft(participantId) : null;
+          if (
+            isCancelled ||
+            !isMountedRef.current ||
+            scoreLoadRequestIdRef.current !== reqId ||
+            activeCompositeKeyRef.current !== targetKey ||
+            viewModeRef.current !== 'scoring'
+          ) {
+            return;
+          }
           if (draft) {
             setScoresMap(draft);
             isDirtyRef.current = isKeyChanged;
