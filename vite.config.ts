@@ -14,33 +14,33 @@ export default defineConfig(({ command }) => {
         ? [
             VitePWA({
               registerType: 'autoUpdate',
-              includeAssets: ['assets/1793118251574.png', 'favicon.png', 'apple-touch-icon.png'],
+              includeAssets: ['logo.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
               manifest: {
                 id: '/',
                 name: 'Fair Judge - Competition Judging Terminal',
                 short_name: 'FairJudge',
                 description: 'Mobile-first digitized competition judging terminal and scoring ledger.',
-                theme_color: '#0f172a',
-                background_color: '#090d16',
+                theme_color: '#000000',
+                background_color: '#000000',
                 display: 'standalone',
                 orientation: 'portrait',
                 start_url: '/',
                 scope: '/',
                 icons: [
                   {
-                    src: '/assets/1793118251574.png',
+                    src: '/pwa-192x192.png',
                     sizes: '192x192',
                     type: 'image/png',
                     purpose: 'any',
                   },
                   {
-                    src: '/assets/1793118251574.png',
+                    src: '/pwa-512x512.png',
                     sizes: '512x512',
                     type: 'image/png',
                     purpose: 'any',
                   },
                   {
-                    src: '/assets/1793118251574.png',
+                    src: '/pwa-maskable-512x512.png',
                     sizes: '512x512',
                     type: 'image/png',
                     purpose: 'maskable',
