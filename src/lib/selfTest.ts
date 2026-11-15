@@ -705,10 +705,11 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
     );
   }
 
-  // 6. Security Hygiene (Epic 15.7 Step B2): org_secrets protected and passwords shielded
+  // 6. Security Hygiene (Epic 15.7 Step B2 + Epic 15.12 Phase 3): secrets & PII protected
   try {
     let secretsProtected = true;
     let passwordExposed = false;
+    let piiExposed = false;
 
     // Check 1: org_secrets must return error/permission denied or 0 rows
     try {
@@ -724,7 +725,21 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
       secretsProtected = true;
     }
 
-    // Check 2: organizations.password should be absent or error (dropped in B3)
+    // Check 2: judge_secrets must return error/permission denied or 0 rows
+    try {
+      const { data: jSecData, error: jSecError } = await supabase
+        .from('judge_secrets')
+        .select('*')
+        .limit(1);
+
+      if (!jSecError && jSecData && jSecData.length > 0) {
+        secretsProtected = false;
+      }
+    } catch {
+      // Blocked as expected
+    }
+
+    // Check 3: organizations.password should be absent or error (dropped in B3)
     try {
       const { data: orgData, error: orgError } = await supabase
         .from('organizations')
@@ -738,14 +753,31 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
       passwordExposed = false;
     }
 
-    if (!secretsProtected || passwordExposed) {
+    // Check 4: judges (pin, current_session_token) and participants (mobile_number) must not be readable directly
+    try {
+      const [{ data: jData, error: jErr }, { data: pData, error: pErr }] = await Promise.all([
+        supabase.from('judges').select('pin,current_session_token').limit(1),
+        supabase.from('participants').select('mobile_number').limit(1),
+      ]);
+
+      if (!jErr && jData && jData.some((r: any) => Boolean(r?.pin) || Boolean(r?.current_session_token))) {
+        piiExposed = true;
+      }
+      if (!pErr && pData && pData.some((r: any) => Boolean(r?.mobile_number))) {
+        piiExposed = true;
+      }
+    } catch {
+      piiExposed = false;
+    }
+
+    if (!secretsProtected || passwordExposed || piiExposed) {
       checks.push({
         id: 'security_hygiene',
         group: 'network_backend',
         label: 'Security Hygiene',
         status: 'problem',
-        plain: 'Passwords can be read by the app. Tighten database rules.',
-        code: 'SEC_LEAK_PASSWORD',
+        plain: 'Passwords, PINs, or mobile numbers can be read directly. Tighten database rules.',
+        code: 'SEC_LEAK_PII',
       });
     } else {
       checks.push({
@@ -753,7 +785,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
         group: 'network_backend',
         label: 'Security Hygiene',
         status: 'ok',
-        plain: 'Passwords are not readable by the public key',
+        plain: 'Passwords, judge PINs, and participant PII are locked behind verified RPCs',
       });
     }
   } catch {
@@ -762,7 +794,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
       group: 'network_backend',
       label: 'Security Hygiene',
       status: 'ok',
-      plain: 'Passwords are not readable by the public key',
+      plain: 'Passwords, judge PINs, and participant PII are locked behind verified RPCs',
     });
   }
 

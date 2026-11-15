@@ -16,7 +16,8 @@ import {
   Activity, 
   ShieldCheck,
   Lock,
-  Unlock
+  Unlock,
+  Megaphone
 } from 'lucide-react';
 import { 
   Organization, 
@@ -41,6 +42,25 @@ import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { showToast } from '../../common/ToastProvider';
 import { triggerHaptic } from '../../../lib/haptics';
 import { getOrgEnforcementMessage, parseOrgEnforcementError } from '../../../lib/orgEnforcement';
+import {
+  StoredInboxAnnouncement,
+  isCriticalSeverity,
+  isNoticeRead,
+} from '../../../lib/announcements';
+
+function formatNoticeTime(iso?: string, fallbackMs?: number): string {
+  const ms = iso ? Date.parse(iso) : NaN;
+  const target = !Number.isNaN(ms) ? ms : fallbackMs || Date.now();
+  const diffMin = Math.max(0, Math.floor((Date.now() - target) / 60000));
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 30) return `${diffDays}d ago`;
+  return new Date(target).toLocaleDateString();
+}
 
 interface LiveTimerProps {
   status: EventStatus;
@@ -735,9 +755,18 @@ export const EventCard = React.memo(function EventCard({
 interface LiveTabProps {
   organization: Organization;
   onOpenPublicView?: (eventId?: string) => void;
+  inboxNotices?: StoredInboxAnnouncement[];
+  unreadAnnouncementCount?: number;
+  onMarkAnnouncementsRead?: (ids: string[]) => void;
 }
 
-export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
+export function LiveTab({
+  organization,
+  onOpenPublicView,
+  inboxNotices = [],
+  unreadAnnouncementCount = 0,
+  onMarkAnnouncementsRead,
+}: LiveTabProps) {
   // 1. Core Data State (Optimistically seeded from local cache to prevent flashing)
   const [events, setEvents] = useState<SupabaseEvent[]>(() =>
     dbService.getCachedEvents(organization.org_id)
@@ -756,6 +785,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   const deferredSearch = useDeferredValue(searchQuery);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [unreadAlerts, setUnreadAlerts] = useState(false);
+  const [openedUnreadNoticeIds, setOpenedUnreadNoticeIds] = useState<Set<string>>(new Set());
   const [pendingScoresCount, setPendingScoresCount] = useState(0);
   const [failedMutations, setFailedMutations] = useState<PendingMutationRecord[]>([]);
   const prevWarningsCountRef = useRef(0);
@@ -1028,8 +1058,16 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
   }, [specificWarnings]);
 
   const handleOpenAlerts = () => {
+    triggerHaptic('tick');
+    const unreadNoticeIds = inboxNotices
+      .filter((n) => !isNoticeRead(n.id))
+      .map((n) => n.id);
+    setOpenedUnreadNoticeIds(new Set(unreadNoticeIds));
     setUnreadAlerts(false);
     setIsAlertsOpen(true);
+    if (unreadNoticeIds.length > 0 && onMarkAnnouncementsRead) {
+      onMarkAnnouncementsRead(unreadNoticeIds);
+    }
   };
 
   // Toggle Accordion Expansion
@@ -1318,12 +1356,16 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
           type="button"
           onClick={handleOpenAlerts}
           className="w-12 h-12 flex-shrink-0 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center relative shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-colors active:scale-95 motion-reduce:transition-none text-stone-700 dark:text-zinc-200 cursor-pointer"
-          aria-label="Intelligence Alerts"
-          title="System Warnings & Telemetry"
+          aria-label={
+            unreadAnnouncementCount > 0
+              ? `Intelligence Alerts & Notifications (${unreadAnnouncementCount} unread)`
+              : 'Intelligence Alerts & Notifications'
+          }
+          title="Notifications & System Telemetry"
         >
           <Bell className="w-5 h-5 stroke-[2.2]" />
-          {/* Static Red Dot when unread alerts exist */}
-          {unreadAlerts && (
+          {/* Static Red Dot when unread alerts or unread announcements exist */}
+          {(unreadAlerts || unreadAnnouncementCount > 0) && (
             <span className="absolute top-2.5 right-2.5 inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
           )}
         </button>
@@ -1525,7 +1567,7 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in motion-reduce:animate-none"
           onClick={() => setIsAlertsOpen(false)}
         >
           <div
@@ -1539,10 +1581,10 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-stone-900 dark:text-white">
-                    Command Intelligence Warnings
+                    Notifications &amp; Alerts
                   </h3>
                   <p className="text-[10px] text-stone-400 dark:text-zinc-500 font-medium">
-                    Real-time operational alerts
+                    Operational warnings &amp; platform announcements
                   </p>
                 </div>
               </div>
@@ -1556,11 +1598,11 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
               </button>
             </div>
 
-            {/* Warnings List */}
-            <div className="space-y-2.5 max-h-[60vh] overflow-y-auto">
+            {/* Warnings & Announcements List */}
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto overscroll-contain">
               {/* Permanent Mutation Failures */}
               {failedMutations.length > 0 && (
-                <div className="space-y-2 mb-3">
+                <div className="space-y-2">
                   <div className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" />
                     Permanent Sync Failures ({failedMutations.length})
@@ -1612,25 +1654,29 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                   ))}
                 </div>
               )}
+
+              {/* Operational Event Warnings */}
               {specificWarnings.length > 0 ? (
-                specificWarnings.map((warning, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-3"
-                  >
-                    <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-stone-900 dark:text-white">
-                        {warning.title}
-                      </div>
-                      <div className="text-[11px] text-stone-600 dark:text-zinc-300 mt-0.5 leading-relaxed">
-                        {warning.desc}
+                <div className="space-y-2">
+                  {specificWarnings.map((warning, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-3"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-stone-900 dark:text-white">
+                          {warning.title}
+                        </div>
+                        <div className="text-[11px] text-stone-600 dark:text-zinc-300 mt-0.5 leading-relaxed">
+                          {warning.desc}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               ) : (
-                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 flex items-center gap-3">
+                <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 flex items-center gap-3">
                   <ShieldCheck className="w-5 h-5 text-emerald-500 flex-shrink-0" />
                   <div>
                     <div className="text-xs font-bold text-stone-900 dark:text-white">
@@ -1642,12 +1688,84 @@ export function LiveTab({ organization, onOpenPublicView }: LiveTabProps) {
                   </div>
                 </div>
               )}
+
+              {/* Platform Announcements (Last 30 days) */}
+              <div className="space-y-2 pt-1">
+                <div className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Megaphone className="w-3.5 h-3.5 text-emerald-500" />
+                    Announcements
+                  </span>
+                  <span className="text-[10px] font-mono text-stone-400 dark:text-zinc-500 normal-case">
+                    Last 30 days
+                  </span>
+                </div>
+                {inboxNotices.length === 0 ? (
+                  <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-xs text-stone-500 dark:text-zinc-400 text-center">
+                    You&apos;re all caught up. No platform announcements.
+                  </div>
+                ) : (
+                  inboxNotices.map((notice) => {
+                    const isCritical = isCriticalSeverity(notice.severity);
+                    const isWarning = notice.severity === 'warning';
+                    const wasJustOpenedUnread = openedUnreadNoticeIds.has(notice.id);
+
+                    const badgeClass = isCritical
+                      ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25'
+                      : isWarning
+                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25'
+                      : 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/25';
+
+                    const badgeLabel = isCritical ? 'Critical' : isWarning ? 'Notice' : 'Info';
+
+                    return (
+                      <div
+                        key={notice.id}
+                        className={`p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-950 border ${
+                          wasJustOpenedUnread
+                            ? 'border-emerald-500/40'
+                            : 'border-stone-200 dark:border-zinc-800'
+                        } space-y-1.5`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider shrink-0 ${badgeClass}`}
+                            >
+                              {isCritical || isWarning ? (
+                                <AlertTriangle className="w-3 h-3" />
+                              ) : (
+                                <Megaphone className="w-3 h-3" />
+                              )}
+                              <span>{badgeLabel}</span>
+                            </span>
+                            {wasJustOpenedUnread && (
+                              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                                New
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] font-mono text-stone-500 dark:text-zinc-400 shrink-0">
+                            {formatNoticeTime(notice.starts_at, notice.savedAt)}
+                          </span>
+                        </div>
+                        <div className="text-xs font-bold text-stone-900 dark:text-white leading-snug break-words">
+                          {notice.title}
+                        </div>
+                        <div className="text-[11px] text-stone-600 dark:text-zinc-400 leading-relaxed break-words">
+                          {notice.body}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
 
             <button
               type="button"
               onClick={() => setIsAlertsOpen(false)}
-              className="w-full py-2.5 rounded-xl font-bold text-xs bg-stone-900 text-white dark:bg-white dark:text-black transition-colors cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 rounded-xl font-bold text-xs bg-stone-900 text-white dark:bg-white dark:text-black transition-colors motion-reduce:transition-none cursor-pointer"
             >
               Close
             </button>

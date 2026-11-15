@@ -33,8 +33,8 @@ export function Gateway({ onSelectRole, onOpenAdmin }: GatewayProps) {
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-zinc-900 dark:text-white font-mono">
           Fair Judge
         </h1>
-        <p className="text-xs tracking-[0.25em] text-zinc-500 dark:text-zinc-400 uppercase mt-3">
-          Judge Transparently
+        <p className="text-[11px] sm:text-xs tracking-[0.18em] sm:tracking-[0.22em] text-zinc-500 dark:text-zinc-400 uppercase whitespace-nowrap mt-3">
+          MANAGE &amp; EVALUATE FAIRLY
         </p>
       </div>
 

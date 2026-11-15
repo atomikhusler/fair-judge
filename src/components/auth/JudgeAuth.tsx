@@ -157,6 +157,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       const rawMsg = typeof err?.message === 'string' ? err.message : '';
       const msg =
         rawMsg.includes('Authentication Failed') ||
+        rawMsg.includes('Too many attempts') ||
         rawMsg.includes('suspended') ||
         rawMsg.includes('removed')
           ? rawMsg
@@ -225,6 +226,7 @@ export function JudgeAuth({ onJudgeLogin, onBack }: JudgeAuthProps) {
       const rawMsg = typeof err?.message === 'string' ? err.message : '';
       const msg =
         rawMsg.includes('Authentication Failed') ||
+        rawMsg.includes('Too many attempts') ||
         rawMsg.includes('suspended') ||
         rawMsg.includes('removed')
           ? rawMsg

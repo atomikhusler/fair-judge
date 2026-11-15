@@ -13,7 +13,11 @@ interface NotificationBellProps {
   unreadCount: number;
   onMarkRead: (ids: string[]) => void;
   accent?: 'emerald' | 'amber';
+  badgeStyle?: 'count' | 'dot';
   buttonClassName?: string;
+  title?: string;
+  ariaLabel?: string;
+  children?: React.ReactNode;
 }
 
 function formatNoticeTime(iso?: string, fallbackMs?: number): string {
@@ -35,7 +39,11 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   unreadCount,
   onMarkRead,
   accent = 'emerald',
+  badgeStyle = 'count',
   buttonClassName,
+  title = 'Notifications',
+  ariaLabel,
+  children,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openedUnreadIds, setOpenedUnreadIds] = useState<Set<string>>(new Set());
@@ -229,23 +237,29 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
         onClick={handleOpen}
         aria-label={
           unreadCount > 0
-            ? `Notifications (${unreadCount} unread)`
-            : 'Notifications'
+            ? `${ariaLabel || 'Notifications'} (${unreadCount} unread)`
+            : ariaLabel || 'Notifications'
         }
-        title="Notifications"
+        title={title}
         className={
           buttonClassName ||
           'relative w-11 h-11 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer'
         }
       >
-        <Bell className="w-5 h-5 stroke-[2.1]" />
-        {unreadCount > 0 && (
-          <span
-            className={`absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-mono font-black leading-none flex items-center justify-center border-2 border-white dark:border-zinc-950 ${badgeBg}`}
-          >
-            {unreadCount > 9 ? '9+' : unreadCount}
-          </span>
-        )}
+        {children || <Bell className="w-5 h-5 stroke-[2.1]" />}
+        {unreadCount > 0 &&
+          (badgeStyle === 'dot' ? (
+            <span
+              aria-hidden="true"
+              className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border border-stone-50 dark:border-black"
+            />
+          ) : (
+            <span
+              className={`absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-mono font-black leading-none flex items-center justify-center border-2 border-white dark:border-zinc-950 ${badgeBg}`}
+            >
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          ))}
       </button>
 
       {modalContent && typeof document !== 'undefined'

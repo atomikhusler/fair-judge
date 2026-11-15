@@ -29,7 +29,6 @@ import { triggerHaptic } from '../../lib/haptics';
 import { lazyWithRetry } from '../../lib/lazyWithRetry';
 import { useAnnouncements } from '../../lib/announcements';
 import { AnnouncementBanner } from '../common/AnnouncementBanner';
-import { NotificationBell } from '../common/NotificationBell';
 import { OrgBlockedScreen } from '../common/OrgBlockedScreen';
 import { showToast } from '../common/ToastProvider';
 import { getOrgEnforcementMessage } from '../../lib/orgEnforcement';
@@ -338,32 +337,22 @@ export function OrganiserDashboard({
           </div>
         </div>
 
-        {/* Right: Notification Bell & Account Modal */}
-        <div className="flex items-center gap-1 shrink-0">
-          <NotificationBell
-            notices={inboxNotices}
-            unreadCount={unreadCount}
-            onMarkRead={markInboxAsRead}
-            accent="emerald"
-            buttonClassName="relative w-11 h-11 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer"
-          />
-
-          <button
-            type="button"
-            onClick={() => setIsAccountModalOpen(true)}
-            className="relative w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer"
-            aria-label="Open Account Settings"
-          >
-            <CircleUser className="w-5 h-5 stroke-[2.2]" />
-            {verificationStatus !== 'verified' && (
-              <span
-                className={`absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
-                  verificationStatus === 'rejected' ? 'bg-red-500' : 'bg-amber-500'
-                }`}
-              />
-            )}
-          </button>
-        </div>
+        {/* Right: Account Modal */}
+        <button
+          type="button"
+          onClick={() => setIsAccountModalOpen(true)}
+          className="relative w-12 h-12 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer shrink-0"
+          aria-label="Open Account Settings"
+        >
+          <CircleUser className="w-5 h-5 stroke-[2.2]" />
+          {verificationStatus !== 'verified' && (
+            <span
+              className={`absolute top-2.5 right-2.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-950 ${
+                verificationStatus === 'rejected' ? 'bg-red-500' : 'bg-amber-500'
+              }`}
+            />
+          )}
+        </button>
       </header>
 
       <AnnouncementBanner
@@ -514,6 +503,9 @@ export function OrganiserDashboard({
               {activeTab === 'live' && (
                 <LiveTab
                   organization={organization}
+                  inboxNotices={inboxNotices}
+                  unreadAnnouncementCount={unreadCount}
+                  onMarkAnnouncementsRead={markInboxAsRead}
                 />
               )}
 

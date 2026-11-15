@@ -23,7 +23,6 @@ import {
 } from './lib/offlineQueue';
 import { areRecordsEqual, areOrganizationsEqual, eventBus } from './lib/eventBus';
 import { DB_TABLES, matchesDbTable } from './lib/dbTables';
-import { Scale } from 'lucide-react';
 import { requestStoragePersistenceOnce } from './lib/storagePersistence';
 import { scrubCachedPasswords } from './lib/authScrubber';
 import { lazyWithRetry } from './lib/lazyWithRetry';
@@ -79,6 +78,47 @@ function getBootSplashMode(): BootSplashMode {
     return 'skip';
   }
   return 'short';
+}
+
+function TippingScaleIcon({
+  mode = 'rock',
+  className = 'w-8 h-8 relative z-10',
+}: {
+  mode?: 'damped' | 'rock';
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      {/* Static center vertical pillar & base */}
+      <path d="M12 3v18" />
+      <path d="M7 21h10" />
+      {/* Animated horizontal beam & pans pivoting on fulcrum (12, 5) */}
+      <g className={`fj-scale-beam ${mode === 'damped' ? 'fj-scale-damped' : 'fj-scale-rock'}`}>
+        <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+        <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+        <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+      </g>
+    </svg>
+  );
+}
+
+function AnimatedEllipsis() {
+  return (
+    <span aria-hidden="true" className="inline-flex ml-0.5">
+      <span className="fj-ellipsis-dot">.</span>
+      <span className="fj-ellipsis-dot">.</span>
+      <span className="fj-ellipsis-dot">.</span>
+    </span>
+  );
 }
 
 export default function App() {
@@ -187,8 +227,8 @@ export default function App() {
     let bootHoldMs = 0;
     let bootFadeMs = 0;
     if (bootMode === 'full') {
-      bootHoldMs = prefersReducedMotion ? 300 : 800;
-      bootFadeMs = prefersReducedMotion ? 100 : 400;
+      bootHoldMs = prefersReducedMotion ? 300 : 3550;
+      bootFadeMs = prefersReducedMotion ? 100 : 450;
     } else if (bootMode === 'short') {
       bootHoldMs = prefersReducedMotion ? 100 : 250;
       bootFadeMs = prefersReducedMotion ? 100 : 150;
@@ -252,6 +292,12 @@ export default function App() {
         const updatedSession: UserSession = { ...session, org: freshOrg };
         setSession(updatedSession);
         setStoredSession(updatedSession);
+      }
+
+      if (eventsRes.unauthorized || orgRes.unauthorized) {
+        showToast('Session expired or organisation unavailable. Please sign in again.', 'error');
+        void handleLogoutRef.current?.();
+        return;
       }
 
       if (!eventsRes.ok || !orgRes.ok) {
@@ -323,22 +369,25 @@ export default function App() {
     return unsub;
   }, [session, isAdminRoute, isProjectorRoute]);
 
-  // Helper to trigger hardware-accelerated 1.2s splash with 500ms opacity fade
+  // Helper to trigger hardware-accelerated ~2.4s sign-in splash
   const triggerAuthSplash = useCallback((displayName: string) => {
     if (authSplashTimerRef.current.hold) clearTimeout(authSplashTimerRef.current.hold);
     if (authSplashTimerRef.current.fade) clearTimeout(authSplashTimerRef.current.fade);
 
+    const prefersReducedMotion =
+      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const holdMs = prefersReducedMotion ? 350 : 1950;
+    const fadeMs = prefersReducedMotion ? 150 : 450;
+
     setAuthSplash({ name: displayName, isFading: false });
 
-    // Hold for exactly 1.2 seconds, then transition out using opacity-0 duration-500
     authSplashTimerRef.current.hold = window.setTimeout(() => {
       setAuthSplash((prev) => (prev ? { ...prev, isFading: true } : null));
 
-      // After 500ms fade completes, unmount splash
       authSplashTimerRef.current.fade = window.setTimeout(() => {
         setAuthSplash(null);
-      }, 500);
-    }, 1200);
+      }, fadeMs);
+    }, holdMs);
   }, []);
 
   // Organiser Login Handler
@@ -434,8 +483,8 @@ export default function App() {
 
     const prefersReducedMotion =
       typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const minDwellMs = prefersReducedMotion ? 350 : 1200;
-    const fadeMs = prefersReducedMotion ? 150 : 350;
+    const minDwellMs = prefersReducedMotion ? 350 : 1950;
+    const fadeMs = prefersReducedMotion ? 150 : 450;
 
     if (signOutTimersRef.current.wait) clearTimeout(signOutTimersRef.current.wait);
     if (signOutTimersRef.current.fade) clearTimeout(signOutTimersRef.current.fade);
@@ -486,6 +535,9 @@ export default function App() {
       }, fadeMs);
     }
   }, [session]);
+
+  const handleLogoutRef = useRef(handleLogout);
+  handleLogoutRef.current = handleLogout;
 
   const handleReverifySuccess = useCallback(
     (payload: SessionReverifySuccessPayload) => {
@@ -676,9 +728,9 @@ export default function App() {
         <div
           role="status"
           aria-live="polite"
-          className={`fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-stone-50 dark:bg-zinc-950 select-none overflow-hidden pb-safe transition-opacity ${
+          className={`fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-stone-50 dark:bg-black select-none overflow-hidden pb-safe transition-opacity ${
             bootMode === 'full'
-              ? 'duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)]'
+              ? 'duration-[450ms] ease-[cubic-bezier(0.32,0.72,0,1)]'
               : 'duration-[150ms] ease-out'
           } motion-reduce:duration-100 will-change-opacity ${
             isBootFading ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'
@@ -693,47 +745,50 @@ export default function App() {
             }}
           />
 
-          {/* Dead Center Brand Core: scales down (scale-75) & translates up (-translate-y-8) as it fades */}
+          {/* Dead Center Brand Core */}
           <div
             className={`relative flex flex-col items-center text-center px-6 max-w-sm w-full transition-[transform,opacity] ${
-              bootMode === 'full' ? 'duration-[400ms]' : 'duration-[150ms]'
+              bootMode === 'full' ? 'duration-[450ms]' : 'duration-[150ms]'
             } ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none motion-reduce:transform-none will-change-transform will-change-opacity ${
               isBootFading
-                ? 'scale-75 -translate-y-8 opacity-0 motion-reduce:scale-100 motion-reduce:translate-y-0 motion-reduce:opacity-100'
+                ? 'scale-95 -translate-y-4 opacity-0 motion-reduce:scale-100 motion-reduce:translate-y-0 motion-reduce:opacity-100'
                 : 'scale-100 translate-y-0 opacity-100'
             }`}
           >
-            {/* Glowing Fair Judge Scale Logo with Boot Kinematics */}
-            <div className="relative flex items-center justify-center mb-4 animate-in fade-in zoom-in-95 duration-200 motion-reduce:animate-none">
-              <div className="absolute -inset-2.5 rounded-3xl border border-emerald-500/30 animate-ping motion-reduce:animate-none opacity-25 pointer-events-none" />
-              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center relative z-10 shadow-xl shadow-emerald-500/15 dark:shadow-emerald-500/25 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-emerald-400/10 to-transparent animate-progress-shimmer motion-reduce:hidden pointer-events-none" />
-                <Scale className="w-8 h-8 stroke-[2.2] relative z-10" />
-              </div>
+            {/* Branded Emerald Rounded-Square Badge with 3-Act Choreography */}
+            <div
+              className={`w-16 h-16 rounded-2xl mb-5 bg-emerald-500/12 dark:bg-emerald-500/15 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center relative z-10 shadow-xl shadow-emerald-500/15 dark:shadow-emerald-500/20 ${
+                bootMode === 'full' ? 'fj-badge-dock' : ''
+              }`}
+            >
+              <TippingScaleIcon mode={bootMode === 'full' ? 'damped' : 'rock'} />
             </div>
 
-            {/* Fair Judge Title & Monospace Subtitle */}
-            <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-white font-sans">
+            {/* Revealed once badge docks into place */}
+            <h1
+              className={`text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-white font-sans ${
+                bootMode === 'full' ? 'fj-boot-title-reveal' : ''
+              }`}
+            >
               Fair Judge
             </h1>
-            <p className="text-[10px] font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest mt-1.5">
-              Competition Systems
+            <p
+              className={`text-[11px] sm:text-xs font-mono font-bold uppercase tracking-[0.18em] sm:tracking-[0.22em] text-zinc-600 dark:text-zinc-400 whitespace-nowrap mt-2.5 ${
+                bootMode === 'full' ? 'fj-boot-tagline-reveal' : ''
+              }`}
+            >
+              MANAGE &amp; EVALUATE FAIRLY
             </p>
-
-            {/* Emerald Boot Status Dot */}
-            <div className="mt-4 flex items-center justify-center" aria-hidden="true">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse motion-reduce:animate-none" />
-            </div>
           </div>
         </div>
       )}
 
-      {/* Target 1: Transient Auth Splash (Solid dark overlay, zero stutter, 60fps GPU fade) */}
+      {/* Target 1: Transient Auth Splash (Theme-aware Light & AMOLED Dark, zero stutter) */}
       {authSplash && (
         <div
           role="status"
           aria-live="polite"
-          className={`fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center text-white px-6 transition-opacity duration-500 ${
+          className={`fixed inset-0 z-[999] bg-stone-50 dark:bg-black flex flex-col items-center justify-center text-zinc-900 dark:text-white px-6 transition-opacity duration-[450ms] motion-reduce:transition-none will-change-opacity ${
             authSplash.isFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
           }`}
         >
@@ -741,22 +796,15 @@ export default function App() {
             <div
               className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-xl ${
                 session?.role === 'judge'
-                  ? 'bg-amber-500/15 border border-amber-500/40 text-amber-400 shadow-amber-500/20'
-                  : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 shadow-emerald-500/20'
+                  ? 'bg-amber-500/12 dark:bg-amber-500/15 border border-amber-500/30 dark:border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-amber-500/15 dark:shadow-amber-500/20'
+                  : 'bg-emerald-500/12 dark:bg-emerald-500/15 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-emerald-500/15 dark:shadow-emerald-500/20'
               }`}
             >
-              <Scale className="w-8 h-8 stroke-[2.2]" />
+              <TippingScaleIcon mode="rock" />
             </div>
-            <p className="text-base sm:text-lg font-semibold text-zinc-100 tracking-tight">
-              Welcome back, <span className="font-extrabold text-white">{authSplash.name}</span>
-            </p>
-            <p className="text-xs font-mono text-zinc-400 mt-2 flex items-center gap-2">
-              <span
-                className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                  session?.role === 'judge' ? 'bg-amber-400' : 'bg-emerald-400'
-                }`}
-              />
-              <span>Syncing offline ledger...</span>
+            <p className="text-base sm:text-lg font-semibold text-zinc-800 dark:text-zinc-100 tracking-tight">
+              Signing in
+              <AnimatedEllipsis />
             </p>
           </div>
         </div>
@@ -767,7 +815,7 @@ export default function App() {
         <div
           role="status"
           aria-live="polite"
-          className={`fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center text-white px-6 transition-opacity duration-300 motion-reduce:transition-none ${
+          className={`fixed inset-0 z-[999] bg-stone-50 dark:bg-black flex flex-col items-center justify-center text-zinc-900 dark:text-white px-6 transition-opacity duration-[450ms] motion-reduce:transition-none will-change-opacity ${
             signOutOverlay.isFading ? 'opacity-0 pointer-events-none' : 'opacity-100'
           }`}
         >
@@ -775,26 +823,15 @@ export default function App() {
             <div
               className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-xl ${
                 signOutOverlay.role === 'judge'
-                  ? 'bg-amber-500/15 border border-amber-500/40 text-amber-400 shadow-amber-500/20'
-                  : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 shadow-emerald-500/20'
+                  ? 'bg-amber-500/12 dark:bg-amber-500/15 border border-amber-500/30 dark:border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-amber-500/15 dark:shadow-amber-500/20'
+                  : 'bg-emerald-500/12 dark:bg-emerald-500/15 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-emerald-500/15 dark:shadow-emerald-500/20'
               }`}
             >
-              <Scale className="w-8 h-8 stroke-[2.2]" />
+              <TippingScaleIcon mode="rock" />
             </div>
-            <p className="text-base sm:text-lg font-semibold text-zinc-100 tracking-tight">
-              Signing out <span className="font-extrabold text-white">{signOutOverlay.name}</span>
-            </p>
-            <p className="text-xs font-mono text-zinc-400 mt-2 flex items-center gap-2">
-              <span
-                className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                  signOutOverlay.role === 'judge' ? 'bg-amber-400' : 'bg-emerald-400'
-                }`}
-              />
-              <span>
-                {signOutOverlay.waitingOnServer
-                  ? 'Waiting on server to finish signing out...'
-                  : 'Securing local ledger & revoking session...'}
-              </span>
+            <p className="text-base sm:text-lg font-semibold text-zinc-800 dark:text-zinc-100 tracking-tight">
+              Signing out
+              <AnimatedEllipsis />
             </p>
           </div>
         </div>

@@ -453,6 +453,12 @@ export async function callSecuredWriteRpc<T = any>(
     throw err;
   }
 
+  const mutatedTable = getTableForWriteRpc(rpcName);
+  const activeOrgId = getStoredSession()?.org?.org_id;
+  if (mutatedTable && activeOrgId) {
+    broadcastOrgTableChange(activeOrgId, mutatedTable);
+  }
+
   return { data: res.data as T };
 }
 
@@ -516,6 +522,7 @@ export function setStoredSession(session: StoredUserSession | null): void {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('fairjudge_session_change'));
     }
+    syncRealtimeSubscriptionToSession();
   } catch {}
 }
 
@@ -576,12 +583,67 @@ function notifyDatabaseChange(table: string) {
   }, 150);
 }
 
-// Global Supabase Realtime Channel (reference-counted with exponential backoff reconnect)
+// Org-Scoped Realtime Broadcast + Stamp Sync (zero public postgres_changes / zero cross-org leakage)
+const CLIENT_TAB_ID = `tab_${Math.random().toString(36).slice(2, 10)}`;
 let realtimeChannel: RealtimeChannel | null = null;
+let realtimeOrgId: string | null = null;
 let realtimeSubscriberCount = 0;
 let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let realtimeStampTimer: ReturnType<typeof setInterval> | null = null;
 let realtimeRetryAttempt = 0;
-let realtimeOnlineListenerBound = false;
+let realtimeListenersBound = false;
+let stampCheckInFlight = false;
+let lastSyncStamps: Partial<Record<DbTableName, string>> = {};
+
+function getTableForWriteRpc(rpcName: string): DbTableName | null {
+  if (rpcName.startsWith('org_')) return DB_TABLES.ORGANIZATIONS;
+  if (rpcName.startsWith('event_')) return DB_TABLES.EVENTS;
+  if (rpcName.startsWith('judge_')) return DB_TABLES.JUDGES;
+  if (rpcName.startsWith('participant_')) return DB_TABLES.PARTICIPANTS;
+  if (rpcName.startsWith('score_')) return DB_TABLES.SCORES;
+  return null;
+}
+
+function getStorageKeyForTable(table: DbTableName): string | null {
+  switch (table) {
+    case DB_TABLES.EVENTS:
+      return STORAGE_KEYS.EVENTS;
+    case DB_TABLES.SCORES:
+      return STORAGE_KEYS.SCORES;
+    case DB_TABLES.PARTICIPANTS:
+      return STORAGE_KEYS.PARTICIPANTS;
+    case DB_TABLES.JUDGES:
+      return STORAGE_KEYS.JUDGES;
+    case DB_TABLES.ORGANIZATIONS:
+      return STORAGE_KEYS.ORGS;
+    default:
+      return null;
+  }
+}
+
+function applyRemoteTableInvalidation(table: DbTableName) {
+  const storageKey = getStorageKeyForTable(table);
+  if (storageKey) {
+    invalidateCache(storageKey);
+  } else {
+    invalidateCache();
+  }
+  notifyDatabaseChange(table);
+}
+
+function broadcastOrgTableChange(orgId: string, table: DbTableName) {
+  const cleanOrgId = orgId.trim().toUpperCase();
+  if (!cleanOrgId || !isSupabaseConfigured() || !isOnlineNavigator()) return;
+  if (realtimeChannel && realtimeOrgId === cleanOrgId) {
+    try {
+      void realtimeChannel.send({
+        type: 'broadcast',
+        event: 'db_change',
+        payload: { table, senderId: CLIENT_TAB_ID, orgId: cleanOrgId },
+      });
+    } catch {}
+  }
+}
 
 function clearRealtimeReconnectTimer() {
   if (realtimeReconnectTimer) {
@@ -590,15 +652,97 @@ function clearRealtimeReconnectTimer() {
   }
 }
 
-function handleRealtimeOnlineResume() {
-  if (realtimeSubscriberCount > 0 && !realtimeChannel) {
-    realtimeRetryAttempt = 0;
-    ensureRealtimeSubscription();
+function clearRealtimeStampTimer() {
+  if (realtimeStampTimer) {
+    clearInterval(realtimeStampTimer);
+    realtimeStampTimer = null;
+  }
+}
+
+async function checkOrgSyncStamp() {
+  if (stampCheckInFlight || realtimeSubscriberCount <= 0 || !isSupabaseConfigured() || !isOnlineNavigator()) {
+    return;
+  }
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+    return;
+  }
+  const session = getStoredSession();
+  const token = (session?.sessionToken || '').trim();
+  const orgId = (session?.org?.org_id || '').trim().toUpperCase();
+  if (!token || !orgId) return;
+
+  stampCheckInFlight = true;
+  try {
+    const { data, error } = await supabase.rpc('read_org_sync_stamp', { p_token: token });
+    if (error || !data) return;
+
+    const res = data as any;
+    if (!res.ok) {
+      if (res.error === 'unauthorized') {
+        // Trigger org status verification so suspended/deleted/revoked sessions log out promptly
+        applyRemoteTableInvalidation(DB_TABLES.ORGANIZATIONS);
+      }
+      return;
+    }
+
+    if (String(res.org_id || '').trim().toUpperCase() !== orgId) return;
+
+    const trackedTables: DbTableName[] = [
+      DB_TABLES.ORGANIZATIONS,
+      DB_TABLES.EVENTS,
+      DB_TABLES.JUDGES,
+      DB_TABLES.PARTICIPANTS,
+      DB_TABLES.SCORES,
+    ];
+
+    const isFirstBaseline = Object.keys(lastSyncStamps).length === 0;
+    const changedTables: DbTableName[] = [];
+
+    for (const tbl of trackedTables) {
+      const nextVal = String(res[tbl] ?? '');
+      const prevVal = lastSyncStamps[tbl];
+      lastSyncStamps[tbl] = nextVal;
+      if (!isFirstBaseline && prevVal !== undefined && prevVal !== nextVal) {
+        changedTables.push(tbl);
+      }
+    }
+
+    if (changedTables.length > 0) {
+      for (const tbl of changedTables) {
+        const storageKey = getStorageKeyForTable(tbl);
+        if (storageKey) invalidateCache(storageKey);
+      }
+      if (changedTables.length === 1) {
+        notifyDatabaseChange(changedTables[0]);
+      } else {
+        for (const tbl of changedTables) {
+          notifyDatabaseChange(tbl);
+        }
+      }
+    }
+  } catch {
+    // Best-effort background reconciliation
+  } finally {
+    stampCheckInFlight = false;
+  }
+}
+
+function handleRealtimeWakeup() {
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+  if (realtimeSubscriberCount > 0) {
+    if (!realtimeChannel) {
+      realtimeRetryAttempt = 0;
+      ensureRealtimeSubscription();
+    }
+    void checkOrgSyncStamp();
   }
 }
 
 function teardownRealtimeChannel() {
   clearRealtimeReconnectTimer();
+  clearRealtimeStampTimer();
+  realtimeOrgId = null;
+  lastSyncStamps = {};
   if (realtimeChannel) {
     const ch = realtimeChannel;
     realtimeChannel = null;
@@ -606,9 +750,22 @@ function teardownRealtimeChannel() {
       void supabase.removeChannel(ch).catch(() => {});
     } catch {}
   }
-  if (realtimeSubscriberCount === 0 && typeof window !== 'undefined' && realtimeOnlineListenerBound) {
-    window.removeEventListener('online', handleRealtimeOnlineResume);
-    realtimeOnlineListenerBound = false;
+  if (realtimeSubscriberCount === 0 && typeof window !== 'undefined' && realtimeListenersBound) {
+    window.removeEventListener('online', handleRealtimeWakeup);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleRealtimeWakeup);
+    }
+    realtimeListenersBound = false;
+  }
+}
+
+function syncRealtimeSubscriptionToSession() {
+  const nextOrgId = (getStoredSession()?.org?.org_id || '').trim().toUpperCase() || null;
+  if (realtimeChannel && realtimeOrgId !== nextOrgId) {
+    teardownRealtimeChannel();
+  }
+  if (realtimeSubscriberCount > 0 && nextOrgId && !realtimeChannel) {
+    ensureRealtimeSubscription();
   }
 }
 
@@ -621,6 +778,9 @@ function scheduleRealtimeReconnect() {
   ) {
     return;
   }
+  const activeOrgId = (getStoredSession()?.org?.org_id || '').trim().toUpperCase();
+  if (!activeOrgId) return;
+
   const delayMs = Math.min(30_000, 2000 * Math.pow(2, realtimeRetryAttempt));
   realtimeRetryAttempt = Math.min(realtimeRetryAttempt + 1, 5);
   realtimeReconnectTimer = setTimeout(() => {
@@ -632,47 +792,54 @@ function scheduleRealtimeReconnect() {
 }
 
 function ensureRealtimeSubscription() {
-  if (!isSupabaseConfigured() || realtimeChannel || typeof window === 'undefined') return;
+  if (!isSupabaseConfigured() || typeof window === 'undefined') return;
+  const activeOrgId = (getStoredSession()?.org?.org_id || '').trim().toUpperCase();
+  if (!activeOrgId) return;
+
+  if (realtimeChannel && realtimeOrgId === activeOrgId) return;
+  if (realtimeChannel && realtimeOrgId !== activeOrgId) {
+    teardownRealtimeChannel();
+  }
   if (!isOnlineNavigator()) return;
 
-  if (!realtimeOnlineListenerBound) {
-    window.addEventListener('online', handleRealtimeOnlineResume);
-    realtimeOnlineListenerBound = true;
+  if (!realtimeListenersBound) {
+    window.addEventListener('online', handleRealtimeWakeup);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleRealtimeWakeup);
+    }
+    realtimeListenersBound = true;
+  }
+
+  if (!realtimeStampTimer) {
+    realtimeStampTimer = setInterval(() => {
+      void checkOrgSyncStamp();
+    }, 15_000);
   }
 
   try {
+    const channelName = `fairjudge-org-${activeOrgId}`;
     const channel = supabase
-      .channel('fairjudge-live-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
-        invalidateCache(STORAGE_KEYS.EVENTS);
-        notifyDatabaseChange(DB_TABLES.EVENTS);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, () => {
-        invalidateCache(STORAGE_KEYS.SCORES);
-        notifyDatabaseChange(DB_TABLES.SCORES);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
-        invalidateCache(STORAGE_KEYS.PARTICIPANTS);
-        notifyDatabaseChange(DB_TABLES.PARTICIPANTS);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'judges' }, () => {
-        invalidateCache(STORAGE_KEYS.JUDGES);
-        notifyDatabaseChange(DB_TABLES.JUDGES);
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'organizations' }, () => {
-        invalidateCache(STORAGE_KEYS.ORGS);
-        notifyDatabaseChange(DB_TABLES.ORGANIZATIONS);
+      .channel(channelName, { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'db_change' }, ({ payload }) => {
+        const msgOrgId = String(payload?.orgId || '').trim().toUpperCase();
+        if (msgOrgId && msgOrgId !== activeOrgId) return;
+        if (payload?.senderId === CLIENT_TAB_ID) return;
+        const table = normalizeDbTableName(String(payload?.table || DB_TABLES.ALL));
+        applyRemoteTableInvalidation(table);
       });
 
     realtimeChannel = channel;
+    realtimeOrgId = activeOrgId;
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         realtimeRetryAttempt = 0;
         clearRealtimeReconnectTimer();
+        void checkOrgSyncStamp();
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        console.warn('Supabase realtime sync status:', status, '- scheduling reconnect');
+        console.warn('Supabase org realtime channel status:', status, '- scheduling reconnect');
         if (realtimeChannel === channel) {
           realtimeChannel = null;
+          realtimeOrgId = null;
           try {
             void supabase.removeChannel(channel).catch(() => {});
           } catch {}
@@ -681,8 +848,9 @@ function ensureRealtimeSubscription() {
       }
     });
   } catch (err) {
-    console.warn('Realtime channel subscription error:', err);
+    console.warn('Realtime org channel subscription error:', err);
     realtimeChannel = null;
+    realtimeOrgId = null;
     scheduleRealtimeReconnect();
   }
 }
@@ -694,7 +862,7 @@ export function subscribeToDatabase(callback: (table: string) => void): () => vo
 
   const handler = (e: Event) => {
     const custom = e as CustomEvent<{ table: string }>;
-    callback(custom.detail?.table || 'all');
+    callback(custom.detail?.table || DB_TABLES.ALL);
   };
   window.addEventListener(DB_CHANGE_EVENT, handler);
 
@@ -742,7 +910,8 @@ function normalizeEvent(e: any): SupabaseEvent {
 }
 
 function normalizeJudge(j: any): SupabaseJudge {
-  const cleanPin = j.pin || j.judge_pin || '';
+  const isJudgeDevice = getStoredSession()?.role === 'judge';
+  const cleanPin = isJudgeDevice ? '' : j.pin || j.judge_pin || '';
   return {
     ...j,
     pin: cleanPin,
@@ -1635,7 +1804,6 @@ export const dbService = {
       judge_id: newJudge.judge_id,
       pin: newJudge.pin,
       assigned_events: newJudge.assigned_events,
-      current_session_token: newJudge.current_session_token,
     };
 
     // 2. BACKGROUND CLOUD SYNC
@@ -1860,11 +2028,27 @@ export const dbService = {
 
       if (isSupabaseConfigured()) {
         try {
-          const res = await callSecuredReadRpc('read_org_roster_credentials', {});
-          const judges = (Array.isArray(res.judges) ? res.judges : []).map(normalizeJudge);
-          const participants = (Array.isArray(res.participants)
-            ? res.participants
-            : []) as SupabaseParticipant[];
+          let rawJudges: any[] = [];
+          let rawParticipants: any[] = [];
+
+          try {
+            const [judgesRes, partsRes] = await Promise.all([
+              callSecuredReadRpc<any[]>('judges_list_with_pins', { p_org_id: cleanOrgId }),
+              callSecuredReadRpc<any[]>('participants_list', { p_org_id: cleanOrgId }),
+            ]);
+            rawJudges = Array.isArray(judgesRes.data) ? judgesRes.data : [];
+            rawParticipants = Array.isArray(partsRes.data) ? partsRes.data : [];
+          } catch (phase3Err: any) {
+            if (phase3Err?.code !== 'rpc_unavailable') {
+              throw phase3Err;
+            }
+            const res = await callSecuredReadRpc('read_org_roster_credentials', {});
+            rawJudges = Array.isArray(res.judges) ? res.judges : [];
+            rawParticipants = Array.isArray(res.participants) ? res.participants : [];
+          }
+
+          const judges = rawJudges.map(normalizeJudge);
+          const participants = rawParticipants as SupabaseParticipant[];
 
           const allCachedJudges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
           const otherJudges = allCachedJudges.filter(

@@ -286,17 +286,20 @@ export function JudgeLobby({
       {/* PART 4: THE JUDGE LOBBY - HEADER                         */}
       {/* ======================================================== */}
       <header className="sticky top-0 z-50 w-full h-16 shrink-0 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800/80 px-4 flex items-center justify-between">
-        {/* Left: App Logo (Scale icon) with refresh on click */}
+        {/* Left: App Logo (Scale icon) — opens Notifications, shows red dot on unread */}
         <div className="flex items-center">
-          <button
-            type="button"
-            onClick={handleRefresh}
-            title="Refresh events"
-            aria-label="Refresh events"
-            className="w-11 h-11 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-sm shrink-0 active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer"
+          <NotificationBell
+            notices={inboxNotices}
+            unreadCount={unreadCount}
+            onMarkRead={markInboxAsRead}
+            accent="amber"
+            badgeStyle="dot"
+            title="Notifications"
+            ariaLabel="Fair Judge Notifications"
+            buttonClassName="relative w-11 h-11 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shadow-sm shrink-0 active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer"
           >
             <Scale className="w-5 h-5 stroke-[2.2]" />
-          </button>
+          </NotificationBell>
         </div>
 
         {/* Center (Stacked): Fair Judge (Bold) on top, {organization.name} (Small, uppercase, muted) underneath */}
@@ -309,16 +312,8 @@ export function JudgeLobby({
           </span>
         </div>
 
-        {/* Right: Notifications bell, Theme toggle, Account icon */}
-        <div className="flex items-center space-x-1.5">
-          <NotificationBell
-            notices={inboxNotices}
-            unreadCount={unreadCount}
-            onMarkRead={markInboxAsRead}
-            accent="amber"
-            buttonClassName="relative w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer shadow-xs"
-          />
-          <ThemeToggleButton className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer shadow-xs" />
+        {/* Right: Account icon */}
+        <div className="flex items-center">
           <button
             ref={accountBtnRef}
             type="button"
@@ -570,7 +565,7 @@ export function JudgeLobby({
                         <div className="p-3.5 flex items-center justify-between">
                           <span className="text-zinc-500 font-medium">Terminal PIN / ID</span>
                           <span className="font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
-                            PIN: {judge.pin || judge.judge_pin || '••••'}
+                            {judge.judge_id ? `${judge.judge_id} • PIN: ••••` : 'PIN: ••••'}
                           </span>
                         </div>
 

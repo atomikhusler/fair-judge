@@ -34,12 +34,174 @@ export interface OrganiserAuthResult {
   mustChange?: boolean;
 }
 
+const OFFLINE_VERIFIERS_KEY = 'fairjudge_judge_offline_verifiers';
+const PBKDF2_ITERATIONS = 100_000;
+
+interface OfflineJudgeVerifier {
+  judgeId: string;
+  judgeCode?: string;
+  judgeName: string;
+  orgId: string;
+  assignedEvents: string[];
+  salt: string;
+  hash: string;
+  iterations: number;
+  updatedAt: string;
+  judgeSnapshot: SupabaseJudge;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    out[i] = binary.charCodeAt(i);
+  }
+  return out;
+}
+
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+
+async function derivePinHash(pin: string, saltBytes: Uint8Array, iterations: number): Promise<Uint8Array> {
+  if (typeof globalThis === 'undefined' || !globalThis.crypto?.subtle) {
+    throw new Error('WebCrypto SubtleCrypto is required for offline PIN verification.');
+  }
+  const encoder = new TextEncoder();
+  const keyMaterial = await globalThis.crypto.subtle.importKey(
+    'raw',
+    encoder.encode(pin.trim().toLowerCase()),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = await globalThis.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: saltBytes as unknown as BufferSource,
+      iterations,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256
+  );
+  return new Uint8Array(bits);
+}
+
+function readOfflineVerifiers(): OfflineJudgeVerifier[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(OFFLINE_VERIFIERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeOfflineVerifiers(list: OfflineJudgeVerifier[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(OFFLINE_VERIFIERS_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+async function saveOfflineJudgeVerifier(judge: SupabaseJudge, rawPin: string): Promise<void> {
+  if (!rawPin.trim() || typeof globalThis === 'undefined' || !globalThis.crypto?.subtle) return;
+  try {
+    const saltBytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    const derived = await derivePinHash(rawPin, saltBytes, PBKDF2_ITERATIONS);
+    const scrubbedJudge: SupabaseJudge = {
+      ...judge,
+      pin: '',
+      judge_pin: '',
+      current_session_token: null,
+      assigned_events: Array.isArray(judge.assigned_events) ? judge.assigned_events : [],
+    };
+    const record: OfflineJudgeVerifier = {
+      judgeId: scrubbedJudge.id,
+      judgeCode: scrubbedJudge.judge_id,
+      judgeName: scrubbedJudge.name,
+      orgId: scrubbedJudge.org_id,
+      assignedEvents: scrubbedJudge.assigned_events,
+      salt: bytesToBase64(saltBytes),
+      hash: bytesToBase64(derived),
+      iterations: PBKDF2_ITERATIONS,
+      updatedAt: new Date().toISOString(),
+      judgeSnapshot: scrubbedJudge,
+    };
+    const existing = readOfflineVerifiers().filter((v) => v.judgeId !== scrubbedJudge.id);
+    writeOfflineVerifiers([record, ...existing].slice(0, 20));
+  } catch {
+    // Non-fatal if WebCrypto unavailable
+  }
+}
+
+async function verifyOfflineJudgePin(params: {
+  cleanOrgId: string;
+  cleanJudgeId: string;
+  cleanPin: string;
+  cleanEventId: string;
+}): Promise<SupabaseJudge | null> {
+  const { cleanOrgId, cleanJudgeId, cleanPin, cleanEventId } = params;
+  const verifiers = readOfflineVerifiers();
+  if (verifiers.length === 0) return null;
+
+  for (const v of verifiers) {
+    if (cleanOrgId && String(v.orgId || '').toUpperCase() !== cleanOrgId) continue;
+
+    if (cleanJudgeId) {
+      const idMatches =
+        String(v.judgeId || '').toLowerCase() === cleanJudgeId.toLowerCase() ||
+        String(v.judgeCode || '').toLowerCase() === cleanJudgeId.toLowerCase() ||
+        String(v.judgeName || '').toLowerCase() === cleanJudgeId.toLowerCase();
+      if (!idMatches) continue;
+    }
+
+    if (cleanEventId) {
+      const assignedMatches = Array.isArray(v.assignedEvents) && v.assignedEvents.includes(cleanEventId);
+      if (!assignedMatches) continue;
+    }
+
+    try {
+      const saltBytes = base64ToBytes(v.salt);
+      const expectedBytes = base64ToBytes(v.hash);
+      const derived = await derivePinHash(cleanPin, saltBytes, v.iterations || PBKDF2_ITERATIONS);
+      if (constantTimeEqual(derived, expectedBytes)) {
+        return {
+          ...v.judgeSnapshot,
+          pin: '',
+          judge_pin: '',
+          current_session_token: null,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 export const authService = {
   /**
    * ARCHITECTURAL DIRECTIVE 1: JUDGE AUTHENTICATION LOCKDOWN
-   * Prefers server-side `judge_login` RPC (mints judge_sessions token).
-   * Falls back to read-only SELECT only if RPC is not yet deployed, and to
-   * IndexedDB cache only when offline/unreachable.
+   * Validates credentials against server `judge_login` RPC (bcrypt via judge_secrets)
+   * and uses salted PBKDF2-SHA256 local verifier when offline (zero plaintext PIN storage).
    */
   async authenticateJudge(params: JudgeAuthParams): Promise<JudgeAuthResult> {
     const cleanOrgId = (params.orgId || '').trim().toUpperCase();
@@ -79,6 +241,9 @@ export const authService = {
           const res = rpcData as any;
           if (!res || !res.ok || !res.judge) {
             const errCode = res?.error || res?.reason;
+            if (errCode === 'too_many_attempts') {
+              throw new Error('Too many attempts. Try again in 15 minutes.');
+            }
             if (errCode === 'org_deleted') {
               throw new Error('This organization has been removed.');
             }
@@ -89,10 +254,12 @@ export const authService = {
             throw new Error('Authentication Failed: Invalid ID or PIN. Please request a new QR code.');
           }
 
+          // Zero plaintext PIN / session token stored on judge device
           const matchedJudge: SupabaseJudge = {
             ...res.judge,
-            pin: res.judge.pin || cleanPin,
-            judge_pin: res.judge.pin || cleanPin,
+            pin: '',
+            judge_pin: '',
+            current_session_token: null,
             assigned_events: Array.isArray(res.judge.assigned_events) ? res.judge.assigned_events : [],
           };
           authenticatedJudge = matchedJudge;
@@ -108,7 +275,14 @@ export const authService = {
             rpcOrg = cleanOrg as Organization;
           }
 
-          const currentCached = getHotCache<SupabaseJudge[]>(STORAGE_KEYS.JUDGES, []);
+          await saveOfflineJudgeVerifier(matchedJudge, cleanPin);
+
+          const currentCached = getHotCache<SupabaseJudge[]>(STORAGE_KEYS.JUDGES, []).map((j) => ({
+            ...j,
+            pin: '',
+            judge_pin: '',
+            current_session_token: null,
+          }));
           await setIndexedDBCache(
             STORAGE_KEYS.JUDGES,
             [matchedJudge, ...currentCached.filter((j) => j.id !== matchedJudge.id)],
@@ -119,47 +293,28 @@ export const authService = {
         if (
           cloudErr.message?.includes('Authentication Failed') ||
           cloudErr.message?.includes('Authentication service unavailable') ||
+          cloudErr.message?.includes('Too many attempts') ||
           cloudErr.message?.includes('organization is suspended') ||
           cloudErr.message?.includes('organization has been removed')
         ) {
           throw cloudErr;
         }
-        console.warn('judge_login RPC network notice, evaluating local cache:', cloudErr);
+        console.warn('judge_login RPC network notice, evaluating offline verifier:', cloudErr);
       }
     }
 
-    // 2. OFFLINE / CACHE VALIDATION: Pure read-only check in IndexedDB / Hot Mirror
+    // 2. OFFLINE VALIDATION: Salted PBKDF2-SHA256 local verifier (zero plaintext PIN stored)
     if (!authenticatedJudge) {
-      const allCachedJudges = getHotCache<SupabaseJudge[]>(STORAGE_KEYS.JUDGES, []);
-
-      const match = allCachedJudges.find((j) => {
-        const pinMatches =
-          String(j.pin || '').trim().toLowerCase() === cleanPin.toLowerCase() ||
-          String(j.judge_pin || '').trim().toLowerCase() === cleanPin.toLowerCase();
-        if (!pinMatches) return false;
-
-        if (cleanJudgeId) {
-          const idMatches =
-            String(j.id || '').toLowerCase() === cleanJudgeId.toLowerCase() ||
-            String(j.judge_id || '').toLowerCase() === cleanJudgeId.toLowerCase() ||
-            String(j.name || '').toLowerCase() === cleanJudgeId.toLowerCase();
-          if (!idMatches) return false;
-        }
-
-        if (cleanOrgId && String(j.org_id || '').toUpperCase() !== cleanOrgId) return false;
-
-        if (cleanEventId) {
-          const eventColMatches = String((j as any).event_id || '') === cleanEventId;
-          const assignedArrayMatches = Array.isArray(j.assigned_events) && j.assigned_events.includes(cleanEventId);
-          if (!eventColMatches && !assignedArrayMatches) return false;
-        }
-
-        return true;
+      const matched = await verifyOfflineJudgePin({
+        cleanOrgId,
+        cleanJudgeId,
+        cleanPin,
+        cleanEventId,
       });
 
-      if (match) {
-        authenticatedJudge = match;
-        targetOrgId = match.org_id;
+      if (matched) {
+        authenticatedJudge = matched;
+        targetOrgId = matched.org_id;
       }
     }
 
