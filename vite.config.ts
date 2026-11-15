@@ -14,35 +14,15 @@ export default defineConfig(({ command }) => {
         ? [
             VitePWA({
               registerType: 'autoUpdate',
-              includeAssets: ['assets/aistudio/Logo_4d218fbd.png'],
-              manifest: {
-                id: '/',
-                name: 'Fair Judge - Competition Judging Terminal',
-                short_name: 'FairJudge',
-                description: 'Mobile-first digitized competition judging terminal and scoring ledger.',
-                theme_color: '#000000',
-                background_color: '#000000',
-                display: 'standalone',
-                orientation: 'portrait',
-                start_url: '/',
-                scope: '/',
-                icons: [
-                  {
-                    src: '/assets/aistudio/Logo_4d218fbd.png',
-                    sizes: '954x954',
-                    type: 'image/png',
-                    purpose: 'any',
-                  },
-                  {
-                    src: '/assets/aistudio/Logo_4d218fbd.png',
-                    sizes: '954x954',
-                    type: 'image/png',
-                    purpose: 'maskable',
-                  },
-                ],
-              },
+              injectRegister: false,
+              manifest: false,
               workbox: {
-                globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+                skipWaiting: true,
+                clientsClaim: true,
+                globPatterns: ['**/*.{js,css,html,json,png,svg,woff,woff2}'],
+                globIgnores: ['**/sw-sync.js', '**/EPIC-*.txt'],
+                importScripts: ['/sw-sync.js'],
+                navigateFallbackDenylist: [/^\/api\//, /^\/supabase-proxy\//],
                 maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
               },
             }),

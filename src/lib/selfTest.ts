@@ -1090,13 +1090,31 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
   }
 
   // 5. Service Worker Status & 6. Offline App Shell Cache
+  const isDevMode = typeof import.meta !== 'undefined' && import.meta.env && !import.meta.env.PROD;
   const isUnsupportedSWContext =
     typeof window === 'undefined' ||
     !window.isSecureContext ||
     window.top !== window.self ||
     !('serviceWorker' in navigator);
 
-  if (isUnsupportedSWContext) {
+  if (isDevMode) {
+    checks.push({
+      id: 'sw_status',
+      group: 'storage_offline',
+      label: 'Service Worker',
+      status: 'notice',
+      plain: 'Offline service worker is disabled in development mode. Test on the built app.',
+      code: 'DEV_CACHE_DISABLED',
+    });
+    checks.push({
+      id: 'offline_cache',
+      group: 'storage_offline',
+      label: 'Offline Cache',
+      status: 'notice',
+      plain: 'Offline cache is cleared in development mode. Test on the built app.',
+      code: 'DEV_CACHE_DISABLED',
+    });
+  } else if (isUnsupportedSWContext) {
     checks.push({
       id: 'sw_status',
       group: 'storage_offline',
