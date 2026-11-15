@@ -17,6 +17,7 @@ import {
 import { Organization } from '../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase, getStoredSession, setStoredSession, invalidateCache } from '../../lib/supabase';
 import { flushOfflineQueueToSupabase } from '../../lib/offlineQueue';
+import { registerSyncCadence, syncNow } from '../../lib/syncEngine';
 import { eventBus, areOrganizationsEqual } from '../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../lib/dbTables';
 import { SettingsDrawer } from './SettingsDrawer';
@@ -204,8 +205,9 @@ export function OrganiserDashboard({
     return unsub;
   }, []);
 
-  // Singleton Supabase Realtime subscription + visibility/online retry
+  // Singleton delta sync cadence + visibility/online retry
   useEffect(() => {
+    const releaseCadence = registerSyncCadence('normal');
     void syncOrganizationStatus(false);
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -235,6 +237,7 @@ export function OrganiserDashboard({
     }
 
     return () => {
+      releaseCadence();
       if (debounceTimer) clearTimeout(debounceTimer);
       unsub();
       if (typeof document !== 'undefined') {
@@ -258,17 +261,25 @@ export function OrganiserDashboard({
 
   // Full cloud refresh triggered by PullToRefresh (bypasses 5-minute cache throttle)
   const handleManualPullRefresh = async () => {
-    invalidateCache();
     await flushOfflineQueueToSupabase();
-    await Promise.all([
-      syncOrganizationStatus(true),
-      refreshAnnouncements(),
-      dbService.getEvents(organization.org_id, true),
-      dbService.getParticipants(organization.org_id, true),
-      dbService.getJudges(organization.org_id, true),
-      dbService.getOrgScores(organization.org_id, true),
-    ]);
-    eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
+    const syncRes = await syncNow({ forceFull: true, reason: 'manual' });
+    if (syncRes.ok) {
+      await Promise.all([
+        syncOrganizationStatus(false),
+        refreshAnnouncements(),
+      ]);
+    } else {
+      invalidateCache();
+      await Promise.all([
+        syncOrganizationStatus(true),
+        refreshAnnouncements(),
+        dbService.getEvents(organization.org_id, true),
+        dbService.getParticipants(organization.org_id, true),
+        dbService.getJudges(organization.org_id, true),
+        dbService.getOrgScores(organization.org_id, true),
+      ]);
+      eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
+    }
   };
 
   // Tab definitions

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { triggerHaptic } from '../../lib/haptics';
 import { dbService, subscribeToDatabase, syncServerClockOffset, getServerNowMs } from '../../lib/supabase';
+import { registerSyncCadence, syncNow } from '../../lib/syncEngine';
 import { DB_TABLES, matchesDbTable } from '../../lib/dbTables';
 import {
   queueScoreLocally,
@@ -351,7 +352,7 @@ export function ScoringPanel({
 
         const [orgRes, eventsRes, participantsRes] = await Promise.all([
           dbService.getOrganizationByOrgIdResult(targetOrgId, force),
-          dbService.getEventsResult(targetOrgId, true),
+          dbService.getEventsResult(targetOrgId, force),
           dbService.getParticipantsResult(targetOrgId, force),
         ]);
 
@@ -525,15 +526,16 @@ export function ScoringPanel({
     } catch (err) {
       console.warn('Pull-to-refresh queue flush note:', err);
     }
-    await Promise.all([
+    const [, syncRes] = await Promise.all([
       syncServerClockOffset(true)
         .then(() => {
           if (isMountedRef.current) setClockSyncVersion((v) => v + 1);
         })
         .catch(() => {}),
-      loadData(true).catch(() => {}),
+      syncNow({ forceFull: true, reason: 'manual' }),
       Promise.resolve(refreshAnnouncements()).catch(() => {}),
     ]);
+    await loadData(!syncRes.ok).catch(() => {});
   };
 
   // Dedicated server clock synchronization
@@ -546,6 +548,7 @@ export function ScoringPanel({
   }, [orgId, activeEvent.org_id]);
 
   useEffect(() => {
+    const releaseCadence = registerSyncCadence('fast');
     loadData(false).catch(() => {});
     const unsubDb = subscribeToDatabase((table) => {
       if (
@@ -592,6 +595,7 @@ export function ScoringPanel({
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      releaseCadence();
       unsubDb();
       unsubQueue();
       window.removeEventListener('online', handleOnline);

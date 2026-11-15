@@ -39,6 +39,7 @@ import {
   RubricCriterion 
 } from '../../../lib/supabaseTypes';
 import { dbService, generateUUID, subscribeToDatabase, supabase } from '../../../lib/supabase';
+import { registerSyncCadence } from '../../../lib/syncEngine';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
@@ -323,6 +324,7 @@ export function EventsTab({
   );
 
   useEffect(() => {
+    const releaseCadence = registerSyncCadence('normal');
     setEvents(dbService.getCachedEvents(organization.org_id));
     setParticipants(dbService.getCachedParticipants(organization.org_id));
     setJudges(dbService.getCachedJudges(organization.org_id));
@@ -405,6 +407,7 @@ export function EventsTab({
     void loadData(false);
 
     return () => {
+      releaseCadence();
       unsubBus();
       unsubDb();
       if (typeof document !== 'undefined') {

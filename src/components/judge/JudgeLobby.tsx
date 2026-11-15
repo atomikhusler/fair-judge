@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { SupabaseJudge, SupabaseEvent, Organization } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
+import { registerSyncCadence, syncNow } from '../../lib/syncEngine';
 import { ThemeToggleButton } from '../../lib/theme';
 import { PullToRefresh } from '../common/PullToRefresh';
 import { flushOfflineQueueToSupabase, downloadDiagnosticLog, getPendingScores, getPendingMutations } from '../../lib/offlineQueue';
@@ -169,6 +170,7 @@ export function JudgeLobby({
   }, [orgId]);
 
   useEffect(() => {
+    const releaseCadence = registerSyncCadence('normal');
     void loadOrgDetails(false);
 
     const handleVisibilityOrOnline = () => {
@@ -187,6 +189,7 @@ export function JudgeLobby({
     }
 
     return () => {
+      releaseCadence();
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
       }
@@ -257,8 +260,11 @@ export function JudgeLobby({
       console.warn('Queue flush note:', err);
     }
     refreshAnnouncements();
-    await loadOrgDetails(true);
-    onRetryLoad?.();
+    const syncRes = await syncNow({ forceFull: true, reason: 'manual' });
+    await loadOrgDetails(!syncRes.ok);
+    if (!syncRes.ok) {
+      onRetryLoad?.();
+    }
     window.dispatchEvent(new CustomEvent('fairjudge_db_change', { detail: { table: DB_TABLES.ALL } }));
     await new Promise((r) => setTimeout(r, 300));
   };

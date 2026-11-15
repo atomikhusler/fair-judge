@@ -28,6 +28,7 @@ import {
   EventStatus 
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
+import { registerSyncCadence } from '../../../lib/syncEngine';
 import { 
   getPendingCount, 
   subscribeToQueueChanges, 
@@ -854,8 +855,9 @@ export function LiveTab({
     [organization.org_id]
   );
 
-  // Pure Event-Driven Architecture: Subscribe to eventBus + Realtime with zero-flash hydration
+  // Pure Event-Driven Architecture: Subscribe to eventBus + Adaptive Fast Sync (15s)
   useEffect(() => {
+    const releaseCadence = registerSyncCadence('fast');
     setEvents(dbService.getCachedEvents(organization.org_id));
     setAllParticipants(dbService.getCachedParticipants(organization.org_id));
     setJudges(dbService.getCachedJudges(organization.org_id));
@@ -938,6 +940,7 @@ export function LiveTab({
     void refreshFailedMutations();
 
     return () => {
+      releaseCadence();
       unsubBus();
       unsubDb();
       unsubscribeQueue();

@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { 
   Organization, 
   SupabaseEvent, 
@@ -226,7 +226,6 @@ export function getSupabaseClient(): SupabaseClient {
 }
 
 export function resetSupabaseClient(): void {
-  teardownRealtimeChannel();
   inflightNormalReads.clear();
   inflightForcedReads.clear();
   activeClient = null;
@@ -453,12 +452,6 @@ export async function callSecuredWriteRpc<T = any>(
     throw err;
   }
 
-  const mutatedTable = getTableForWriteRpc(rpcName);
-  const activeOrgId = getStoredSession()?.org?.org_id;
-  if (mutatedTable && activeOrgId) {
-    broadcastOrgTableChange(activeOrgId, mutatedTable);
-  }
-
   return { data: res.data as T };
 }
 
@@ -522,7 +515,6 @@ export function setStoredSession(session: StoredUserSession | null): void {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('fairjudge_session_change'));
     }
-    syncRealtimeSubscriptionToSession();
   } catch {}
 }
 
@@ -559,7 +551,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let batchedTables = new Set<DbTableName>();
 
 // Debounced event broadcaster: batches multiple database changes into EventBus & CustomEvents
-function notifyDatabaseChange(table: string) {
+export function notifyDatabaseChange(table: string) {
   batchedTables.add(normalizeDbTableName(table));
   if (debounceTimer) {
     clearTimeout(debounceTimer);
@@ -583,282 +575,8 @@ function notifyDatabaseChange(table: string) {
   }, 150);
 }
 
-// Org-Scoped Realtime Broadcast + Stamp Sync (zero public postgres_changes / zero cross-org leakage)
-const CLIENT_TAB_ID = `tab_${Math.random().toString(36).slice(2, 10)}`;
-let realtimeChannel: RealtimeChannel | null = null;
-let realtimeOrgId: string | null = null;
-let realtimeSubscriberCount = 0;
-let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let realtimeStampTimer: ReturnType<typeof setInterval> | null = null;
-let realtimeRetryAttempt = 0;
-let realtimeListenersBound = false;
-let stampCheckInFlight = false;
-let lastSyncStamps: Partial<Record<DbTableName, string>> = {};
-
-function getTableForWriteRpc(rpcName: string): DbTableName | null {
-  if (rpcName.startsWith('org_')) return DB_TABLES.ORGANIZATIONS;
-  if (rpcName.startsWith('event_')) return DB_TABLES.EVENTS;
-  if (rpcName.startsWith('judge_')) return DB_TABLES.JUDGES;
-  if (rpcName.startsWith('participant_')) return DB_TABLES.PARTICIPANTS;
-  if (rpcName.startsWith('score_')) return DB_TABLES.SCORES;
-  return null;
-}
-
-function getStorageKeyForTable(table: DbTableName): string | null {
-  switch (table) {
-    case DB_TABLES.EVENTS:
-      return STORAGE_KEYS.EVENTS;
-    case DB_TABLES.SCORES:
-      return STORAGE_KEYS.SCORES;
-    case DB_TABLES.PARTICIPANTS:
-      return STORAGE_KEYS.PARTICIPANTS;
-    case DB_TABLES.JUDGES:
-      return STORAGE_KEYS.JUDGES;
-    case DB_TABLES.ORGANIZATIONS:
-      return STORAGE_KEYS.ORGS;
-    default:
-      return null;
-  }
-}
-
-function applyRemoteTableInvalidation(table: DbTableName) {
-  const storageKey = getStorageKeyForTable(table);
-  if (storageKey) {
-    invalidateCache(storageKey);
-  } else {
-    invalidateCache();
-  }
-  notifyDatabaseChange(table);
-}
-
-function broadcastOrgTableChange(orgId: string, table: DbTableName) {
-  const cleanOrgId = orgId.trim().toUpperCase();
-  if (!cleanOrgId || !isSupabaseConfigured() || !isOnlineNavigator()) return;
-  if (realtimeChannel && realtimeOrgId === cleanOrgId) {
-    try {
-      void realtimeChannel.send({
-        type: 'broadcast',
-        event: 'db_change',
-        payload: { table, senderId: CLIENT_TAB_ID, orgId: cleanOrgId },
-      });
-    } catch {}
-  }
-}
-
-function clearRealtimeReconnectTimer() {
-  if (realtimeReconnectTimer) {
-    clearTimeout(realtimeReconnectTimer);
-    realtimeReconnectTimer = null;
-  }
-}
-
-function clearRealtimeStampTimer() {
-  if (realtimeStampTimer) {
-    clearInterval(realtimeStampTimer);
-    realtimeStampTimer = null;
-  }
-}
-
-async function checkOrgSyncStamp() {
-  if (stampCheckInFlight || realtimeSubscriberCount <= 0 || !isSupabaseConfigured() || !isOnlineNavigator()) {
-    return;
-  }
-  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-    return;
-  }
-  const session = getStoredSession();
-  const token = (session?.sessionToken || '').trim();
-  const orgId = (session?.org?.org_id || '').trim().toUpperCase();
-  if (!token || !orgId) return;
-
-  stampCheckInFlight = true;
-  try {
-    const { data, error } = await supabase.rpc('read_org_sync_stamp', { p_token: token });
-    if (error || !data) return;
-
-    const res = data as any;
-    if (!res.ok) {
-      if (res.error === 'unauthorized') {
-        // Trigger org status verification so suspended/deleted/revoked sessions log out promptly
-        applyRemoteTableInvalidation(DB_TABLES.ORGANIZATIONS);
-      }
-      return;
-    }
-
-    if (String(res.org_id || '').trim().toUpperCase() !== orgId) return;
-
-    const trackedTables: DbTableName[] = [
-      DB_TABLES.ORGANIZATIONS,
-      DB_TABLES.EVENTS,
-      DB_TABLES.JUDGES,
-      DB_TABLES.PARTICIPANTS,
-      DB_TABLES.SCORES,
-    ];
-
-    const isFirstBaseline = Object.keys(lastSyncStamps).length === 0;
-    const changedTables: DbTableName[] = [];
-
-    for (const tbl of trackedTables) {
-      const nextVal = String(res[tbl] ?? '');
-      const prevVal = lastSyncStamps[tbl];
-      lastSyncStamps[tbl] = nextVal;
-      if (!isFirstBaseline && prevVal !== undefined && prevVal !== nextVal) {
-        changedTables.push(tbl);
-      }
-    }
-
-    if (changedTables.length > 0) {
-      for (const tbl of changedTables) {
-        const storageKey = getStorageKeyForTable(tbl);
-        if (storageKey) invalidateCache(storageKey);
-      }
-      if (changedTables.length === 1) {
-        notifyDatabaseChange(changedTables[0]);
-      } else {
-        for (const tbl of changedTables) {
-          notifyDatabaseChange(tbl);
-        }
-      }
-    }
-  } catch {
-    // Best-effort background reconciliation
-  } finally {
-    stampCheckInFlight = false;
-  }
-}
-
-function handleRealtimeWakeup() {
-  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-  if (realtimeSubscriberCount > 0) {
-    if (!realtimeChannel) {
-      realtimeRetryAttempt = 0;
-      ensureRealtimeSubscription();
-    }
-    void checkOrgSyncStamp();
-  }
-}
-
-function teardownRealtimeChannel() {
-  clearRealtimeReconnectTimer();
-  clearRealtimeStampTimer();
-  realtimeOrgId = null;
-  lastSyncStamps = {};
-  if (realtimeChannel) {
-    const ch = realtimeChannel;
-    realtimeChannel = null;
-    try {
-      void supabase.removeChannel(ch).catch(() => {});
-    } catch {}
-  }
-  if (realtimeSubscriberCount === 0 && typeof window !== 'undefined' && realtimeListenersBound) {
-    window.removeEventListener('online', handleRealtimeWakeup);
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('visibilitychange', handleRealtimeWakeup);
-    }
-    realtimeListenersBound = false;
-  }
-}
-
-function syncRealtimeSubscriptionToSession() {
-  const nextOrgId = (getStoredSession()?.org?.org_id || '').trim().toUpperCase() || null;
-  if (realtimeChannel && realtimeOrgId !== nextOrgId) {
-    teardownRealtimeChannel();
-  }
-  if (realtimeSubscriberCount > 0 && nextOrgId && !realtimeChannel) {
-    ensureRealtimeSubscription();
-  }
-}
-
-function scheduleRealtimeReconnect() {
-  if (
-    realtimeReconnectTimer ||
-    realtimeSubscriberCount <= 0 ||
-    !isSupabaseConfigured() ||
-    !isOnlineNavigator()
-  ) {
-    return;
-  }
-  const activeOrgId = (getStoredSession()?.org?.org_id || '').trim().toUpperCase();
-  if (!activeOrgId) return;
-
-  const delayMs = Math.min(30_000, 2000 * Math.pow(2, realtimeRetryAttempt));
-  realtimeRetryAttempt = Math.min(realtimeRetryAttempt + 1, 5);
-  realtimeReconnectTimer = setTimeout(() => {
-    realtimeReconnectTimer = null;
-    if (realtimeSubscriberCount > 0) {
-      ensureRealtimeSubscription();
-    }
-  }, delayMs);
-}
-
-function ensureRealtimeSubscription() {
-  if (!isSupabaseConfigured() || typeof window === 'undefined') return;
-  const activeOrgId = (getStoredSession()?.org?.org_id || '').trim().toUpperCase();
-  if (!activeOrgId) return;
-
-  if (realtimeChannel && realtimeOrgId === activeOrgId) return;
-  if (realtimeChannel && realtimeOrgId !== activeOrgId) {
-    teardownRealtimeChannel();
-  }
-  if (!isOnlineNavigator()) return;
-
-  if (!realtimeListenersBound) {
-    window.addEventListener('online', handleRealtimeWakeup);
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', handleRealtimeWakeup);
-    }
-    realtimeListenersBound = true;
-  }
-
-  if (!realtimeStampTimer) {
-    realtimeStampTimer = setInterval(() => {
-      void checkOrgSyncStamp();
-    }, 15_000);
-  }
-
-  try {
-    const channelName = `fairjudge-org-${activeOrgId}`;
-    const channel = supabase
-      .channel(channelName, { config: { broadcast: { self: false } } })
-      .on('broadcast', { event: 'db_change' }, ({ payload }) => {
-        const msgOrgId = String(payload?.orgId || '').trim().toUpperCase();
-        if (msgOrgId && msgOrgId !== activeOrgId) return;
-        if (payload?.senderId === CLIENT_TAB_ID) return;
-        const table = normalizeDbTableName(String(payload?.table || DB_TABLES.ALL));
-        applyRemoteTableInvalidation(table);
-      });
-
-    realtimeChannel = channel;
-    realtimeOrgId = activeOrgId;
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        realtimeRetryAttempt = 0;
-        clearRealtimeReconnectTimer();
-        void checkOrgSyncStamp();
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        console.warn('Supabase org realtime channel status:', status, '- scheduling reconnect');
-        if (realtimeChannel === channel) {
-          realtimeChannel = null;
-          realtimeOrgId = null;
-          try {
-            void supabase.removeChannel(channel).catch(() => {});
-          } catch {}
-          scheduleRealtimeReconnect();
-        }
-      }
-    });
-  } catch (err) {
-    console.warn('Realtime org channel subscription error:', err);
-    realtimeChannel = null;
-    realtimeOrgId = null;
-    scheduleRealtimeReconnect();
-  }
-}
-
 export function subscribeToDatabase(callback: (table: string) => void): () => void {
   if (typeof window === 'undefined') return () => {};
-  realtimeSubscriberCount += 1;
-  ensureRealtimeSubscription();
 
   const handler = (e: Event) => {
     const custom = e as CustomEvent<{ table: string }>;
@@ -871,10 +589,6 @@ export function subscribeToDatabase(callback: (table: string) => void): () => vo
     if (unsubscribed) return;
     unsubscribed = true;
     window.removeEventListener(DB_CHANGE_EVENT, handler);
-    realtimeSubscriberCount = Math.max(0, realtimeSubscriberCount - 1);
-    if (realtimeSubscriberCount === 0) {
-      teardownRealtimeChannel();
-    }
   };
 }
 
@@ -882,7 +596,7 @@ export function subscribeToDatabase(callback: (table: string) => void): () => vo
 // DATA NORMALIZERS (PostgreSQL <-> UI)
 // ==========================================
 
-function normalizeOrg(o: any): Organization {
+export function normalizeOrg(o: any): Organization {
   const { password: _p, ...rest } = o || {};
   return {
     ...rest,
@@ -890,7 +604,7 @@ function normalizeOrg(o: any): Organization {
   };
 }
 
-function normalizeEvent(e: any): SupabaseEvent {
+export function normalizeEvent(e: any): SupabaseEvent {
   const schema = Array.isArray(e.rubric_schema)
     ? e.rubric_schema
     : Array.isArray(e.rubric)
@@ -909,7 +623,7 @@ function normalizeEvent(e: any): SupabaseEvent {
   };
 }
 
-function normalizeJudge(j: any): SupabaseJudge {
+export function normalizeJudge(j: any): SupabaseJudge {
   const isJudgeDevice = getStoredSession()?.role === 'judge';
   const cleanPin = isJudgeDevice ? '' : j.pin || j.judge_pin || '';
   return {
@@ -921,7 +635,7 @@ function normalizeJudge(j: any): SupabaseJudge {
   };
 }
 
-function normalizeScore(s: any): SupabaseScore {
+export function normalizeScore(s: any): SupabaseScore {
   const criteria = s.score_data || s.score_payload?.criteria || {};
   const total = Number(s.total_score ?? s.score_payload?.total_score ?? 0);
   return {
@@ -1285,8 +999,8 @@ export const dbService = {
     const cacheKey = `${STORAGE_KEYS.EVENTS}_${cleanOrgId}`;
     const cachedEvents = this.getCachedEvents(cleanOrgId);
 
-    // 5-Minute SWR Cache Throttle: If cache is valid and has data, return it immediately!
-    if (!force && isCacheValid(cacheKey) && cachedEvents.length > 0) {
+    // 5-Minute SWR Cache Throttle: If cache is valid, return it immediately (even when empty)
+    if (!force && isCacheValid(cacheKey)) {
       return { ok: true, data: cachedEvents, fromCache: true, error: null, timedOut: false };
     }
 
@@ -1660,7 +1374,7 @@ export const dbService = {
     const cachedJudges = this.getCachedJudges(cleanOrgId);
 
     // 5-Minute SWR Cache Throttle
-    if (!force && isCacheValid(cacheKey) && cachedJudges.length > 0) {
+    if (!force && isCacheValid(cacheKey)) {
       return { ok: true, data: cachedJudges, fromCache: true, error: null, timedOut: false };
     }
 
@@ -1943,7 +1657,7 @@ export const dbService = {
     const cached = this.getCachedParticipants(cleanOrgId);
 
     // 5-Minute SWR Cache Throttle
-    if (!force && isCacheValid(cacheKey) && cached.length > 0) {
+    if (!force && isCacheValid(cacheKey)) {
       return { ok: true, data: cached, fromCache: true, error: null, timedOut: false };
     }
 
@@ -2458,7 +2172,7 @@ export const dbService = {
     const eventCached = allCached.filter((s) => s.event_id === eventId);
 
     // 5-Minute SWR Cache Throttle
-    if (!force && isCacheValid(cacheKey) && eventCached.length > 0) {
+    if (!force && isCacheValid(cacheKey)) {
       return { ok: true, data: eventCached, fromCache: true, error: null, timedOut: false };
     }
 
@@ -2511,7 +2225,7 @@ export const dbService = {
     const cached = this.getCachedScores(cleanOrgId);
 
     // 5-Minute SWR Cache Throttle
-    if (!force && isCacheValid(cacheKey) && cached.length > 0) {
+    if (!force && isCacheValid(cacheKey)) {
       return { ok: true, data: cached, fromCache: true, error: null, timedOut: false };
     }
 

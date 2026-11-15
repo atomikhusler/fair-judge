@@ -31,6 +31,7 @@ import {
   SupabaseScore 
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
+import { registerSyncCadence } from '../../../lib/syncEngine';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
@@ -125,8 +126,9 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     [organization.org_id]
   );
 
-  // Pure Event-Driven Architecture: Subscribe to eventBus & database updates with coordinated reads
+  // Pure Event-Driven Architecture: Subscribe to eventBus & delta sync (60s)
   useEffect(() => {
+    const releaseCadence = registerSyncCadence('normal');
     setEvents(dbService.getCachedEvents(organization.org_id));
     setJudges(dbService.getCachedJudges(organization.org_id));
     setParticipants(dbService.getCachedParticipants(organization.org_id));
@@ -191,6 +193,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     void loadData(false);
 
     return () => {
+      releaseCadence();
       unsubBus();
       unsubDb();
       document.removeEventListener('visibilitychange', handleVisibility);

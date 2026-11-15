@@ -21,6 +21,7 @@ import {
   clearAllScoreDrafts,
   flushOfflineQueueToSupabase,
 } from './lib/offlineQueue';
+import { clearSyncCursorForSession } from './lib/syncEngine';
 import { areRecordsEqual, areOrganizationsEqual, eventBus } from './lib/eventBus';
 import { DB_TABLES, matchesDbTable } from './lib/dbTables';
 import { requestStoragePersistenceOnce } from './lib/storagePersistence';
@@ -522,6 +523,7 @@ export default function App() {
       resetSignatureHardwareSession();
       resetLastTestResult();
       clearAllScoreDrafts();
+      void clearSyncCursorForSession(currentSession);
       setMustChangePassword(false);
       setReverifyPrompt(null);
       setStoredSession(null);
