@@ -14,7 +14,7 @@ export default defineConfig(({ command }) => {
         ? [
             VitePWA({
               registerType: 'autoUpdate',
-              includeAssets: ['logo.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+              includeAssets: ['assets/aistudio/Logo_4d218fbd.png'],
               manifest: {
                 id: '/',
                 name: 'Fair Judge - Competition Judging Terminal',
@@ -28,20 +28,14 @@ export default defineConfig(({ command }) => {
                 scope: '/',
                 icons: [
                   {
-                    src: '/pwa-192x192.png',
-                    sizes: '192x192',
+                    src: '/assets/aistudio/Logo_4d218fbd.png',
+                    sizes: '954x954',
                     type: 'image/png',
                     purpose: 'any',
                   },
                   {
-                    src: '/pwa-512x512.png',
-                    sizes: '512x512',
-                    type: 'image/png',
-                    purpose: 'any',
-                  },
-                  {
-                    src: '/pwa-maskable-512x512.png',
-                    sizes: '512x512',
+                    src: '/assets/aistudio/Logo_4d218fbd.png',
+                    sizes: '954x954',
                     type: 'image/png',
                     purpose: 'maskable',
                   },

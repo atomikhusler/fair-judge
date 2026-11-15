@@ -1,15 +1,11 @@
 // Fair Judge PWA Service Worker (Cache-First Shell & Offline Resilience)
-const CACHE_NAME = 'fairjudge-shell-v3';
+const CACHE_NAME = 'fairjudge-shell-v4';
 
 const STATIC_PRECACHE_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/logo.svg',
-  '/apple-touch-icon.png',
-  '/pwa-192x192.png',
-  '/pwa-512x512.png',
-  '/pwa-maskable-512x512.png',
+  '/assets/aistudio/Logo_4d218fbd.png',
   '/fonts/Geist-Variable-latin.woff2',
 ];
 
