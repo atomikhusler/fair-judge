@@ -25,34 +25,32 @@
         }
         return _origConsoleError.apply(console, args);
       };
-      // System Theme Detection: Apply saved or system theme before JS/CSS runs
+      // Strict Class-Based Theme Mount: Apply saved override or OS fallback before paint
       (function() {
         try {
-          var stored = localStorage.getItem('fair-judge-theme');
-          var isDark;
-          if (stored === 'dark') {
-            isDark = true;
-          } else if (stored === 'light') {
-            isDark = false;
-          } else {
-            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var stored = localStorage.getItem('theme');
+          if (stored === null) {
+            var legacy = localStorage.getItem('fair-judge-theme');
+            if (legacy === 'dark' || legacy === 'light') {
+              stored = legacy;
+              localStorage.setItem('theme', legacy);
+            }
           }
+          var shouldDark =
+            stored === 'dark' ||
+            (stored === null &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
           var root = document.documentElement;
-          var bgColor = isDark ? '#000000' : '#fafaf9';
-          if (isDark) {
+          if (shouldDark) {
             root.classList.add('dark');
-            root.classList.remove('light');
-            root.setAttribute('data-theme', 'dark');
-            root.style.colorScheme = 'dark';
           } else {
-            root.classList.add('light');
             root.classList.remove('dark');
-            root.setAttribute('data-theme', 'light');
-            root.style.colorScheme = 'light';
           }
-          root.style.backgroundColor = bgColor;
+          root.classList.remove('light');
+          root.style.colorScheme = shouldDark ? 'dark' : 'light';
           var metaTheme = document.querySelector('meta[name="theme-color"]');
-          if (metaTheme) metaTheme.setAttribute('content', bgColor);
+          if (metaTheme) metaTheme.setAttribute('content', shouldDark ? '#000000' : '#fafaf9');
         } catch (e) {}
       })();
     </script>

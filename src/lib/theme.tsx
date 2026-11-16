@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { Sun, Moon } from 'lucide-react';
 
 type Theme = 'dark' | 'light' | 'system';
@@ -23,34 +23,67 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 function getSystemTheme(): 'dark' | 'light' {
   if (typeof window === 'undefined') return 'dark';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light';
+}
+
+function applyThemeClassToDom(resolved: 'dark' | 'light'): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const body = document.body;
+
+  if (resolved === 'dark') {
+    root.classList.add('dark');
+  } else {
+    root.classList.remove('dark');
+  }
+  root.classList.remove('light');
+  root.removeAttribute('data-theme');
+  root.style.colorScheme = resolved;
+  root.style.removeProperty('background-color');
+
+  if (body) {
+    body.classList.remove('dark', 'light');
+    body.removeAttribute('data-theme');
+  }
+
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute('content', resolved === 'dark' ? '#000000' : '#fafaf9');
+  }
 }
 
 export function ThemeProvider({
   children,
   defaultTheme,
-  storageKey = 'fair-judge-theme',
-  attribute = 'class',
+  storageKey = 'theme',
   enableSystem = true,
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === 'undefined') return defaultTheme || 'dark';
     try {
-      const stored = localStorage.getItem(storageKey) as Theme | null;
+      const stored = localStorage.getItem(storageKey);
       if (stored === 'dark' || stored === 'light') {
         return stored;
+      }
+      const legacy = localStorage.getItem('fair-judge-theme');
+      if (legacy === 'dark' || legacy === 'light') {
+        localStorage.setItem(storageKey, legacy);
+        return legacy;
       }
     } catch {
       // Fallback if localStorage is inaccessible
     }
-    // On initial boot, before any manual user override is found in localStorage:
-    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    return prefersDark ? 'dark' : 'light';
+    if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) {
+      return 'dark';
+    }
+    return getSystemTheme();
   });
 
   const [systemTheme, setSystemTheme] = useState<'dark' | 'light'>(getSystemTheme);
 
-  // Monitor system theme changes
+  // Monitor system theme changes ONLY when no manual localStorage override is saved
   useEffect(() => {
     if (!enableSystem || typeof window === 'undefined') return;
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -59,7 +92,8 @@ export function ThemeProvider({
       setSystemTheme(currentSysTheme);
       try {
         const stored = localStorage.getItem(storageKey);
-        if (!stored) {
+        if (stored !== 'dark' && stored !== 'light') {
+          applyThemeClassToDom(currentSysTheme);
           setThemeState(currentSysTheme);
         }
       } catch {}
@@ -74,51 +108,39 @@ export function ThemeProvider({
     return theme === 'light' ? 'light' : 'dark';
   }, [theme, systemTheme]);
 
-  // Apply to DOM (both html and body + meta theme-color)
+  // Keep DOM strictly synced to resolvedTheme
   useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const root = document.documentElement;
-    const body = document.body;
-
-    root.classList.remove('light', 'dark');
-    root.classList.add(resolvedTheme);
-    root.setAttribute('data-theme', resolvedTheme);
-    root.style.colorScheme = resolvedTheme;
-
-    if (body) {
-      body.classList.remove('light', 'dark');
-      body.classList.add(resolvedTheme);
-      body.setAttribute('data-theme', resolvedTheme);
-    }
-
-    const metaTheme = document.querySelector('meta[name="theme-color"]');
-    if (metaTheme) {
-      metaTheme.setAttribute('content', resolvedTheme === 'dark' ? '#000000' : '#fafaf9');
-    }
+    applyThemeClassToDom(resolvedTheme);
   }, [resolvedTheme]);
 
-  const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
-    try {
-      localStorage.setItem(storageKey, newTheme);
-    } catch {
-      // Ignore localStorage errors in private browsing
-    }
-  };
-
-  const contextValue = useMemo<ThemeContextType>(() => ({
-    theme,
-    setTheme,
-    resolvedTheme,
-    systemTheme,
-    themes: ['dark', 'light', 'system'],
-  }), [theme, resolvedTheme, systemTheme]);
-
-  return (
-    <ThemeContext.Provider value={contextValue}>
-      {children}
-    </ThemeContext.Provider>
+  const setTheme = useCallback(
+    (newTheme: Theme) => {
+      const nextResolved: 'dark' | 'light' =
+        newTheme === 'system' ? getSystemTheme() : newTheme === 'light' ? 'light' : 'dark';
+      applyThemeClassToDom(nextResolved);
+      setThemeState(newTheme);
+      try {
+        localStorage.setItem(storageKey, newTheme);
+        localStorage.removeItem('fair-judge-theme');
+      } catch {
+        // Ignore localStorage errors in private browsing
+      }
+    },
+    [storageKey]
   );
+
+  const contextValue = useMemo<ThemeContextType>(
+    () => ({
+      theme,
+      setTheme,
+      resolvedTheme,
+      systemTheme,
+      themes: ['dark', 'light', 'system'],
+    }),
+    [theme, setTheme, resolvedTheme, systemTheme]
+  );
+
+  return <ThemeContext.Provider value={contextValue}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme(): ThemeContextType {
@@ -133,10 +155,27 @@ export function ThemeToggleButton({ className }: { className?: string }) {
   const { setTheme, resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
 
+  const handleToggle = () => {
+    const currentlyDark = document.documentElement.classList.contains('dark');
+    if (currentlyDark) {
+      document.documentElement.classList.remove('dark');
+      try {
+        localStorage.setItem('theme', 'light');
+      } catch {}
+      setTheme('light');
+    } else {
+      document.documentElement.classList.add('dark');
+      try {
+        localStorage.setItem('theme', 'dark');
+      } catch {}
+      setTheme('dark');
+    }
+  };
+
   return (
     <button
       type="button"
-      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      onClick={handleToggle}
       className={
         className ||
         "w-11 h-11 flex items-center justify-center rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors shadow-sm active:scale-95 motion-reduce:transition-none cursor-pointer"
