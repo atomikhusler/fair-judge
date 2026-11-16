@@ -876,29 +876,29 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                     </div>
 
                     {/* Bottom Tactile Action Dock */}
-                    <div className="relative z-10 grid grid-cols-[1fr_auto] gap-2 pt-1.5 shrink-0">
+                    <div className="relative z-10 grid grid-cols-[1fr_auto] gap-2 pt-1 shrink-0">
                       <button
                         type="button"
                         onClick={handleNavigateDiagnostics}
-                        className={`min-h-[36px] px-3 rounded-xl border text-[11.5px] font-semibold flex items-center justify-between gap-2 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
+                        className={`min-h-[44px] px-3 rounded-xl border text-[13px] font-semibold flex items-center justify-between gap-2 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
                           role === 'organiser'
-                            ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/45 text-emerald-200'
-                            : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/45 text-amber-200'
+                            ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/55 text-emerald-200'
+                            : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/55 text-amber-200'
                         }`}
                       >
                         <span className="inline-flex items-center gap-1.5 truncate">
-                          <Activity className="w-3.5 h-3.5 shrink-0" />
+                          <Activity className="w-4 h-4 shrink-0" />
                           <span>Run Diagnostics</span>
                         </span>
-                        <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                        <ChevronRight className="w-4 h-4 shrink-0" />
                       </button>
 
                       <button
                         type="button"
                         onClick={handleOpenReporting}
-                        className="min-h-[36px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-100 text-[11.5px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-[13px] font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
                       >
-                        <Send className="w-3.5 h-3.5 shrink-0" />
+                        <Send className="w-4 h-4 shrink-0" />
                         <span>Report</span>
                       </button>
                     </div>
@@ -913,38 +913,38 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                     )}
 
                     {/* Top Terminal Navigation Bar */}
-                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/12 shrink-0">
+                    <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-white/12 shrink-0">
                       <button
                         type="button"
                         onClick={handleNavigateAbout}
-                        className="min-h-[30px] px-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-zinc-100 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-[13px] font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
                       >
-                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <ChevronLeft className="w-4 h-4 stroke-[2.2]" />
                         <span>Back</span>
                       </button>
-                      <span className="font-mono text-[10.5px] font-bold tracking-[0.14em] uppercase text-zinc-200 truncate">
+                      <span className="font-mono text-xs font-bold tracking-[0.1em] uppercase text-zinc-100 truncate">
                         {testRunning ? `SYS.SCAN • ${streamedGroups.length}/6` : 'SYS.DIAGNOSTICS'}
                       </span>
                       {testRunning ? (
-                        <span className="min-h-[30px] px-2.5 rounded-lg bg-zinc-900 border border-emerald-500/35 font-mono text-[11px] font-bold text-emerald-300 tabular-nums inline-flex items-center">
+                        <span className="min-h-[44px] px-2.5 rounded-xl bg-zinc-900 border border-emerald-500/45 font-mono text-xs font-bold text-emerald-300 tabular-nums inline-flex items-center">
                           {checksCompleted}/{TOTAL_CHECKS}
                         </span>
                       ) : (
                         <button
                           type="button"
                           onClick={handleNavigateDiagnostics}
-                          className="min-h-[30px] px-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-emerald-300 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                          className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-emerald-300 text-[13px] font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
                         >
-                          <RotateCw className="w-3 h-3" />
+                          <RotateCw className="w-3.5 h-3.5" />
                           <span>Re-run</span>
                         </button>
                       )}
                     </div>
 
                     {/* Circular SVG Percentage Gauge + Verdict + Next Action */}
-                    <div className="flex items-center gap-3 py-2 border-b border-white/12 shrink-0">
-                      <div className="relative w-12 h-12 shrink-0 flex items-center justify-center">
-                        <svg viewBox="0 0 56 56" className="w-12 h-12 -rotate-90" aria-hidden="true">
+                    <div className="flex items-center gap-3 py-1.5 border-b border-white/12 shrink-0">
+                      <div className="relative w-11 h-11 shrink-0 flex items-center justify-center">
+                        <svg viewBox="0 0 56 56" className="w-11 h-11 -rotate-90" aria-hidden="true">
                           <circle
                             cx="28"
                             cy="28"
@@ -976,7 +976,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                         </svg>
                         <div className="absolute inset-0 flex items-center justify-center">
                           {testRunning ? (
-                            <span className="font-mono text-[10.5px] font-bold tabular-nums text-emerald-300">
+                            <span className="font-mono text-xs font-bold tabular-nums text-emerald-300">
                               {gaugePct}%
                             </span>
                           ) : hasCriticalFaults ? (
@@ -992,13 +992,13 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                       <div className="min-w-0 flex-1 font-mono">
                         {testRunning ? (
                           <>
-                            <div className="text-xs font-bold tracking-[0.1em] uppercase text-white flex items-center gap-1">
+                            <div className="text-xs font-bold tracking-[0.08em] uppercase text-white flex items-center gap-1">
                               <span>PROBING SYSTEMS</span>
                               <span className="fj-cursor-blink text-emerald-400" aria-hidden="true">
                                 ▌
                               </span>
                             </div>
-                            <p className="text-[10.5px] font-medium text-zinc-300 truncate mt-0.5">
+                            <p className="text-xs font-semibold text-zinc-200 truncate mt-0.5">
                               &gt; {latestCheckLine}
                             </p>
                           </>
@@ -1006,20 +1006,20 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                           <>
                             <div className="flex items-center justify-between gap-2">
                               <span
-                                className={`text-xs font-bold tracking-[0.1em] uppercase truncate ${verdictDisplay.colorClass}`}
+                                className={`text-xs font-bold tracking-[0.08em] uppercase truncate ${verdictDisplay.colorClass}`}
                               >
                                 {verdictDisplay.headline}
                               </span>
                               <button
                                 type="button"
                                 onClick={handleOpenReporting}
-                                className="shrink-0 min-h-[30px] text-[11px] font-sans font-semibold px-2.5 rounded-lg border border-emerald-500/45 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                className="shrink-0 min-h-[44px] text-[13px] font-sans font-semibold px-3 rounded-xl border border-emerald-500/60 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 inline-flex items-center gap-1 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer"
                               >
                                 <span>Report</span>
-                                <ChevronRight className="w-3.5 h-3.5" />
+                                <ChevronRight className="w-4 h-4 stroke-[2.2]" />
                               </button>
                             </div>
-                            <div className="text-[10.5px] font-medium text-zinc-300 tabular-nums mt-0.5 truncate">
+                            <div className="text-xs font-semibold text-zinc-200 tabular-nums mt-0.5 truncate">
                               {verdictDisplay.countsText}
                               {testResult ? ` • ${testResult.totalMs}ms` : ''}
                             </div>
@@ -1029,11 +1029,11 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                     </div>
 
                     {/* Comprehensive Scrolling Suite & Check Readout */}
-                    <div className="flex-1 min-h-0 overflow-y-auto pt-2 pr-1 space-y-2 font-mono text-[10.5px] select-text">
+                    <div className="flex-1 min-h-0 overflow-y-auto pt-1.5 pr-1 space-y-2 font-mono text-xs select-text">
                       {/* AUTO-SURFACED CRITICAL FAULTS BLOCK */}
                       {!testRunning && hasCriticalFaults && topProblems.length > 0 && (
                         <div className="rounded-lg border border-red-500/60 bg-red-950/60 p-2.5 space-y-1">
-                          <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-red-300">
+                          <div className="text-xs font-bold uppercase tracking-[0.12em] text-red-300">
                             CRITICAL FAULTS ({topProblems.length})
                           </div>
                           {topProblems.map((prob, idx) => (
@@ -1046,7 +1046,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                                 {prob.code ? `${prob.code} ` : ''}
                                 {prob.label}:
                               </span>{' '}
-                              <span className="text-zinc-100">{prob.plain}</span>
+                              <span className="text-zinc-100 font-semibold">{prob.plain}</span>
                             </div>
                           ))}
                         </div>
@@ -1077,10 +1077,10 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                           <div className="space-y-1">
                             {grp.checks.map((chk) => (
                               <div key={chk.id} className="flex items-start justify-between gap-2">
-                                <span className="text-zinc-200 leading-snug">
+                                <span className="text-zinc-100 font-semibold leading-snug">
                                   › {chk.label}
                                   {chk.status !== 'ok' && (
-                                    <span className="block text-zinc-300 text-[10px] pl-2 mt-0.5">
+                                    <span className="block text-zinc-200 text-xs font-semibold pl-2 mt-0.5">
                                       {chk.plain}
                                     </span>
                                   )}
@@ -1093,7 +1093,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                                       ? 'text-amber-300'
                                       : chk.status === 'problem'
                                       ? 'text-red-400'
-                                      : 'text-zinc-300'
+                                      : 'text-zinc-200'
                                   }`}
                                 >
                                   {chk.status.toUpperCase()}
@@ -1105,7 +1105,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                       ))}
 
                       {testRunning && displayedGroups.length === 0 && (
-                        <div className="text-zinc-300 font-semibold py-4 text-center">
+                        <div className="text-zinc-200 font-semibold py-4 text-center">
                           Awaiting first probe group...
                         </div>
                       )}
@@ -1117,7 +1117,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                 {showReportingLayer && (
                   <div className="relative flex flex-col h-full text-zinc-100 select-none overflow-hidden animate-in fade-in duration-200">
                     {/* Header Row */}
-                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/12 shrink-0">
+                    <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-white/12 shrink-0">
                       <button
                         type="button"
                         disabled={reportSubmitting || preparingTelegram}
@@ -1130,15 +1130,15 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                             setScreenState('diagnostics');
                           }
                         }}
-                        className="min-h-[30px] px-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-zinc-100 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-[13px] font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
                       >
-                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <ChevronLeft className="w-4 h-4 stroke-[2.2]" />
                         <span>Back</span>
                       </button>
-                      <span className="font-mono text-[10.5px] font-bold text-zinc-200 tracking-[0.14em] uppercase">
+                      <span className="font-mono text-xs font-bold text-zinc-100 tracking-[0.12em] uppercase">
                         SYS.TELEMETRY
                       </span>
-                      <span className="min-h-[30px] px-2 rounded-lg bg-zinc-900 border border-zinc-800 font-mono text-[10.5px] font-bold text-zinc-300 inline-flex items-center">
+                      <span className="min-h-[44px] px-2.5 rounded-xl bg-zinc-900 border border-zinc-700 font-mono text-xs font-bold text-zinc-200 inline-flex items-center">
                         {telemetryStepTag}
                       </span>
                     </div>
@@ -1176,9 +1176,9 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                             type="button"
                             onClick={handleSubmitTelemetry}
                             disabled={reportSubmitting || preparingTelegram}
-                            className="min-h-[36px] px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                            className="min-h-[44px] px-3 text-[13px] font-bold bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
-                            <Send className="w-3.5 h-3.5" />
+                            <Send className="w-4 h-4" />
                             <span>{reportSubmitting ? 'Sending...' : 'Send Report'}</span>
                           </button>
                           <button
@@ -1188,10 +1188,10 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                               void handleSwitchTelemetryTelegram();
                             }}
                             disabled={reportSubmitting || preparingTelegram}
-                            className="min-h-[36px] px-3 text-xs font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-emerald-500/50 rounded-xl inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 transition-colors"
+                            className="min-h-[44px] px-3 text-[13px] font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 hover:border-emerald-500/60 rounded-xl inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
                             <span>{preparingTelegram ? 'Preparing...' : 'Telegram'}</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
+                            <ChevronRight className="w-4 h-4 stroke-[2.2]" />
                           </button>
                         </div>
                       </>
@@ -1204,11 +1204,11 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                             <Check className="w-4 h-4" />
                             <span>Report Delivered</span>
                           </div>
-                          <p className="text-[11px] font-medium text-zinc-200 leading-relaxed">
+                          <p className="text-xs font-semibold text-zinc-200 leading-relaxed">
                             Diagnostic log and queue snapshot transmitted to developer inbox.
                           </p>
                           {reportTicketId && (
-                            <div className="text-[10.5px] font-mono font-bold text-emerald-300">
+                            <div className="text-xs font-mono font-bold text-emerald-300">
                               REF #{reportTicketId.slice(0, 8).toUpperCase()}
                             </div>
                           )}
@@ -1222,7 +1222,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                               playSound('tap');
                               setScreenState('diagnostics');
                             }}
-                            className="min-h-[36px] px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl cursor-pointer transition-colors"
+                            className="min-h-[44px] px-3 text-[13px] font-bold bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl cursor-pointer active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
                             Done
                           </button>
@@ -1234,26 +1234,26 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                               triggerHaptic('light');
                               playSound('tap');
                             }}
-                            className="min-h-[36px] px-3 text-xs font-semibold text-center text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded-xl inline-flex items-center justify-center gap-1 no-underline transition-colors"
+                            className="min-h-[44px] px-3 text-[13px] font-semibold text-center text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 rounded-xl inline-flex items-center justify-center gap-1 no-underline active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
                             <span>Open Telegram</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
+                            <ChevronRight className="w-4 h-4 stroke-[2.2]" />
                           </a>
                         </div>
                       </div>
                     )}
 
                     {telemetryStep === 'telegram' && (
-                      <div className="flex-1 min-h-0 flex flex-col justify-between pt-2.5">
-                        <div className="space-y-2">
-                          <div className="text-[11px] font-semibold text-amber-300 truncate">
+                      <div className="flex-1 min-h-0 flex flex-col justify-between pt-2">
+                        <div className="space-y-1.5">
+                          <div className="text-xs font-semibold text-amber-300 truncate">
                             {telegramReason || 'Save diagnostic JSON & attach in Telegram:'}
                           </div>
                           <button
                             type="button"
                             onClick={handleDownloadTelemetryBundle}
                             disabled={preparingTelegram}
-                            className="w-full min-h-[36px] px-3 text-xs font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-emerald-500/50 rounded-xl cursor-pointer disabled:opacity-50 truncate transition-colors"
+                            className="w-full min-h-[44px] px-3 text-xs font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 hover:border-emerald-500/60 rounded-xl cursor-pointer disabled:opacity-50 truncate active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
                             {preparingTelegram
                               ? 'Preparing JSON...'
@@ -1264,7 +1264,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                           <button
                             type="button"
                             onClick={handleCopyTelemetrySummary}
-                            className="w-full min-h-[36px] px-3 text-xs font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-emerald-500/50 rounded-xl cursor-pointer transition-colors"
+                            className="w-full min-h-[44px] px-3 text-xs font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 hover:border-emerald-500/60 rounded-xl cursor-pointer active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
                             {copiedSummary ? 'Summary Copied ✓' : '2. Copy Summary'}
                           </button>
@@ -1278,10 +1278,10 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                             triggerHaptic('light');
                             playSound('tap');
                           }}
-                          className="w-full min-h-[36px] px-3 text-xs font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl inline-flex items-center justify-center gap-1.5 no-underline shrink-0 transition-colors"
+                          className="w-full min-h-[44px] px-3 text-[13px] font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl inline-flex items-center justify-center gap-1.5 no-underline shrink-0 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                         >
                           <span>3. Send via Telegram</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
+                          <ChevronRight className="w-4 h-4 stroke-[2.2]" />
                         </a>
                       </div>
                     )}

@@ -319,7 +319,7 @@ export function JudgeLobby({
           <span className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight leading-none font-sans">
             Fair Judge
           </span>
-          <span className="text-[10px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mt-1 truncate max-w-[160px] sm:max-w-xs">
+          <span className="text-[10px] font-bold text-zinc-600 dark:text-zinc-300 uppercase tracking-wider mt-1 truncate max-w-[160px] sm:max-w-xs">
             {organization?.name || orgId}
           </span>
         </div>
@@ -370,7 +370,7 @@ export function JudgeLobby({
 
           <div className="flex items-center justify-between px-1">
             <div>
-              <h2 className="text-xs font-black text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
+              <h2 className="text-xs font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-wider">
                 Assigned Events ({events.length})
               </h2>
               {activeEventsCount > 0 && (
@@ -383,13 +383,13 @@ export function JudgeLobby({
 
           {events.length === 0 ? (
             <div className="p-8 bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl text-center space-y-3 shadow-sm">
-              <div className="w-12 h-12 rounded-2xl bg-stone-100 dark:bg-zinc-900 flex items-center justify-center mx-auto text-zinc-600 dark:text-zinc-400">
+              <div className="w-12 h-12 rounded-2xl bg-stone-100 dark:bg-zinc-900 flex items-center justify-center mx-auto text-zinc-600 dark:text-zinc-300">
                 <Lock className="w-6 h-6" />
               </div>
               <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-200">
                 No Events Assigned Yet
               </h3>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-xs mx-auto leading-relaxed">
+              <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 max-w-xs mx-auto leading-relaxed">
                 Your scoring profile is active. Please ask the event organiser to assign your terminal to an event.
               </p>
             </div>
@@ -416,11 +416,11 @@ export function JudgeLobby({
                     className={`w-full p-4 sm:p-5 rounded-3xl border border-t-white/5 text-left relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both motion-reduce:animate-none ${
                       isActive
                         ? 'bg-white dark:bg-zinc-950 border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-900/40 cursor-pointer shadow-md active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform'
-                        : 'bg-white/50 dark:bg-zinc-950 border-stone-200/50 dark:border-zinc-800 cursor-not-allowed opacity-65'
+                        : 'bg-stone-100/80 dark:bg-zinc-950 border-stone-200 dark:border-zinc-800 cursor-not-allowed'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-mono font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
+                      <span className="text-[11px] font-mono font-bold text-zinc-600 dark:text-zinc-300 uppercase tracking-wider">
                         {event.category || 'General Stage'}
                       </span>
                       <div>
@@ -431,8 +431,8 @@ export function JudgeLobby({
                           </span>
                         )}
                         {isDraft && (
-                          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-stone-200 dark:border-zinc-800">
-                            <Lock className="w-3 h-3 text-zinc-600 dark:text-zinc-400" />
+                          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800">
+                            <Lock className="w-3 h-3 text-zinc-600 dark:text-zinc-300" />
                             <span>Awaiting Start</span>
                           </span>
                         )}
@@ -443,8 +443,8 @@ export function JudgeLobby({
                           </span>
                         )}
                         {isEnded && (
-                          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-stone-200 dark:border-zinc-800">
-                            <CheckCircle className="w-3 h-3 text-zinc-600 dark:text-zinc-400" />
+                          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800">
+                            <CheckCircle className="w-3 h-3 text-zinc-600 dark:text-zinc-300" />
                             <span>Concluded</span>
                           </span>
                         )}
@@ -456,7 +456,7 @@ export function JudgeLobby({
                         <h3 className="text-base font-extrabold text-zinc-900 dark:text-white tracking-tight truncate">
                           {event.name}
                         </h3>
-                        <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 flex items-center gap-1.5 font-medium">
+                        <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1 flex items-center gap-1.5 font-semibold">
                           <span>{event.rubric_schema?.length || event.rubric?.length || 0} Criteria</span>
                           <span>•</span>
                           <span>{event.assigned_participants?.length || 0} Competitors</span>
@@ -471,7 +471,7 @@ export function JudgeLobby({
                           </span>
                         </div>
                       ) : (
-                        <div className="p-2 text-zinc-600 dark:text-zinc-400 shrink-0">
+                        <div className="p-2 text-zinc-600 dark:text-zinc-300 shrink-0">
                           <Lock className="w-4 h-4" />
                         </div>
                       )}
@@ -530,7 +530,7 @@ export function JudgeLobby({
                               </span>
                             </button>
                           </div>
-                          <p className="text-[11px] text-zinc-600 dark:text-zinc-400 font-mono font-medium">
+                          <p className="text-[11px] text-zinc-600 dark:text-zinc-300 font-mono font-semibold">
                             Active VIP Session
                           </p>
                         </div>
@@ -540,7 +540,7 @@ export function JudgeLobby({
                         ref={closeBtnRef}
                         type="button"
                         onClick={() => setIsAccountModalOpen(false)}
-                        className="w-11 h-11 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer shrink-0"
+                        className="w-11 h-11 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 active:scale-[0.97] transition-transform duration-75 motion-reduce:transition-none cursor-pointer shrink-0"
                         aria-label="Close modal"
                       >
                         <X className="w-4 h-4" />
@@ -558,7 +558,7 @@ export function JudgeLobby({
                               triggerHaptic('tick');
                               setShowLogoutConfirm(true);
                             }}
-                            className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white shadow-sm group"
+                            className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold active:scale-[0.98] transition-transform duration-75 motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white shadow-sm group"
                           >
                             <LogOut className="w-3.5 h-3.5 text-white transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
                             <span>Sign out</span>
@@ -567,7 +567,7 @@ export function JudgeLobby({
 
                         {/* Name Row */}
                         <div className="p-3.5 flex items-center justify-between">
-                          <span className="text-zinc-600 dark:text-zinc-400 font-medium">Judge Name</span>
+                          <span className="text-zinc-600 dark:text-zinc-300 font-semibold">Judge Name</span>
                           <span className="font-extrabold text-zinc-900 dark:text-white text-sm">
                             {judge.name}
                           </span>
@@ -575,7 +575,7 @@ export function JudgeLobby({
 
                         {/* ID / PIN Row */}
                         <div className="p-3.5 flex items-center justify-between">
-                          <span className="text-zinc-600 dark:text-zinc-400 font-medium">Terminal PIN / ID</span>
+                          <span className="text-zinc-600 dark:text-zinc-300 font-semibold">Terminal PIN / ID</span>
                           <span className="font-mono font-bold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
                             {judge.judge_id ? `${judge.judge_id} • PIN: ••••` : 'PIN: ••••'}
                           </span>
@@ -583,7 +583,7 @@ export function JudgeLobby({
 
                         {/* Organization Row */}
                         <div className="p-3.5 flex items-center justify-between">
-                          <span className="text-zinc-600 dark:text-zinc-400 font-medium">Organization</span>
+                          <span className="text-zinc-600 dark:text-zinc-300 font-semibold">Organization</span>
                           <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">
                             {orgId}
                           </span>
@@ -591,7 +591,7 @@ export function JudgeLobby({
 
                         {/* Assigned Events Count */}
                         <div className="p-3.5 flex items-center justify-between">
-                          <span className="text-zinc-600 dark:text-zinc-400 font-medium">Assigned Events</span>
+                          <span className="text-zinc-600 dark:text-zinc-300 font-semibold">Assigned Events</span>
                           <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
                             {events.length} Events
                           </span>
@@ -599,13 +599,13 @@ export function JudgeLobby({
 
                         {/* Display Mode Toggle */}
                         <div className="p-3.5 flex items-center justify-between">
-                          <span className="text-zinc-600 dark:text-zinc-400 font-medium">Interface Theme</span>
+                          <span className="text-zinc-600 dark:text-zinc-300 font-semibold">Interface Theme</span>
                           <ThemeToggleButton />
                         </div>
 
                         {/* Haptics */}
                         <div className="p-3.5 flex items-center justify-between gap-2">
-                          <span className="text-zinc-600 dark:text-zinc-400 font-medium">Haptics</span>
+                          <span className="text-zinc-600 dark:text-zinc-300 font-semibold">Haptics</span>
                           <div className="inline-flex rounded-xl bg-stone-100 dark:bg-zinc-900 p-0.5 border border-stone-200 dark:border-zinc-800">
                             {(['off', 'low', 'medium', 'strong'] as const).map((lvl) => (
                               <button
@@ -616,10 +616,10 @@ export function JudgeLobby({
                                   setHapticSetting(lvl);
                                   triggerHaptic('tick');
                                 }}
-                                className={`min-h-[36px] px-2 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                                className={`min-h-[36px] px-2 py-1 text-[10px] font-bold rounded-lg uppercase active:scale-[0.97] transition-transform duration-75 motion-reduce:transition-none cursor-pointer ${
                                   hapticSetting === lvl
                                     ? 'bg-amber-700 text-white shadow-sm'
-                                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                                    : 'text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white'
                                 }`}
                               >
                                 {lvl}
@@ -630,7 +630,7 @@ export function JudgeLobby({
 
                         {/* Sound Effects */}
                         <div className="p-3.5 flex items-center justify-between gap-2">
-                          <span className="text-zinc-700 dark:text-zinc-300 font-medium">Sound Effects</span>
+                          <span className="text-zinc-700 dark:text-zinc-300 font-semibold">Sound Effects</span>
                           <div
                             role="group"
                             aria-label="Sound effects level"
@@ -666,7 +666,7 @@ export function JudgeLobby({
                             <p className="text-xs font-bold text-zinc-900 dark:text-white">
                               Terminal Diagnostics
                             </p>
-                            <p className="text-[11px] font-mono text-zinc-600 dark:text-zinc-400">
+                            <p className="text-[11px] font-mono font-semibold text-zinc-600 dark:text-zinc-300">
                               Pending queue: {diagQueuePending ?? 0}
                             </p>
                           </div>
@@ -728,7 +728,7 @@ export function JudgeLobby({
                       </div>
                     </div>
 
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                    <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 leading-relaxed">
                       Exit judging session for <strong className="text-zinc-900 dark:text-white">{judge.name}</strong>? Queued offline ballots remain stored on this device.
                     </p>
 
