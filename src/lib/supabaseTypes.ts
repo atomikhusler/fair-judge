@@ -99,6 +99,7 @@ export interface SupabaseScore {
     criteria: Record<string, number>;
     total_score: number;
     submitted_at: string;
+    client_uuid?: string;
   }; // JSONB
   score_data: Record<string, number>; // Compatibility alias
   total_score: number;

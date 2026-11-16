@@ -1337,17 +1337,10 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
     });
   }
 
-  // 9. Stale Drafts (unified outbox + any unmigrated localStorage draft keys)
+  // 9. Stale Drafts (unified IndexedDB outbox)
   try {
     const outboxDrafts = await getPendingDrafts().catch(() => []);
-    const seenDraftKeys = new Set(outboxDrafts.map((d) => d.entityId));
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith('draft_score_') || k.startsWith('fj_draft_'))) {
-        seenDraftKeys.add(k);
-      }
-    }
-    const staleDraftCount = seenDraftKeys.size;
+    const staleDraftCount = outboxDrafts.length;
     if (staleDraftCount > 5) {
       checks.push({
         id: 'stale_drafts',

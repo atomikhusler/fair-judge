@@ -440,12 +440,12 @@ export function AccountModal({
                 triggerHaptic('tick');
                 setShowLogoutConfirm(true);
               }}
-              className="w-full min-h-[48px] px-4 py-3 flex items-center justify-between text-left bg-red-500/10 hover:bg-red-500/20 dark:bg-red-500/10 dark:hover:bg-red-500/20 border border-red-500/40 rounded-t-2xl transition-colors cursor-pointer group"
+              className="w-full min-h-[48px] px-4 py-3 flex items-center justify-center space-x-2 bg-rose-700/85 hover:bg-rose-600/90 dark:bg-rose-800/80 dark:hover:bg-rose-700/85 text-rose-50 rounded-t-2xl shadow-sm transition-colors cursor-pointer group"
             >
-              <span className="text-sm font-bold text-red-600 dark:text-red-400">
+              <LogOut className="w-4 h-4 text-rose-50 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+              <span className="text-xs font-bold text-rose-50">
                 Sign out
               </span>
-              <LogOut className="w-4 h-4 text-red-600 dark:text-red-400 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
             </button>
 
             {/* Organization Identity Section Header (attached directly below Sign Out) */}
@@ -513,7 +513,7 @@ export function AccountModal({
                     <button
                       type="submit"
                       disabled={isSavingName || !editName.trim()}
-                      className="min-h-[44px] px-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                      className="min-h-[44px] px-3 bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 disabled:opacity-50 text-emerald-50 text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
                     >
                       {isSavingName ? <span>Saving...</span> : <span>Save Name</span>}
                     </button>
@@ -646,7 +646,7 @@ export function AccountModal({
                     <button
                       type="submit"
                       disabled={isSavingEmail || !editEmail.trim()}
-                      className="min-h-[44px] px-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                      className="min-h-[44px] px-3 bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 disabled:opacity-50 text-emerald-50 text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
                     >
                       {isSavingEmail ? <span>Saving...</span> : <span>Save Email</span>}
                     </button>
@@ -683,7 +683,7 @@ export function AccountModal({
           </div>
 
           {/* ======================================================== */}
-          {/* CARD 2: SECURITY — ROSE "Change password" BTN (C6)       */}
+          {/* CARD 2: SECURITY — BLUE "Change password" BTN (C6)       */}
           {/* ======================================================== */}
           <div>
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
@@ -696,7 +696,7 @@ export function AccountModal({
                 className={`w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
                   isUpdatingPassword
                     ? 'bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-stone-200 dark:border-zinc-800'
-                    : 'bg-rose-600 hover:bg-rose-500 text-white shadow-sm'
+                    : 'bg-blue-700/85 hover:bg-blue-600/90 dark:bg-blue-800/80 dark:hover:bg-blue-700/85 text-blue-50 shadow-sm'
                 }`}
               >
                 <Lock className="w-3.5 h-3.5" />
@@ -756,7 +756,7 @@ export function AccountModal({
                   <button
                     type="submit"
                     disabled={isSavingPassword || !currentPassword || !newPassword || newPassword !== confirmPassword}
-                    className="w-full min-h-[44px] bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors active:scale-[0.98] motion-reduce:transition-none cursor-pointer shadow-sm flex items-center justify-center space-x-1.5"
+                    className="w-full min-h-[44px] bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 disabled:opacity-50 text-emerald-50 text-xs font-bold rounded-xl transition-colors active:scale-[0.98] motion-reduce:transition-none cursor-pointer shadow-sm flex items-center justify-center space-x-1.5"
                   >
                     <Lock className="w-3.5 h-3.5" />
                     <span>{isSavingPassword ? 'Saving Password...' : 'Save New Password'}</span>
@@ -778,7 +778,7 @@ export function AccountModal({
                 <button
                   type="button"
                   onClick={() => setShowBackupSheet(true)}
-                  className="min-h-[44px] px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  className="min-h-[44px] px-3.5 rounded-xl bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 text-emerald-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                 >
                   <Download className="w-4 h-4" />
                   <span>Backup</span>
@@ -787,7 +787,7 @@ export function AccountModal({
                 <button
                   type="button"
                   onClick={() => setShowRestoreSheet(true)}
-                  className="min-h-[44px] px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  className="min-h-[44px] px-3.5 rounded-xl bg-amber-700/80 hover:bg-amber-600/85 dark:bg-amber-800/75 dark:hover:bg-amber-700/85 text-amber-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                 >
                   <Upload className="w-4 h-4" />
                   <span>Restore</span>
@@ -912,7 +912,7 @@ export function AccountModal({
                     disabled={!isDangerShutterOpen}
                     tabIndex={isDangerShutterOpen ? 0 : -1}
                     onClick={() => setShowResetConfirm(true)}
-                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:pointer-events-none text-red-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Reset Data</span>
@@ -923,7 +923,7 @@ export function AccountModal({
                     disabled={!isDangerShutterOpen}
                     tabIndex={isDangerShutterOpen ? 0 : -1}
                     onClick={() => setShowDeleteConfirm(true)}
-                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:pointer-events-none text-red-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete Organization</span>
@@ -1009,7 +1009,7 @@ export function AccountModal({
                   handleCloseModal();
                   onLogout();
                 }}
-                className="min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-rose-700/85 hover:bg-rose-600/90 dark:bg-rose-800/80 dark:hover:bg-rose-700/85 text-rose-50 text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Sign out</span>
@@ -1079,7 +1079,7 @@ export function AccountModal({
                 type="button"
                 onClick={handleExecuteReset}
                 disabled={resetInput.trim().toUpperCase() !== 'RESET' || isProcessingDanger}
-                className="min-h-[44px] bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:opacity-40 text-red-50 text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 {isProcessingDanger ? <span>Wiping...</span> : <span>Confirm Reset</span>}
               </button>
@@ -1148,7 +1148,7 @@ export function AccountModal({
                 type="button"
                 onClick={handleExecuteDelete}
                 disabled={deleteInput.trim().toUpperCase() !== 'DELETE' || isProcessingDanger}
-                className="min-h-[44px] bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:opacity-40 text-red-50 text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 {isProcessingDanger ? <span>Deleting...</span> : <span>Confirm Delete</span>}
               </button>

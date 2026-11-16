@@ -19,6 +19,7 @@ import {
 } from './db/indexedDB';
 import { eventBus, areRecordsEqual, areOrganizationsEqual } from './eventBus';
 import { DB_TABLES, DbTableName } from './dbTables';
+import { flushOfflineQueueToSupabase } from './offlineQueue';
 import type {
   Organization,
   SupabaseEvent,
@@ -573,6 +574,8 @@ async function runSyncOnce(options: SyncNowOptions = {}): Promise<SyncResult> {
   lastSyncAttemptAt = Date.now();
 
   try {
+    // Push queued outbox writes/ballots before pulling server deltas on existing sync cycle
+    await flushOfflineQueueToSupabase().catch(() => {});
     const { data, error } = await callReadOrgChangesRpc(token, since);
 
     if (error) {

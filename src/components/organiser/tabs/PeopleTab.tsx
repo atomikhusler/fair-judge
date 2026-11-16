@@ -836,7 +836,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   // ========================================================
   // MANUAL PARTICIPANT ACTIONS (Add / Edit / Delete) & DRAFTS
   // ========================================================
-  const participantDraftKey = `fj_draft_participant_${organization.org_id}`;
+  const participantDraftKey = `participant_draft:${organization.org_id}`;
 
   useEffect(() => {
     void hydrateDraftMirror();

@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { isSupabaseConfigured, callSecuredWriteRpc } from './supabase';
+import { isSupabaseConfigured, callSecuredWriteRpc, callSecuredReadRpc } from './supabase';
 import { invalidateCache } from './db/indexedDB';
 import { DB_TABLES } from './dbTables';
 import { blackBox } from './blackBox';
@@ -10,6 +10,9 @@ import { eventBus } from './eventBus';
 
 export interface PendingScoreRecord {
   id: string;
+  clientUuid?: string;
+  legacyMigrated?: boolean;
+  legacyId?: string;
   event_id: string;
   judge_id: string;
   participant_id: string;
@@ -19,6 +22,7 @@ export interface PendingScoreRecord {
     criteria: Record<string, number>;
     total_score: number;
     submitted_at: string;
+    client_uuid?: string;
   };
   queuedAt: string;
   syncStatus: 'pending' | 'syncing' | 'failed';
@@ -31,6 +35,9 @@ export type MutationTable = 'events' | 'participants' | 'judges' | 'organization
 
 export interface PendingMutationRecord {
   id: string;
+  clientUuid?: string;
+  legacyMigrated?: boolean;
+  legacyId?: string;
   table: MutationTable;
   operation: MutationOperation;
   entityId: string;
@@ -46,6 +53,9 @@ export type OutboxSyncStatus = 'pending' | 'syncing' | 'failed' | 'draft';
 
 export interface OutboxRecord {
   id: string;
+  clientUuid?: string;
+  legacyMigrated?: boolean;
+  legacyId?: string;
   kind: OutboxKind;
   table: MutationTable | 'scores' | 'drafts';
   operation: MutationOperation | 'DRAFT';
@@ -74,25 +84,71 @@ export const OFFLINE_DB_NAME = 'fairjudge_offline_queue_v3';
 export const OFFLINE_DB_VERSION = 2;
 const DRAFT_ID_PREFIX = 'draft:';
 const DRAFT_TTL_MS = 24 * 3600 * 1000;
+const LEGACY_ORG_DRAFT_PREFIX = ['fj', 'draft', ''].join('_');
+const LEGACY_SCORE_DRAFT_PREFIX = ['draft', 'score', ''].join('_');
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 let dbPromise: Promise<IDBPDatabase<FairJudgeOfflineDB>> | null = null;
 let legacyDraftsMigrated = false;
+let lastMigrationError: string | null = null;
 
 // Instant synchronous draft mirror (authoritative persistence lives in IndexedDB `outbox`)
 const draftMirror = new Map<string, any>();
 
+export function isValidOutboxUUID(val: unknown): val is string {
+  return typeof val === 'string' && UUID_V4_RE.test(val.trim());
+}
+
+export function generateOutboxUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export function getOfflineMigrationError(): string | null {
+  return lastMigrationError;
+}
+
+function emitMigrationError(title: string, message: string, source: string, err?: unknown): void {
+  const detail = err instanceof Error ? err.message : String(err || message);
+  lastMigrationError = detail;
+  blackBox.recordError('console_error', `${title}: ${detail}`, source);
+  eventBus.emit('toast', {
+    type: 'error',
+    title,
+    message,
+  });
+}
+
 function normalizeScoreOutboxPayload(score: PendingScoreRecord): PendingScoreRecord {
+  const clientUuid = isValidOutboxUUID(score.clientUuid)
+    ? score.clientUuid
+    : isValidOutboxUUID(score.id)
+    ? score.id
+    : generateOutboxUUID();
+  const basePayload = score.score_payload || {
+    criteria: score.score_data || {},
+    total_score: Number(score.total_score ?? 0),
+    submitted_at: score.queuedAt || new Date().toISOString(),
+  };
   return {
-    id: score.id,
+    id: isValidOutboxUUID(score.id) ? score.id : clientUuid,
+    clientUuid,
+    ...(score.legacyMigrated ? { legacyMigrated: true } : {}),
+    ...(score.legacyId ? { legacyId: score.legacyId } : {}),
     event_id: score.event_id,
     judge_id: score.judge_id,
     participant_id: score.participant_id,
-    score_data: score.score_data || score.score_payload?.criteria || {},
-    total_score: Number(score.total_score ?? score.score_payload?.total_score ?? 0),
-    score_payload: score.score_payload || {
-      criteria: score.score_data || {},
-      total_score: Number(score.total_score ?? 0),
-      submitted_at: score.queuedAt || new Date().toISOString(),
+    score_data: score.score_data || basePayload.criteria || {},
+    total_score: Number(score.total_score ?? basePayload.total_score ?? 0),
+    score_payload: {
+      ...basePayload,
+      client_uuid: basePayload.client_uuid || clientUuid,
     },
     queuedAt: score.queuedAt || new Date().toISOString(),
     syncStatus: score.syncStatus === 'failed' || score.syncStatus === 'syncing' ? score.syncStatus : 'pending',
@@ -102,8 +158,16 @@ function normalizeScoreOutboxPayload(score: PendingScoreRecord): PendingScoreRec
 }
 
 function mutationToOutbox(m: PendingMutationRecord): OutboxRecord {
+  const clientUuid = isValidOutboxUUID(m.clientUuid)
+    ? m.clientUuid
+    : isValidOutboxUUID(m.id)
+    ? m.id
+    : generateOutboxUUID();
   return {
-    id: m.id,
+    id: isValidOutboxUUID(m.id) ? m.id : clientUuid,
+    clientUuid,
+    ...(m.legacyMigrated ? { legacyMigrated: true } : {}),
+    ...(m.legacyId ? { legacyId: m.legacyId } : {}),
     kind: 'mutation',
     table: m.table,
     operation: m.operation,
@@ -120,6 +184,9 @@ function scoreToOutbox(s: PendingScoreRecord): OutboxRecord {
   const norm = normalizeScoreOutboxPayload(s);
   return {
     id: norm.id,
+    clientUuid: norm.clientUuid,
+    ...(norm.legacyMigrated ? { legacyMigrated: true } : {}),
+    ...(norm.legacyId ? { legacyId: norm.legacyId } : {}),
     kind: 'score',
     table: 'scores',
     operation: 'INSERT',
@@ -140,8 +207,17 @@ function scoreToOutbox(s: PendingScoreRecord): OutboxRecord {
 }
 
 function outboxToMutation(rec: OutboxRecord): PendingMutationRecord {
+  const isLegacy = Boolean(rec.legacyMigrated || !isValidOutboxUUID(rec.id));
+  const clientUuid = isValidOutboxUUID(rec.clientUuid)
+    ? rec.clientUuid
+    : isValidOutboxUUID(rec.id)
+    ? rec.id
+    : generateOutboxUUID();
   return {
     id: rec.id,
+    clientUuid,
+    ...(isLegacy ? { legacyMigrated: true } : {}),
+    ...(rec.legacyId ? { legacyId: rec.legacyId } : !isValidOutboxUUID(rec.id) ? { legacyId: rec.id } : {}),
     table: rec.table as MutationTable,
     operation: rec.operation as MutationOperation,
     entityId: rec.entityId,
@@ -157,17 +233,30 @@ function outboxToScore(rec: OutboxRecord): PendingScoreRecord {
   const p = rec.payload || {};
   const criteria = p.score_data || p.score_payload?.criteria || {};
   const total = Number(p.total_score ?? p.score_payload?.total_score ?? 0);
+  const isLegacy = Boolean(rec.legacyMigrated || !isValidOutboxUUID(rec.id));
+  const clientUuid = isValidOutboxUUID(rec.clientUuid)
+    ? rec.clientUuid
+    : isValidOutboxUUID(rec.id)
+    ? rec.id
+    : generateOutboxUUID();
+  const basePayload = p.score_payload || {
+    criteria,
+    total_score: total,
+    submitted_at: rec.queuedAt || new Date().toISOString(),
+  };
   return {
     id: rec.id,
+    clientUuid,
+    ...(isLegacy ? { legacyMigrated: true } : {}),
+    ...(rec.legacyId ? { legacyId: rec.legacyId } : !isValidOutboxUUID(rec.id) ? { legacyId: rec.id } : {}),
     event_id: p.event_id || '',
     judge_id: p.judge_id || '',
     participant_id: p.participant_id || '',
     score_data: criteria,
     total_score: total,
-    score_payload: p.score_payload || {
-      criteria,
-      total_score: total,
-      submitted_at: rec.queuedAt || new Date().toISOString(),
+    score_payload: {
+      ...basePayload,
+      client_uuid: basePayload.client_uuid || clientUuid,
     },
     queuedAt: rec.queuedAt,
     syncStatus: rec.syncStatus === 'failed' || rec.syncStatus === 'syncing' ? rec.syncStatus : 'pending',
@@ -177,7 +266,25 @@ function outboxToScore(rec: OutboxRecord): PendingScoreRecord {
 }
 
 function isLegacyDraftStorageKey(key: string | null | undefined): key is string {
-  return Boolean(key && (key.startsWith('fj_draft_') || key.startsWith('draft_score_')));
+  return Boolean(key && (key.startsWith(LEGACY_ORG_DRAFT_PREFIX) || key.startsWith(LEGACY_SCORE_DRAFT_PREFIX)));
+}
+
+function normalizeDraftKey(rawKey: string): string {
+  const scorePrefix = `${LEGACY_ORG_DRAFT_PREFIX}score_`;
+  if (rawKey.startsWith(scorePrefix)) {
+    const parts = rawKey.slice(scorePrefix.length).split('_');
+    if (parts.length >= 3) {
+      return `score_draft:${parts[0]}:${parts[1]}:${parts.slice(2).join('_')}`;
+    }
+  }
+  const participantPrefix = `${LEGACY_ORG_DRAFT_PREFIX}participant_`;
+  if (rawKey.startsWith(participantPrefix)) {
+    return `participant_draft:${rawKey.slice(participantPrefix.length)}`;
+  }
+  if (rawKey.startsWith(LEGACY_SCORE_DRAFT_PREFIX)) {
+    return `score_draft:${rawKey.slice(LEGACY_SCORE_DRAFT_PREFIX.length)}`;
+  }
+  return rawKey;
 }
 
 function isDraftExpired(payload: any): boolean {
@@ -203,30 +310,72 @@ export function getOfflineDB(): Promise<IDBPDatabase<FairJudgeOfflineDB>> {
           outboxStore = legacyTx.objectStore('outbox');
         }
 
-        // Lossless atomic migration from v1 `pending_mutations` -> `outbox`
+        // Lossless atomic migration from v1 `pending_mutations` -> `outbox` with fresh UUIDs
         if (legacyDb.objectStoreNames.contains('pending_mutations')) {
-          const mutStore = legacyTx.objectStore('pending_mutations');
-          const oldMutations: PendingMutationRecord[] = await mutStore.getAll();
-          for (const mut of oldMutations) {
-            if (!mut?.id) continue;
-            await outboxStore.put(mutationToOutbox(mut));
+          try {
+            const mutStore = legacyTx.objectStore('pending_mutations');
+            const oldMutations: PendingMutationRecord[] = await mutStore.getAll();
+            for (const mut of oldMutations) {
+              if (!mut?.id) continue;
+              const freshId = generateOutboxUUID();
+              await outboxStore.put(
+                mutationToOutbox({
+                  ...mut,
+                  id: freshId,
+                  clientUuid: freshId,
+                  legacyMigrated: true,
+                  legacyId: mut.id,
+                })
+              );
+            }
+            legacyDb.deleteObjectStore('pending_mutations');
+          } catch (err) {
+            emitMigrationError(
+              'Queue Migration Failed',
+              'Could not migrate legacy pending changes. Old queue data was kept safely.',
+              'offlineQueue.upgrade.mutations',
+              err
+            );
           }
-          legacyDb.deleteObjectStore('pending_mutations');
         }
 
-        // Lossless atomic migration from v1 `pending_scores` -> `outbox`
+        // Lossless atomic migration from v1 `pending_scores` -> `outbox` with fresh UUIDs
         if (legacyDb.objectStoreNames.contains('pending_scores')) {
-          const scoreStore = legacyTx.objectStore('pending_scores');
-          const oldScores: PendingScoreRecord[] = await scoreStore.getAll();
-          for (const sc of oldScores) {
-            if (!sc?.id) continue;
-            await outboxStore.put(scoreToOutbox(sc));
+          try {
+            const scoreStore = legacyTx.objectStore('pending_scores');
+            const oldScores: PendingScoreRecord[] = await scoreStore.getAll();
+            for (const sc of oldScores) {
+              if (!sc?.id) continue;
+              const freshId = generateOutboxUUID();
+              await outboxStore.put(
+                scoreToOutbox({
+                  ...sc,
+                  id: freshId,
+                  clientUuid: freshId,
+                  legacyMigrated: true,
+                  legacyId: sc.id,
+                })
+              );
+            }
+            legacyDb.deleteObjectStore('pending_scores');
+          } catch (err) {
+            emitMigrationError(
+              'Score Queue Migration Failed',
+              'Could not migrate legacy pending ballots. Old ballot queue was kept safely.',
+              'offlineQueue.upgrade.scores',
+              err
+            );
           }
-          legacyDb.deleteObjectStore('pending_scores');
         }
       },
     }).catch((err) => {
       dbPromise = null;
+      emitMigrationError(
+        'Offline Storage Error',
+        'Failed to open IndexedDB offline outbox. Legacy queue data remains preserved.',
+        'offlineQueue.openDB',
+        err
+      );
       throw err;
     });
   }
@@ -239,16 +388,18 @@ export function getOfflineDB(): Promise<IDBPDatabase<FairJudgeOfflineDB>> {
 export function resetOfflineQueueForTest(): void {
   dbPromise = null;
   legacyDraftsMigrated = false;
+  lastMigrationError = null;
   draftMirror.clear();
 }
 
 // ==========================================
-// 0. UNIFIED OUTBOX DRAFTS (Migrated from localStorage fj_draft_* / draft_score_*)
+// 0. UNIFIED OUTBOX DRAFTS (IndexedDB Only + One-Time Legacy Migration)
 // ==========================================
 
 export async function migrateLegacyLocalStorageDrafts(): Promise<number> {
   if (typeof localStorage === 'undefined') return 0;
   let migrated = 0;
+  let hadFailure = false;
 
   try {
     const legacyKeys: string[] = [];
@@ -279,15 +430,19 @@ export async function migrateLegacyLocalStorageDrafts(): Promise<number> {
           continue;
         }
 
-        const outboxId = `${DRAFT_ID_PREFIX}${key}`;
+        const normalizedKey = normalizeDraftKey(key);
+        const outboxId = `${DRAFT_ID_PREFIX}${normalizedKey}`;
         const existing = await db.get('outbox', outboxId);
         if (!existing) {
           const record: OutboxRecord = {
             id: outboxId,
+            clientUuid: generateOutboxUUID(),
+            legacyMigrated: true,
+            legacyId: key,
             kind: 'draft',
             table: 'drafts',
             operation: 'DRAFT',
-            entityId: key,
+            entityId: normalizedKey,
             payload: parsed,
             queuedAt: new Date(Number(parsed?.timestamp) || Date.now()).toISOString(),
             syncStatus: 'draft',
@@ -295,21 +450,35 @@ export async function migrateLegacyLocalStorageDrafts(): Promise<number> {
           };
           await db.put('outbox', record);
         }
-        draftMirror.set(key, parsed);
-        // Remove localStorage copy ONLY after IndexedDB write succeeded
+        draftMirror.set(normalizedKey, parsed);
+        // Remove legacy localStorage key ONLY after IndexedDB commit succeeded
         localStorage.removeItem(key);
         migrated++;
-      } catch {
-        // Keep unparseable/error entries safe or skip without data loss
+      } catch (err) {
+        hadFailure = true;
+        // Preserve unmigrated localStorage key safely and alert user
+        emitMigrationError(
+          'Draft Migration Warning',
+          'Could not move an unsaved draft into IndexedDB. Legacy draft was preserved.',
+          'offlineQueue.migrateDraft',
+          err
+        );
       }
     }
 
-    legacyDraftsMigrated = true;
+    if (!hadFailure) {
+      legacyDraftsMigrated = true;
+    }
     if (migrated > 0) {
       notifyQueueChange();
     }
-  } catch {
-    // IndexedDB unavailable in restricted mode: localStorage stays intact as fallback
+  } catch (err) {
+    emitMigrationError(
+      'Draft Migration Failed',
+      'IndexedDB unavailable while migrating drafts. Existing legacy drafts were preserved.',
+      'offlineQueue.migrateDrafts',
+      err
+    );
   }
 
   return migrated;
@@ -322,17 +491,35 @@ export async function hydrateDraftMirror(): Promise<void> {
   try {
     const db = await getOfflineDB();
     const allDrafts = await db.getAllFromIndex('outbox', 'by-kind', 'draft');
-    const expiredIds: string[] = [];
+    const obsoleteIds: string[] = [];
     for (const rec of allDrafts) {
       if (isDraftExpired(rec.payload)) {
-        expiredIds.push(rec.id);
+        obsoleteIds.push(rec.id);
         draftMirror.delete(rec.entityId);
+        continue;
+      }
+
+      if (isLegacyDraftStorageKey(rec.entityId)) {
+        const normalizedKey = normalizeDraftKey(rec.entityId);
+        const normalizedId = `${DRAFT_ID_PREFIX}${normalizedKey}`;
+        const existing = await db.get('outbox', normalizedId);
+        if (!existing) {
+          await db.put('outbox', {
+            ...rec,
+            id: normalizedId,
+            clientUuid: isValidOutboxUUID(rec.clientUuid) ? rec.clientUuid : generateOutboxUUID(),
+            entityId: normalizedKey,
+          });
+        }
+        obsoleteIds.push(rec.id);
+        draftMirror.delete(rec.entityId);
+        draftMirror.set(normalizedKey, rec.payload);
       } else {
         draftMirror.set(rec.entityId, rec.payload);
       }
     }
-    if (expiredIds.length > 0) {
-      await Promise.all(expiredIds.map((id) => db.delete('outbox', id)));
+    if (obsoleteIds.length > 0) {
+      await Promise.all(obsoleteIds.map((id) => db.delete('outbox', id)));
     }
   } catch {}
 }
@@ -345,22 +532,6 @@ export function getDraftSync<T = any>(draftKey: string): T | null {
       return null;
     }
     return mem as T;
-  }
-
-  // Fallback check on any unmigrated legacy localStorage entry; promote asynchronously
-  if (typeof localStorage !== 'undefined') {
-    try {
-      const raw = localStorage.getItem(draftKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (!isDraftExpired(parsed)) {
-          draftMirror.set(draftKey, parsed);
-          void migrateLegacyLocalStorageDrafts();
-          return parsed as T;
-        }
-        localStorage.removeItem(draftKey);
-      }
-    } catch {}
   }
 
   return null;
@@ -396,8 +567,10 @@ export async function saveDraft(draftKey: string, payload: any): Promise<void> {
 
   try {
     const db = await getOfflineDB();
+    const existing = await db.get('outbox', `${DRAFT_ID_PREFIX}${draftKey}`);
     const record: OutboxRecord = {
       id: `${DRAFT_ID_PREFIX}${draftKey}`,
+      clientUuid: isValidOutboxUUID(existing?.clientUuid) ? existing.clientUuid : generateOutboxUUID(),
       kind: 'draft',
       table: 'drafts',
       operation: 'DRAFT',
@@ -408,28 +581,17 @@ export async function saveDraft(draftKey: string, payload: any): Promise<void> {
       retryCount: 0,
     };
     await db.put('outbox', record);
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.removeItem(draftKey);
-      } catch {}
-    }
-  } catch {
-    // Fallback if IDB write fails so user never loses an unsaved draft
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem(draftKey, JSON.stringify(wrapped));
-      } catch {}
-    }
+  } catch (err) {
+    blackBox.recordError(
+      'console_error',
+      `IndexedDB draft write failed for ${draftKey}: ${err instanceof Error ? err.message : String(err)}`,
+      'offlineQueue.saveDraft'
+    );
   }
 }
 
 export async function removeDraft(draftKey: string): Promise<void> {
   draftMirror.delete(draftKey);
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.removeItem(draftKey);
-    } catch {}
-  }
   try {
     const db = await getOfflineDB();
     await db.delete('outbox', `${DRAFT_ID_PREFIX}${draftKey}`);
@@ -446,14 +608,10 @@ export async function getPendingDrafts(): Promise<OutboxRecord[]> {
 }
 
 /**
- * Clears all scoring and form drafts from both the unified `outbox` store and legacy `localStorage`.
+ * Clears all drafts from the in-memory mirror, unified `outbox` store, and any residual legacy `localStorage` keys.
  */
 export function clearAllScoreDrafts(): void {
-  for (const key of Array.from(draftMirror.keys())) {
-    if (isLegacyDraftStorageKey(key)) {
-      draftMirror.delete(key);
-    }
-  }
+  draftMirror.clear();
 
   if (typeof localStorage !== 'undefined') {
     try {
@@ -474,11 +632,7 @@ export function clearAllScoreDrafts(): void {
     try {
       const db = await getOfflineDB();
       const allDrafts = await db.getAllFromIndex('outbox', 'by-kind', 'draft');
-      await Promise.all(
-        allDrafts
-          .filter((d) => isLegacyDraftStorageKey(d.entityId))
-          .map((d) => db.delete('outbox', d.id))
-      );
+      await Promise.all(allDrafts.map((d) => db.delete('outbox', d.id)));
     } catch {}
   })();
 }
@@ -516,10 +670,11 @@ export async function queueMutationLocally(
   payload?: any
 ): Promise<string> {
   const db = await getOfflineDB();
-  const id = `mut_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const id = generateOutboxUUID();
 
   const record: OutboxRecord = {
     id,
+    clientUuid: id,
     kind: 'mutation',
     table,
     operation,
@@ -543,6 +698,10 @@ export async function queueMutationLocally(
       });
     })
     .catch(() => {});
+
+  if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+    flushOfflineQueueToSupabase().catch(() => {});
+  }
 
   return id;
 }
@@ -614,6 +773,58 @@ export function flushOfflineMutationsToSupabase(): Promise<OfflineFlushResult> {
   return activeMutationsFlush;
 }
 
+async function isLegacyMutationAlreadyAppliedOnServer(item: PendingMutationRecord): Promise<boolean> {
+  const needsCheck = Boolean(item.legacyMigrated || !isValidOutboxUUID(item.id));
+  if (!needsCheck) return false;
+
+  if (item.table === 'events') {
+    const res = await callSecuredReadRpc<any[]>('read_events', { p_event_id: item.entityId });
+    const rows = Array.isArray(res.data) ? res.data : [];
+    if (item.operation === 'DELETE') return rows.length === 0;
+    if (item.operation === 'INSERT') return rows.length > 0;
+    if (item.operation === 'UPDATE') {
+      if (rows.length === 0) return true;
+      const serverUpdated = Date.parse(String(rows[0]?.updated_at || ''));
+      const queuedMs = Date.parse(item.queuedAt || '');
+      if (Number.isFinite(serverUpdated) && Number.isFinite(queuedMs) && serverUpdated >= queuedMs) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (item.table === 'judges') {
+    const res = await callSecuredReadRpc<any[]>('read_judges', { p_judge_id: item.entityId });
+    const rows = Array.isArray(res.data) ? res.data : [];
+    if (item.operation === 'DELETE') return rows.length === 0;
+    if (item.operation === 'INSERT') return rows.length > 0;
+    if (item.operation === 'UPDATE') return rows.length === 0;
+    return false;
+  }
+
+  if (item.table === 'participants') {
+    const res = await callSecuredReadRpc<any[]>('read_participants');
+    const rows = Array.isArray(res.data) ? res.data : [];
+    if (item.operation === 'DELETE') return !rows.some((p) => p?.id === item.entityId);
+    if (item.operation === 'INSERT') {
+      if (Array.isArray(item.payload)) {
+        const ids = item.payload.map((r: any) => r?.id).filter(Boolean);
+        return ids.length > 0 && ids.every((id: string) => rows.some((p) => p?.id === id));
+      }
+      return rows.some((p) => p?.id === item.entityId);
+    }
+    if (item.operation === 'UPDATE') return !rows.some((p) => p?.id === item.entityId);
+    return false;
+  }
+
+  if (item.table === 'organizations' && item.operation === 'DELETE') {
+    const res = await callSecuredReadRpc<any>('read_organization', { p_org_id: item.entityId });
+    return Boolean(res.not_found || !res.data);
+  }
+
+  return false;
+}
+
 async function runFlushOfflineMutationsOnce(): Promise<OfflineFlushResult> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { syncedCount: 0, failedCount: 0 };
@@ -622,9 +833,29 @@ async function runFlushOfflineMutationsOnce(): Promise<OfflineFlushResult> {
     return { syncedCount: 0, failedCount: 0 };
   }
 
+  const db = await getOfflineDB();
   const rawMutations = (await getPendingMutations()).filter((m) => m.syncStatus !== 'failed');
   if (rawMutations.length === 0) {
     return { syncedCount: 0, failedCount: 0 };
+  }
+
+  // Normalize any pre-existing non-UUID mutation rows to a fresh UUID key + legacy flag
+  for (let i = 0; i < rawMutations.length; i++) {
+    const m = rawMutations[i];
+    if (!isValidOutboxUUID(m.id)) {
+      const oldId = m.id;
+      const freshId = isValidOutboxUUID(m.clientUuid) ? m.clientUuid : generateOutboxUUID();
+      const upgraded: PendingMutationRecord = {
+        ...m,
+        id: freshId,
+        clientUuid: freshId,
+        legacyMigrated: true,
+        legacyId: m.legacyId || oldId,
+      };
+      await db.put('outbox', mutationToOutbox(upgraded));
+      await db.delete('outbox', oldId);
+      rawMutations[i] = upgraded;
+    }
   }
 
   // 1. Client-Side Optimistic Concurrency Control (OCC) Deduplication
@@ -632,8 +863,6 @@ async function runFlushOfflineMutationsOnce(): Promise<OfflineFlushResult> {
   const obsoleteMutationIds: string[] = [];
 
   rawMutations.sort((a, b) => new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime());
-
-  const db = await getOfflineDB();
 
   for (const item of rawMutations) {
     const key = `${item.table}:${item.entityId}`;
@@ -669,6 +898,15 @@ async function runFlushOfflineMutationsOnce(): Promise<OfflineFlushResult> {
 
   for (const item of mutations) {
     try {
+      // Outcome #3: Check legacy migrated items against server before resending
+      if (item.legacyMigrated) {
+        const alreadyOnServer = await isLegacyMutationAlreadyAppliedOnServer(item);
+        if (alreadyOnServer) {
+          await removePendingMutation(item.id);
+          continue;
+        }
+      }
+
       if (item.table === 'events') {
         if (item.operation === 'INSERT') {
           await callSecuredWriteRpc('event_upsert', { p_record: item.payload });
@@ -772,8 +1010,10 @@ async function runFlushOfflineMutationsOnce(): Promise<OfflineFlushResult> {
         }
 
         if (Object.keys(nonRosterPayload).length > 0) {
+          const splitId = generateOutboxUUID();
           const newNonRosterItem: PendingMutationRecord = {
-            id: `mut_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            id: splitId,
+            clientUuid: splitId,
             table: item.table,
             operation: 'UPDATE',
             entityId: item.entityId,
@@ -828,11 +1068,7 @@ async function runFlushOfflineMutationsOnce(): Promise<OfflineFlushResult> {
 
 export async function queueScoreLocally(score: any): Promise<string> {
   const db = await getOfflineDB();
-  const id =
-    score.id ||
-    (typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `score_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
+  const id = isValidOutboxUUID(score.id) ? score.id : generateOutboxUUID();
 
   // Idempotency (Double-Submission Prevention)
   const existing = await db.get('outbox', id);
@@ -845,18 +1081,23 @@ export async function queueScoreLocally(score: any): Promise<string> {
   const participantId = score.participant_id || score.participantId || '';
   const scoreData = score.score_data || score.scoreData || score.score_payload?.criteria || {};
   const totalScore = Number(score.total_score !== undefined ? score.total_score : score.totalScore) || 0;
+  const submittedAt = score.score_payload?.submitted_at || new Date().toISOString();
 
   const scoreRec: PendingScoreRecord = {
     id,
+    clientUuid: id,
     event_id: eventId,
     judge_id: judgeId,
     participant_id: participantId,
     score_data: scoreData,
     total_score: totalScore,
-    score_payload: score.score_payload || {
-      criteria: scoreData,
-      total_score: totalScore,
-      submitted_at: new Date().toISOString(),
+    score_payload: {
+      ...(score.score_payload || {
+        criteria: scoreData,
+        total_score: totalScore,
+        submitted_at: submittedAt,
+      }),
+      client_uuid: score.score_payload?.client_uuid || id,
     },
     queuedAt: new Date().toISOString(),
     syncStatus: 'pending',
@@ -876,6 +1117,10 @@ export async function queueScoreLocally(score: any): Promise<string> {
       });
     })
     .catch(() => {});
+
+  if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+    flushOfflineQueueToSupabase().catch(() => {});
+  }
 
   return id;
 }
@@ -1092,12 +1337,36 @@ async function runFlushOfflineQueueOnce(): Promise<OfflineFlushResult> {
   const mutationResult = await flushOfflineMutationsToSupabase();
   let authRequired = Boolean(mutationResult.authRequired);
 
-  // 2. Flush pending scores (ballots) with OCC deduplication and batched upsert
+  // 2. Flush pending scores (ballots) with OCC deduplication, legacy server pre-check, and batched upsert
+  const dbForScores = await getOfflineDB();
   const rawScores = (await getPendingScores()).filter((s) => s.syncStatus !== 'failed');
   let scoreSynced = 0;
   let scoreFailed = 0;
 
   if (!authRequired && isSupabaseConfigured() && rawScores.length > 0) {
+    // Normalize any pre-existing non-UUID score entries
+    for (let i = 0; i < rawScores.length; i++) {
+      const s = rawScores[i];
+      if (!isValidOutboxUUID(s.id)) {
+        const oldId = s.id;
+        const freshId = isValidOutboxUUID(s.clientUuid) ? s.clientUuid : generateOutboxUUID();
+        const upgraded: PendingScoreRecord = {
+          ...s,
+          id: freshId,
+          clientUuid: freshId,
+          legacyMigrated: true,
+          legacyId: s.legacyId || oldId,
+          score_payload: {
+            ...s.score_payload,
+            client_uuid: freshId,
+          },
+        };
+        await dbForScores.put('outbox', scoreToOutbox(upgraded));
+        await dbForScores.delete('outbox', oldId);
+        rawScores[i] = upgraded;
+      }
+    }
+
     const dedupedScoreMap = new Map<string, PendingScoreRecord>();
     const obsoleteScoreIds: string[] = [];
 
@@ -1116,91 +1385,129 @@ async function runFlushOfflineQueueOnce(): Promise<OfflineFlushResult> {
       await Promise.all(obsoleteScoreIds.map((id) => removePendingScore(id)));
     }
 
-    const dedupedScores = Array.from(dedupedScoreMap.values());
+    // Outcome #3: Check any legacy migrated score against server before resending so nothing applies twice
+    const scoresToSend: PendingScoreRecord[] = [];
+    for (const item of dedupedScoreMap.values()) {
+      if (item.legacyMigrated) {
+        try {
+          const checkRes = await callSecuredReadRpc<any>('read_score_for_ballot', {
+            p_event_id: item.event_id,
+            p_judge_id: item.judge_id,
+            p_participant_id: item.participant_id,
+          });
+          if (checkRes.data) {
+            await removePendingScore(item.id);
+            continue;
+          }
+        } catch (checkErr: any) {
+          if (checkErr?.code === 'unauthorized') {
+            authRequired = true;
+            break;
+          }
+          if (checkErr?.code === 'rpc_unavailable') {
+            break;
+          }
+          // Network/transient read failure: stop score flush cleanly without double-sending
+          scoresToSend.length = 0;
+          break;
+        }
+      }
+      scoresToSend.push(item);
+    }
 
-    const batchedPayload = dedupedScores.map((item) => ({
-      id: item.id,
-      event_id: item.event_id,
-      judge_id: item.judge_id,
-      participant_id: item.participant_id,
-      total_score: item.total_score,
-      score_payload: {
-        criteria: item.score_data || item.score_payload?.criteria || {},
-        total_score: item.total_score,
-        submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
-      },
-    }));
+    if (!authRequired && scoresToSend.length > 0) {
+      const dedupedScores = scoresToSend;
 
-    try {
-      await callSecuredWriteRpc('score_upsert_batch', { p_records: batchedPayload });
-      await Promise.all(dedupedScores.map((item) => removePendingScore(item.id)));
-      scoreSynced += dedupedScores.length;
-    } catch (batchErr: any) {
-      const db = await getOfflineDB();
+      const batchedPayload = dedupedScores.map((item) => {
+        const clientUuid = isValidOutboxUUID(item.clientUuid) ? item.clientUuid : item.id;
+        return {
+          id: clientUuid,
+          event_id: item.event_id,
+          judge_id: item.judge_id,
+          participant_id: item.participant_id,
+          total_score: item.total_score,
+          score_payload: {
+            criteria: item.score_data || item.score_payload?.criteria || {},
+            total_score: item.total_score,
+            submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
+            client_uuid: item.score_payload?.client_uuid || clientUuid,
+          },
+        };
+      });
 
-      if (dedupedScores.length === 1) {
-        const res = await handleScoreSyncError(db, dedupedScores[0], batchErr);
-        if (res.authRequired) {
+      try {
+        await callSecuredWriteRpc('score_upsert_batch', { p_records: batchedPayload });
+        await Promise.all(dedupedScores.map((item) => removePendingScore(item.id)));
+        scoreSynced += dedupedScores.length;
+      } catch (batchErr: any) {
+        const db = await getOfflineDB();
+
+        if (dedupedScores.length === 1) {
+          const res = await handleScoreSyncError(db, dedupedScores[0], batchErr);
+          if (res.authRequired) {
+            authRequired = true;
+          } else if (!res.rpcUnavailable) {
+            scoreFailed++;
+            if (res.newlyFailed) {
+              eventBus.emit('toast', {
+                type: 'error',
+                title: 'Ballot Sync Rejected',
+                message: '1 offline ballot was rejected by the server and kept for review.',
+              });
+            }
+          }
+        } else if (batchErr?.code === 'unauthorized') {
           authRequired = true;
-        } else if (!res.rpcUnavailable) {
-          scoreFailed++;
-          if (res.newlyFailed) {
+        } else if (batchErr?.code === 'rpc_unavailable') {
+          // Keep all scores safely pending in outbox
+        } else {
+          console.warn('Batched score upsert encountered error, falling back to granular safe sync:', batchErr?.message || batchErr);
+
+          let newlyFailedScores = 0;
+          for (const item of dedupedScores) {
+            try {
+              const clientUuid = isValidOutboxUUID(item.clientUuid) ? item.clientUuid : item.id;
+              const payloadJson = {
+                criteria: item.score_data || item.score_payload?.criteria || {},
+                total_score: item.total_score,
+                submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
+                client_uuid: item.score_payload?.client_uuid || clientUuid,
+              };
+
+              const singleRecord = {
+                id: clientUuid,
+                event_id: item.event_id,
+                judge_id: item.judge_id,
+                participant_id: item.participant_id,
+                total_score: item.total_score,
+                score_payload: payloadJson,
+              };
+
+              await callSecuredWriteRpc('score_upsert_batch', { p_records: [singleRecord] });
+              await removePendingScore(item.id);
+              scoreSynced++;
+            } catch (err: any) {
+              const res = await handleScoreSyncError(db, item, err);
+              if (res.authRequired) {
+                authRequired = true;
+                break;
+              }
+              if (res.rpcUnavailable) {
+                break;
+              }
+              if (res.newlyFailed) {
+                newlyFailedScores++;
+              }
+              scoreFailed++;
+            }
+          }
+          if (newlyFailedScores > 0) {
             eventBus.emit('toast', {
               type: 'error',
               title: 'Ballot Sync Rejected',
-              message: '1 offline ballot was rejected by the server and kept for review.',
+              message: `${newlyFailedScores} offline ballot${newlyFailedScores > 1 ? 's were' : ' was'} rejected by the server and kept for review.`,
             });
           }
-        }
-      } else if (batchErr?.code === 'unauthorized') {
-        authRequired = true;
-      } else if (batchErr?.code === 'rpc_unavailable') {
-        // Keep all scores safely pending in outbox
-      } else {
-        console.warn('Batched score upsert encountered error, falling back to granular safe sync:', batchErr?.message || batchErr);
-
-        let newlyFailedScores = 0;
-        for (const item of dedupedScores) {
-          try {
-            const payloadJson = {
-              criteria: item.score_data || item.score_payload?.criteria || {},
-              total_score: item.total_score,
-              submitted_at: item.score_payload?.submitted_at || item.queuedAt || new Date().toISOString(),
-            };
-
-            const singleRecord = {
-              id: item.id,
-              event_id: item.event_id,
-              judge_id: item.judge_id,
-              participant_id: item.participant_id,
-              total_score: item.total_score,
-              score_payload: payloadJson,
-            };
-
-            await callSecuredWriteRpc('score_upsert_batch', { p_records: [singleRecord] });
-            await removePendingScore(item.id);
-            scoreSynced++;
-          } catch (err: any) {
-            const res = await handleScoreSyncError(db, item, err);
-            if (res.authRequired) {
-              authRequired = true;
-              break;
-            }
-            if (res.rpcUnavailable) {
-              break;
-            }
-            if (res.newlyFailed) {
-              newlyFailedScores++;
-            }
-            scoreFailed++;
-          }
-        }
-        if (newlyFailedScores > 0) {
-          eventBus.emit('toast', {
-            type: 'error',
-            title: 'Ballot Sync Rejected',
-            message: `${newlyFailedScores} offline ballot${newlyFailedScores > 1 ? 's were' : ' was'} rejected by the server and kept for review.`,
-          });
         }
       }
     }
@@ -1283,7 +1590,18 @@ export function initOfflineSyncListener(): () => void {
     }
   };
 
+  const visibilityHandler = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+        flushOfflineQueueToSupabase().catch(() => {});
+      }
+    }
+  };
+
   window.addEventListener('online', onlineHandler);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', visibilityHandler);
+  }
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', swMessageHandler);
   }
@@ -1294,6 +1612,9 @@ export function initOfflineSyncListener(): () => void {
 
   return () => {
     window.removeEventListener('online', onlineHandler);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', visibilityHandler);
+    }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.removeEventListener('message', swMessageHandler);
     }

@@ -685,9 +685,9 @@ export function ScoringPanel({
     return true;
   }, [existingScore, isGracePeriod, graceExpired]);
 
-  // Score Draft Engine: Key includes activeEvent.id, judge.id and participantId; v1; 24h TTL
+  // Score Draft Engine: Key includes activeEvent.id, judge.id and participantId; v1; 24h TTL (IndexedDB outbox)
   const getScoreDraftKey = useCallback(
-    (participantId: string) => `fj_draft_score_${activeEvent.id}_${judge.id}_${participantId}`,
+    (participantId: string) => `score_draft:${activeEvent.id}:${judge.id}:${participantId}`,
     [activeEvent.id, judge.id]
   );
 

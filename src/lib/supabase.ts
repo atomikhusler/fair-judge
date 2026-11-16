@@ -2391,6 +2391,7 @@ export const dbService = {
       criteria: Record<string, number>;
       total_score: number;
       submitted_at: string;
+      client_uuid?: string;
     };
   }): Promise<SupabaseScore> {
     // 1. Verify Event exists & is active
@@ -2439,12 +2440,16 @@ export const dbService = {
       }
     }
 
+    const clientScoreUuid = (existing && isWithinGrace ? existing.id : scoreData.id) || generateUUID();
     const criteriaMap = scoreData.score_data || scoreData.score_payload?.criteria || {};
     const timestamp = new Date(getServerNowMs()).toISOString();
-    const payloadJson = scoreData.score_payload || {
-      criteria: criteriaMap,
-      total_score: scoreData.total_score,
-      submitted_at: timestamp,
+    const payloadJson = {
+      ...(scoreData.score_payload || {
+        criteria: criteriaMap,
+        total_score: scoreData.total_score,
+        submitted_at: timestamp,
+      }),
+      client_uuid: scoreData.score_payload?.client_uuid || clientScoreUuid,
     };
 
     // 4. OPTIMISTIC WRITE: Keep snapshot so server rejections roll back cleanly
@@ -2464,7 +2469,7 @@ export const dbService = {
       saveCache(STORAGE_KEYS.SCORES, updated, false);
     } else {
       optimisticScore = normalizeScore({
-        id: scoreData.id || generateUUID(),
+        id: clientScoreUuid,
         event_id: scoreData.event_id,
         judge_id: scoreData.judge_id,
         participant_id: scoreData.participant_id,
