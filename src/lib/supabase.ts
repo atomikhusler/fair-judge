@@ -9,7 +9,12 @@ import {
   TieBreakerMethod,
   VerificationStatus
 } from './supabaseTypes';
-import { queueMutationLocally, queueScoreLocally, clearAllScoreDrafts, getPendingScores } from './offlineQueue';
+import {
+  queueMutationLocally,
+  queueScoreLocally,
+  clearOfflineWorkForOrg,
+  getPendingScores,
+} from './offlineQueue';
 import { getServerClockOffsetMs, setServerClockOffsetMs, getServerNowMs } from './serverClock';
 import { 
   getHotCache, 
@@ -530,8 +535,8 @@ export function updateCacheTimestamp(key: string): void {
   touchCacheTimestamp(key);
 }
 
-export function invalidateCache(key?: string): void {
-  invalidateIDBCache(key);
+export function invalidateCache(key?: string): Promise<void> {
+  return invalidateIDBCache(key);
 }
 
 function loadCache<T>(key: string, defaultData: T[] = []): T[] {
@@ -897,11 +902,16 @@ export const dbService = {
     const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
     saveCache(
       STORAGE_KEYS.SCORES,
-      scores.filter((s) => !orgEventIds.has(s.event_id)),
+      scores.filter(
+        (s) => !orgEventIds.has(s.event_id) && ((s as any).org_id || '').toUpperCase().trim() !== cleanOrgId
+      ),
       false
     );
 
     const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+    const orgParticipantIds = new Set(
+      participants.filter((p) => (p.org_id || '').toUpperCase().trim() === cleanOrgId).map((p) => p.id)
+    );
     saveCache(
       STORAGE_KEYS.PARTICIPANTS,
       participants.filter((p) => (p.org_id || '').toUpperCase().trim() !== cleanOrgId),
@@ -909,14 +919,22 @@ export const dbService = {
     );
 
     const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+    const orgJudgeIds = new Set(
+      judges.filter((j) => (j.org_id || '').toUpperCase().trim() === cleanOrgId).map((j) => j.id)
+    );
     saveCache(
       STORAGE_KEYS.JUDGES,
       judges.filter((j) => (j.org_id || '').toUpperCase().trim() !== cleanOrgId),
       false
     );
 
-    invalidateCache();
-    clearAllScoreDrafts();
+    await invalidateCache();
+    await clearOfflineWorkForOrg(cleanOrgId, {
+      eventIds: orgEventIds,
+      participantIds: orgParticipantIds,
+      judgeIds: orgJudgeIds,
+    });
+    eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
   },
 
   async deleteOrganization(orgId: string): Promise<void> {
@@ -931,13 +949,29 @@ export const dbService = {
       );
       saveCache(STORAGE_KEYS.EVENTS, events.filter((e) => (e.org_id || '').toUpperCase().trim() !== cleanOrgId), false);
       const scores = loadCache<SupabaseScore>(STORAGE_KEYS.SCORES, []);
-      saveCache(STORAGE_KEYS.SCORES, scores.filter((s) => !orgEventIds.has(s.event_id)), false);
+      saveCache(
+        STORAGE_KEYS.SCORES,
+        scores.filter(
+          (s) => !orgEventIds.has(s.event_id) && ((s as any).org_id || '').toUpperCase().trim() !== cleanOrgId
+        ),
+        false
+      );
       const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+      const orgParticipantIds = new Set(
+        participants.filter((p) => (p.org_id || '').toUpperCase().trim() === cleanOrgId).map((p) => p.id)
+      );
       saveCache(STORAGE_KEYS.PARTICIPANTS, participants.filter((p) => (p.org_id || '').toUpperCase().trim() !== cleanOrgId), false);
       const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+      const orgJudgeIds = new Set(
+        judges.filter((j) => (j.org_id || '').toUpperCase().trim() === cleanOrgId).map((j) => j.id)
+      );
       saveCache(STORAGE_KEYS.JUDGES, judges.filter((j) => (j.org_id || '').toUpperCase().trim() !== cleanOrgId), false);
-      invalidateCache();
-      clearAllScoreDrafts();
+      await invalidateCache();
+      await clearOfflineWorkForOrg(cleanOrgId, {
+        eventIds: orgEventIds,
+        participantIds: orgParticipantIds,
+        judgeIds: orgJudgeIds,
+      });
     } else {
       await this.resetOrganizationData(cleanOrgId);
     }
@@ -949,8 +983,8 @@ export const dbService = {
       false
     );
     setStoredSession(null);
-    invalidateCache();
-    clearAllScoreDrafts();
+    await invalidateCache();
+    eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
   },
 
   // ------------------------------------------

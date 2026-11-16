@@ -305,7 +305,7 @@ export function ToastContainer() {
     <div
       role="region"
       aria-label="System Notifications"
-      className="fixed bottom-6 left-0 right-0 mx-auto w-full max-w-sm px-4 pointer-events-none z-[9999] h-20 relative flex items-end justify-center select-none"
+      className="fixed bottom-6 left-0 right-0 mx-auto w-full max-w-sm px-4 pointer-events-none z-[9999] h-20 flex items-end justify-center select-none"
     >
       {toasts.map((item, index) => (
         <StackedToastCard

@@ -637,6 +637,160 @@ export function clearAllScoreDrafts(): void {
   })();
 }
 
+/**
+ * Clears all queued mutations, pending scores, and drafts belonging to `orgId`
+ * from the unified IndexedDB `outbox` store (and in-memory / legacy draft mirrors)
+ * without disturbing queued work for any other organization.
+ */
+export async function clearOfflineWorkForOrg(
+  orgId: string,
+  knownEntityIds?: {
+    eventIds?: Iterable<string>;
+    participantIds?: Iterable<string>;
+    judgeIds?: Iterable<string>;
+  }
+): Promise<number> {
+  const cleanOrgId = orgId.trim().toUpperCase();
+  if (!cleanOrgId) return 0;
+
+  const eventIds = new Set<string>(knownEntityIds?.eventIds || []);
+  const participantIds = new Set<string>(knownEntityIds?.participantIds || []);
+  const judgeIds = new Set<string>(knownEntityIds?.judgeIds || []);
+
+  const payloadHasOrg = (payload: any): boolean => {
+    if (!payload) return false;
+    if (Array.isArray(payload)) {
+      return payload.some((entry) => payloadHasOrg(entry));
+    }
+    if (typeof payload !== 'object') return false;
+    const pOrg = typeof payload.org_id === 'string' ? payload.org_id.trim().toUpperCase() : '';
+    if (pOrg === cleanOrgId) return true;
+    const pEvent = typeof payload.event_id === 'string' ? payload.event_id : '';
+    if (pEvent && eventIds.has(pEvent)) return true;
+    return false;
+  };
+
+  const draftMatchesOrg = (rawKey: string, payload?: any): boolean => {
+    const key = normalizeDraftKey(rawKey);
+    const keyUpper = key.toUpperCase();
+    if (keyUpper === `PARTICIPANT_DRAFT:${cleanOrgId}`) return true;
+    if (key.startsWith('score_draft:')) {
+      const parts = key.slice('score_draft:'.length).split(':');
+      const evtId = parts[0] || '';
+      const jId = parts[1] || '';
+      const pId = parts[2] || '';
+      if ((evtId && eventIds.has(evtId)) || (jId && judgeIds.has(jId)) || (pId && participantIds.has(pId))) {
+        return true;
+      }
+    }
+    return payloadHasOrg(payload);
+  };
+
+  let removed = 0;
+  const matchedDraftKeys = new Set<string>();
+
+  try {
+    const db = await getOfflineDB();
+    const allItems = await db.getAll('outbox');
+
+    // Pass 1: Discover org-owned entity IDs embedded in queued mutation payloads
+    for (const rec of allItems) {
+      if (rec.kind !== 'mutation') continue;
+      if (rec.table === 'events' && payloadHasOrg(rec.payload) && rec.entityId) {
+        eventIds.add(rec.entityId);
+      } else if (rec.table === 'judges' && payloadHasOrg(rec.payload) && rec.entityId) {
+        judgeIds.add(rec.entityId);
+      } else if (rec.table === 'participants' && payloadHasOrg(rec.payload)) {
+        if (rec.entityId) participantIds.add(rec.entityId);
+        if (Array.isArray(rec.payload)) {
+          for (const row of rec.payload) {
+            if (row?.id) participantIds.add(String(row.id));
+          }
+        }
+      }
+    }
+
+    // Pass 2: Collect outbox record IDs belonging to this org across mutations, scores, and drafts
+    const idsToDelete: string[] = [];
+    for (const rec of allItems) {
+      if (rec.kind === 'mutation') {
+        const matchesOrgTable =
+          rec.table === 'organizations' && (rec.entityId || '').trim().toUpperCase() === cleanOrgId;
+        const matchesEvent =
+          rec.table === 'events' && (eventIds.has(rec.entityId) || payloadHasOrg(rec.payload));
+        const matchesJudge =
+          rec.table === 'judges' && (judgeIds.has(rec.entityId) || payloadHasOrg(rec.payload));
+        const matchesParticipant =
+          rec.table === 'participants' && (participantIds.has(rec.entityId) || payloadHasOrg(rec.payload));
+
+        if (matchesOrgTable || matchesEvent || matchesJudge || matchesParticipant) {
+          idsToDelete.push(rec.id);
+        }
+      } else if (rec.kind === 'score') {
+        const p = rec.payload || {};
+        const matchesScore =
+          payloadHasOrg(p) ||
+          Boolean(p.event_id && eventIds.has(p.event_id)) ||
+          Boolean(p.judge_id && judgeIds.has(p.judge_id)) ||
+          Boolean(p.participant_id && participantIds.has(p.participant_id));
+        if (matchesScore) {
+          idsToDelete.push(rec.id);
+        }
+      } else if (rec.kind === 'draft') {
+        if (draftMatchesOrg(rec.entityId, rec.payload)) {
+          idsToDelete.push(rec.id);
+          matchedDraftKeys.add(rec.entityId);
+          matchedDraftKeys.add(normalizeDraftKey(rec.entityId));
+        }
+      }
+    }
+
+    if (idsToDelete.length > 0) {
+      await Promise.all(idsToDelete.map((id) => db.delete('outbox', id)));
+      removed = idsToDelete.length;
+    }
+  } catch (err) {
+    console.warn('Error clearing offline work for org:', err);
+  }
+
+  for (const [key, val] of Array.from(draftMirror.entries())) {
+    if (matchedDraftKeys.has(key) || draftMatchesOrg(key, val)) {
+      draftMirror.delete(key);
+    }
+  }
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const legacyToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && isLegacyDraftStorageKey(k) && draftMatchesOrg(k)) {
+          legacyToRemove.push(k);
+        }
+      }
+      for (const k of legacyToRemove) {
+        localStorage.removeItem(k);
+      }
+    } catch {}
+  }
+
+  if (removed > 0) {
+    notifyQueueChange();
+  }
+
+  getPendingCount()
+    .then((count) => {
+      eventBus.emit('sync_status', {
+        status: count > 0 ? 'offline' : 'synced',
+        pendingCount: count,
+        message: count > 0 ? `${count} queued` : 'Cloud Synced',
+      });
+    })
+    .catch(() => {});
+
+  return removed;
+}
+
 // ==========================================
 // 1. UNIFIED OUTBOX MUTATIONS & SCORES
 // ==========================================

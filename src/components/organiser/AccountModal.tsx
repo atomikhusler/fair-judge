@@ -34,6 +34,7 @@ import { BackupSheet } from './backup/BackupSheet';
 import { RestoreSheet } from './backup/RestoreSheet';
 import { triggerHaptic } from '../../lib/haptics';
 import { BrandBadge } from '../shared/BrandBadge';
+import { syncNow } from '../../lib/syncEngine';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -82,6 +83,7 @@ export function AccountModal({
   const [isDangerShutterOpen, setIsDangerShutterOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetInput, setResetInput] = useState('');
+  const [resetSuccess, setResetSuccess] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [isProcessingDanger, setIsProcessingDanger] = useState(false);
@@ -115,6 +117,7 @@ export function AccountModal({
       setIsDangerShutterOpen(false);
       setShowLogoutConfirm(false);
       setShowResetConfirm(false);
+      setResetSuccess(false);
       setShowDeleteConfirm(false);
       setResetInput('');
       setDeleteInput('');
@@ -127,6 +130,7 @@ export function AccountModal({
     setIsDangerShutterOpen(false);
     setShowLogoutConfirm(false);
     setShowResetConfirm(false);
+    setResetSuccess(false);
     setShowDeleteConfirm(false);
     onClose();
   }, [onClose]);
@@ -166,6 +170,7 @@ export function AccountModal({
       }
       if (showResetConfirm) {
         setShowResetConfirm(false);
+        setResetSuccess(false);
         setResetInput('');
         return;
       }
@@ -336,10 +341,11 @@ export function AccountModal({
     setIsProcessingDanger(true);
     try {
       await dbService.resetOrganizationData(organization.org_id);
-      setShowResetConfirm(false);
+      setResetSuccess(true);
       setResetInput('');
       setIsDangerShutterOpen(false);
-      showToast('All competition data wiped.');
+      showToast('Reset complete. All competition data has been cleared.');
+      void syncNow({ forceFull: true, reason: 'manual' });
     } catch (err: any) {
       if (err?.code === 'ROSTER_LOCKED' || err?.message?.includes('ROSTER_LOCKED')) {
         showToast('Unlock your events first.');
@@ -433,20 +439,20 @@ export function AccountModal({
           {/* TOP: SIGN OUT ATTACHED TO ORGANIZATION IDENTITY (C2)     */}
           {/* ======================================================== */}
           <div className="mt-2 bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
-            {/* Attached Sign Out Row at Very Top (C2) */}
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('tick');
-                setShowLogoutConfirm(true);
-              }}
-              className="w-full min-h-[48px] px-4 py-3 flex items-center justify-center space-x-2 bg-rose-700/85 hover:bg-rose-600/90 dark:bg-rose-800/80 dark:hover:bg-rose-700/85 text-rose-50 rounded-t-2xl shadow-sm transition-colors cursor-pointer group"
-            >
-              <LogOut className="w-4 h-4 text-rose-50 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
-              <span className="text-xs font-bold text-rose-50">
-                Sign out
-              </span>
-            </button>
+            {/* Padded Sign Out Button matching Change Password shape & padding (C2) */}
+            <div className="p-4">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tick');
+                  setShowLogoutConfirm(true);
+                }}
+                className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white shadow-sm group"
+              >
+                <LogOut className="w-3.5 h-3.5 text-white transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+                <span>Sign out</span>
+              </button>
+            </div>
 
             {/* Organization Identity Section Header (attached directly below Sign Out) */}
             <div className="px-4 py-2 bg-stone-50 dark:bg-zinc-900/60">
@@ -513,7 +519,7 @@ export function AccountModal({
                     <button
                       type="submit"
                       disabled={isSavingName || !editName.trim()}
-                      className="min-h-[44px] px-3 bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 disabled:opacity-50 text-emerald-50 text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                      className="min-h-[44px] px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
                     >
                       {isSavingName ? <span>Saving...</span> : <span>Save Name</span>}
                     </button>
@@ -646,7 +652,7 @@ export function AccountModal({
                     <button
                       type="submit"
                       disabled={isSavingEmail || !editEmail.trim()}
-                      className="min-h-[44px] px-3 bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 disabled:opacity-50 text-emerald-50 text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                      className="min-h-[44px] px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
                     >
                       {isSavingEmail ? <span>Saving...</span> : <span>Save Email</span>}
                     </button>
@@ -696,7 +702,7 @@ export function AccountModal({
                 className={`w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
                   isUpdatingPassword
                     ? 'bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-stone-200 dark:border-zinc-800'
-                    : 'bg-blue-700/85 hover:bg-blue-600/90 dark:bg-blue-800/80 dark:hover:bg-blue-700/85 text-blue-50 shadow-sm'
+                    : 'bg-blue-700 hover:bg-blue-800 dark:bg-blue-700/90 dark:hover:bg-blue-700 text-white shadow-sm'
                 }`}
               >
                 <Lock className="w-3.5 h-3.5" />
@@ -756,7 +762,7 @@ export function AccountModal({
                   <button
                     type="submit"
                     disabled={isSavingPassword || !currentPassword || !newPassword || newPassword !== confirmPassword}
-                    className="w-full min-h-[44px] bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 disabled:opacity-50 text-emerald-50 text-xs font-bold rounded-xl transition-colors active:scale-[0.98] motion-reduce:transition-none cursor-pointer shadow-sm flex items-center justify-center space-x-1.5"
+                    className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors active:scale-[0.98] motion-reduce:transition-none cursor-pointer shadow-sm flex items-center justify-center space-x-1.5"
                   >
                     <Lock className="w-3.5 h-3.5" />
                     <span>{isSavingPassword ? 'Saving Password...' : 'Save New Password'}</span>
@@ -778,7 +784,7 @@ export function AccountModal({
                 <button
                   type="button"
                   onClick={() => setShowBackupSheet(true)}
-                  className="min-h-[44px] px-3.5 rounded-xl bg-emerald-700/85 hover:bg-emerald-600/90 dark:bg-emerald-800/80 dark:hover:bg-emerald-700/85 text-emerald-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  className="min-h-[44px] px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                 >
                   <Download className="w-4 h-4" />
                   <span>Backup</span>
@@ -787,7 +793,7 @@ export function AccountModal({
                 <button
                   type="button"
                   onClick={() => setShowRestoreSheet(true)}
-                  className="min-h-[44px] px-3.5 rounded-xl bg-amber-700/80 hover:bg-amber-600/85 dark:bg-amber-800/75 dark:hover:bg-amber-700/85 text-amber-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  className="min-h-[44px] px-3.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                 >
                   <Upload className="w-4 h-4" />
                   <span>Restore</span>
@@ -911,8 +917,12 @@ export function AccountModal({
                     type="button"
                     disabled={!isDangerShutterOpen}
                     tabIndex={isDangerShutterOpen ? 0 : -1}
-                    onClick={() => setShowResetConfirm(true)}
-                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:pointer-events-none text-red-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                    onClick={() => {
+                      setResetSuccess(false);
+                      setResetInput('');
+                      setShowResetConfirm(true);
+                    }}
+                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Reset Data</span>
@@ -923,7 +933,7 @@ export function AccountModal({
                     disabled={!isDangerShutterOpen}
                     tabIndex={isDangerShutterOpen ? 0 : -1}
                     onClick={() => setShowDeleteConfirm(true)}
-                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:pointer-events-none text-red-50 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete Organization</span>
@@ -1009,7 +1019,7 @@ export function AccountModal({
                   handleCloseModal();
                   onLogout();
                 }}
-                className="min-h-[44px] bg-rose-700/85 hover:bg-rose-600/90 dark:bg-rose-800/80 dark:hover:bg-rose-700/85 text-rose-50 text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Sign out</span>
@@ -1027,63 +1037,104 @@ export function AccountModal({
           aria-modal="true"
           aria-labelledby="reset-confirm-title"
         >
-          <div className="bg-white dark:bg-zinc-950 border border-red-500/40 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
-            <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
-              <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
-                <RotateCcw className="w-5 h-5" />
-              </div>
-              <div>
-                <h3
-                  id="reset-confirm-title"
-                  className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
-                >
-                  Reset Account Data
-                </h3>
-                <p className="text-xs text-red-600 dark:text-red-400 font-mono">
-                  Permanent data purge
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
+            {resetSuccess ? (
+              <>
+                <div className="flex items-center space-x-3 text-emerald-600 dark:text-emerald-400">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3
+                      id="reset-confirm-title"
+                      className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                    >
+                      Reset Complete
+                    </h3>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-mono">
+                      {organization.org_id}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                  Reset complete. All competition data has been cleared.
                 </p>
-              </div>
-            </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-              Permanently wipe all competition events, rosters, and scores for{' '}
-              <strong className="text-zinc-900 dark:text-white">{organization.name}</strong>. Admin credentials remain active.
-            </p>
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => {
+                    setShowResetConfirm(false);
+                    setResetSuccess(false);
+                    setResetInput('');
+                  }}
+                  className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+                >
+                  Done
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
+                  <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
+                    <RotateCcw className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3
+                      id="reset-confirm-title"
+                      className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                    >
+                      Reset Account Data
+                    </h3>
+                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                      Permanent data purge
+                    </p>
+                  </div>
+                </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
-                Type <span className="font-mono font-black text-red-600 dark:text-red-400">RESET</span> to confirm:
-              </label>
-              <input
-                type="text"
-                autoFocus
-                placeholder="RESET"
-                value={resetInput}
-                onChange={(e) => setResetInput(e.target.value)}
-                className="w-full min-h-[44px] px-3.5 bg-stone-100 dark:bg-zinc-900 border border-red-500/40 rounded-xl font-mono text-sm text-center uppercase tracking-widest text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500/50"
-              />
-            </div>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  Permanently wipe all competition events, rosters, and scores for{' '}
+                  <strong className="text-zinc-900 dark:text-white">{organization.name}</strong>. Admin credentials remain active.
+                </p>
 
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowResetConfirm(false);
-                  setResetInput('');
-                }}
-                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleExecuteReset}
-                disabled={resetInput.trim().toUpperCase() !== 'RESET' || isProcessingDanger}
-                className="min-h-[44px] bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:opacity-40 text-red-50 text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
-              >
-                {isProcessingDanger ? <span>Wiping...</span> : <span>Confirm Reset</span>}
-              </button>
-            </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
+                    Type <span className="font-mono font-black text-red-600 dark:text-red-400">RESET</span> to confirm:
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="RESET"
+                    value={resetInput}
+                    onChange={(e) => setResetInput(e.target.value)}
+                    className="w-full min-h-[44px] px-3.5 bg-stone-100 dark:bg-zinc-900 border border-red-500/40 rounded-xl font-mono text-sm text-center uppercase tracking-widest text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowResetConfirm(false);
+                      setResetSuccess(false);
+                      setResetInput('');
+                    }}
+                    className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteReset}
+                    disabled={resetInput.trim().toUpperCase() !== 'RESET' || isProcessingDanger}
+                    className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                  >
+                    {isProcessingDanger ? <span>Wiping...</span> : <span>Confirm Reset</span>}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1148,7 +1199,7 @@ export function AccountModal({
                 type="button"
                 onClick={handleExecuteDelete}
                 disabled={deleteInput.trim().toUpperCase() !== 'DELETE' || isProcessingDanger}
-                className="min-h-[44px] bg-red-700/80 hover:bg-red-600/85 dark:bg-red-800/75 dark:hover:bg-red-700/85 disabled:opacity-40 text-red-50 text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 {isProcessingDanger ? <span>Deleting...</span> : <span>Confirm Delete</span>}
               </button>
