@@ -30,6 +30,7 @@ import { lazyWithRetry } from './lib/lazyWithRetry';
 import { authService } from './lib/authService';
 import { resetSignatureHardwareSession } from './components/shared/SignatureHardware';
 import { resetLastTestResult } from './lib/selfTest';
+import { playSound, unlockSoundEngine } from './lib/sound';
 import { RouteShellSkeleton } from './components/common/Skeletons';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { BrandBadge } from './components/shared/BrandBadge';
@@ -254,7 +255,9 @@ export default function App() {
     let bootFadeTimer: number | undefined;
     let bootUnmountTimer: number | undefined;
 
+    unlockSoundEngine();
     if (bootMode !== 'skip') {
+      playSound('boot');
       bootFadeTimer = window.setTimeout(() => {
         setIsBootFading(true);
         bootUnmountTimer = window.setTimeout(() => {
@@ -396,6 +399,7 @@ export default function App() {
     const holdMs = prefersReducedMotion ? 350 : 1950;
     const fadeMs = prefersReducedMotion ? 150 : 450;
 
+    playSound('boot');
     setAuthSplash({ name: displayName, isFading: false });
 
     authSplashTimerRef.current.hold = window.setTimeout(() => {
@@ -506,6 +510,7 @@ export default function App() {
     if (signOutTimersRef.current.wait) clearTimeout(signOutTimersRef.current.wait);
     if (signOutTimersRef.current.fade) clearTimeout(signOutTimersRef.current.fade);
 
+    playSound('shutdown');
     setSignOutOverlay({
       name: displayName,
       role,

@@ -165,17 +165,25 @@ function loadInboxArchive(): StoredInboxAnnouncement[] {
   }
 }
 
-function upsertInboxArchive(rows: PlatformAnnouncement[]): StoredInboxAnnouncement[] {
+function reconcileInboxArchive(
+  rows: PlatformAnnouncement[],
+  role: 'organiser' | 'judge',
+  orgId?: string | null
+): StoredInboxAnnouncement[] {
   if (typeof window === 'undefined') return [];
   const existing = loadInboxArchive();
   const byId = new Map<string, StoredInboxAnnouncement>();
+  const activeIds = new Set(rows.map((r) => r.id).filter(Boolean));
   const now = Date.now();
   const cutoff = now - THIRTY_DAYS_MS;
 
   for (const item of existing) {
-    if (item.savedAt >= cutoff) {
-      byId.set(item.id, item);
+    if (item.savedAt < cutoff) continue;
+    // Drop notices for the current audience/org once revoked, ended, or deleted on server
+    if (matchesAnnouncementAudience(item, role, orgId) && !activeIds.has(item.id)) {
+      continue;
     }
+    byId.set(item.id, item);
   }
 
   for (const row of rows) {
@@ -257,7 +265,7 @@ export async function fetchActiveAnnouncements(
     const matched = (data as PlatformAnnouncement[]).filter((item) =>
       matchesAnnouncementAudience(item, role, cleanOrg)
     );
-    upsertInboxArchive(matched);
+    reconcileInboxArchive(matched, role, cleanOrg);
     emitNoticesUpdated();
     return filterAnnouncementsForClient(matched, role, cleanOrg);
   } catch {
@@ -315,7 +323,7 @@ export function useAnnouncements(role: 'organiser' | 'judge', orgId?: string | n
             const matched = (data as PlatformAnnouncement[]).filter((item) =>
               matchesAnnouncementAudience(item, role, cleanOrg)
             );
-            upsertInboxArchive(matched);
+            reconcileInboxArchive(matched, role, cleanOrg);
             setActiveRows(matched);
             setInboxState(getInboxAnnouncementsForClient(role, cleanOrg));
           }

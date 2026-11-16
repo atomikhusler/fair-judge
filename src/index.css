@@ -569,7 +569,7 @@
 @font-face {
   font-family: 'Geist';
   src: url('/fonts/Geist-Variable-latin.woff2') format('woff2');
-  font-weight: 200 600;
+  font-weight: 200 700;
   font-style: normal;
   font-display: swap;
 }
@@ -665,7 +665,7 @@
     opacity: 0.55;
   }
   100% {
-    transform: translateY(180px);
+    transform: translateY(250px);
     opacity: 0;
   }
 }

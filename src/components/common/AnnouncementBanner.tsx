@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, Megaphone, X } from 'lucide-react';
 import { PlatformAnnouncement } from '../../lib/announcements';
 import { triggerHaptic } from '../../lib/haptics';
+import { playSound } from '../../lib/sound';
 
 interface AnnouncementBannerProps {
   notices: PlatformAnnouncement[];
@@ -12,6 +13,27 @@ export const AnnouncementBanner: React.FC<AnnouncementBannerProps> = ({
   notices,
   onDismiss,
 }) => {
+  const chimedIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!notices || notices.length === 0) return;
+    let highest: 'alert' | 'warning' | 'notify' | null = null;
+    for (const notice of notices) {
+      if (!notice?.id || chimedIdsRef.current.has(notice.id)) continue;
+      chimedIdsRef.current.add(notice.id);
+      if (notice.severity === 'urgent' || notice.severity === 'critical') {
+        highest = 'alert';
+      } else if (notice.severity === 'warning' && highest !== 'alert') {
+        highest = 'warning';
+      } else if (!highest) {
+        highest = 'notify';
+      }
+    }
+    if (highest) {
+      playSound(highest);
+    }
+  }, [notices]);
+
   if (!notices || notices.length === 0) return null;
 
   return (
@@ -67,6 +89,7 @@ export const AnnouncementBanner: React.FC<AnnouncementBannerProps> = ({
                 type="button"
                 onClick={() => {
                   triggerHaptic('tick');
+                  playSound('tap');
                   onDismiss(notice.id);
                 }}
                 aria-label={`Dismiss announcement: ${notice.title}`}

@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info } from 'lucide-react';
 import { eventBus, ToastPayload } from '../../lib/eventBus';
+import { playSound } from '../../lib/sound';
 
 export type ToastType = 'success' | 'warning' | 'info' | 'error';
 
@@ -260,6 +261,7 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
  */
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const lastSoundRef = useRef<{ msg: string; at: number }>({ msg: '', at: 0 });
 
   const handleDismiss = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -280,6 +282,14 @@ export function ToastContainer() {
         message: msg,
         duration,
       };
+
+      if (type === 'error' || type === 'warning' || type === 'info') {
+        const now = Date.now();
+        if (lastSoundRef.current.msg !== msg || now - lastSoundRef.current.at > 800) {
+          lastSoundRef.current = { msg, at: now };
+          playSound(type === 'info' ? 'notify' : 'warning');
+        }
+      }
 
       setToasts((prev) => {
         // Prevent duplicate spam of identical message

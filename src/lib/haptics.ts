@@ -11,6 +11,9 @@ const ACTIVE_SESSION_STORAGE_KEY = 'fairjudge_active_session';
 
 function getScopedHapticStorageKey(): string {
   if (typeof window === 'undefined') return HAPTIC_STORAGE_KEY;
+  if (window.location.hash.startsWith('#/admin')) {
+    return `${HAPTIC_STORAGE_KEY}_admin`;
+  }
   try {
     const raw = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
     if (!raw) return HAPTIC_STORAGE_KEY;

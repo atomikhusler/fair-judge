@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, PowerOff, Send } from 'lucide-react';
+import { Loader2, PowerOff, Send, Trash2 } from 'lucide-react';
 import { AdminAnnouncement, adminService } from '../adminService';
 import { BottomSheet, Segmented, showAdminToast } from '../ui';
 import { triggerHaptic } from '../../lib/haptics';
+import { playSound } from '../../lib/sound';
 
 type Severity = AdminAnnouncement['severity'];
 type Audience = AdminAnnouncement['audience'];
@@ -47,6 +48,9 @@ interface NoticeEditorProps {
   isOnline: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  defaultSeverity?: Severity;
+  defaultAudience?: Audience;
+  defaultTargetOrgId?: string;
 }
 
 export default function NoticeEditor({
@@ -55,6 +59,9 @@ export default function NoticeEditor({
   isOnline,
   onClose,
   onSaved,
+  defaultSeverity = 'info',
+  defaultAudience = 'all',
+  defaultTargetOrgId = '',
 }: NoticeEditorProps) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -65,9 +72,12 @@ export default function NoticeEditor({
   const [customEndsAt, setCustomEndsAt] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    setConfirmDelete(false);
     if (notice) {
       setTitle(notice.title);
       setBody(notice.body);
@@ -84,16 +94,17 @@ export default function NoticeEditor({
     } else {
       setTitle('');
       setBody('');
-      setSeverity('info');
-      setAudience('all');
-      setTargetOrgId('');
+      setSeverity(defaultSeverity);
+      setAudience(defaultAudience);
+      setTargetOrgId(defaultTargetOrgId.toUpperCase());
       setExpiryPreset('none');
       setCustomEndsAt('');
     }
-  }, [open, notice]);
+  }, [open, notice, defaultSeverity, defaultAudience, defaultTargetOrgId]);
 
   const applyTemplate = (tpl: NoticeTemplate) => {
     triggerHaptic('light');
+    playSound('tap');
     setTitle(tpl.title);
     setBody(tpl.body);
     setSeverity(tpl.severity);
@@ -115,7 +126,7 @@ export default function NoticeEditor({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isOnline || isSaving || isEnding) return;
+    if (!isOnline || isSaving || isEnding || isDeleting) return;
 
     const cleanTitle = title.trim();
     const cleanBody = body.trim();
@@ -123,12 +134,14 @@ export default function NoticeEditor({
 
     if (!cleanTitle || !cleanBody) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast('Enter both a title and message.', { tone: 'error' });
       return;
     }
 
     if (audience === 'org' && !cleanOrg) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast('Enter an organiser ID.', { tone: 'error' });
       return;
     }
@@ -146,11 +159,13 @@ export default function NoticeEditor({
       });
       if (!res?.ok) throw new Error(res?.error || 'Could not save notice.');
       triggerHaptic('success');
+      playSound('success');
       showAdminToast(notice ? 'Notice updated.' : 'Notice published.', { tone: 'success' });
       onClose();
       await onSaved();
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Failed to save notice.', { tone: 'error' });
     } finally {
       setIsSaving(false);
@@ -158,37 +173,60 @@ export default function NoticeEditor({
   };
 
   const handleEndNow = async () => {
-    if (!notice || !isOnline || isSaving || isEnding) return;
+    if (!notice || !isOnline || isSaving || isEnding || isDeleting) return;
     setIsEnding(true);
     try {
       const res = await adminService.endAnnouncement(notice.id);
-      if (!res?.ok) throw new Error('Could not end notice.');
+      if (!res?.ok) throw new Error('Could not revoke notice.');
       triggerHaptic('success');
-      showAdminToast('Notice ended.', { tone: 'success' });
+      playSound('success');
+      showAdminToast('Notice revoked.', { tone: 'success' });
       onClose();
       await onSaved();
     } catch (err: any) {
       triggerHaptic('warning');
-      showAdminToast(err?.message || 'Failed to end notice.', { tone: 'error' });
+      playSound('warning');
+      showAdminToast(err?.message || 'Failed to revoke notice.', { tone: 'error' });
     } finally {
       setIsEnding(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!notice || !isOnline || isSaving || isEnding || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const res = await adminService.deleteAnnouncement(notice.id);
+      if (!res?.ok) throw new Error('Could not delete notice.');
+      triggerHaptic('success');
+      playSound('success');
+      showAdminToast('Notice deleted permanently.', { tone: 'success' });
+      onClose();
+      await onSaved();
+    } catch (err: any) {
+      triggerHaptic('warning');
+      playSound('warning');
+      showAdminToast(err?.message || 'Failed to delete notice.', { tone: 'error' });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   const isLiveNotice = Boolean(
     notice && notice.active && (!notice.ends_at || new Date(notice.ends_at).getTime() > Date.now())
   );
+  const isBusy = isSaving || isEnding || isDeleting;
 
   return (
     <BottomSheet
       open={open}
       onClose={onClose}
-      closeDisabled={isSaving || isEnding}
+      closeDisabled={isBusy}
       maxWidthClass="md:max-w-lg"
       title={notice ? 'Edit notice' : 'New notice'}
       subtitle="Shown as a dismissible banner to selected users"
     >
-      <form onSubmit={handleSave} className="space-y-4">
+      <form onSubmit={handleSave} className="space-y-3.5">
         {/* 2 quick templates */}
         <div className="space-y-1.5">
           <span className="block admin-caption font-semibold text-zinc-500 dark:text-zinc-400">
@@ -200,7 +238,7 @@ export default function NoticeEditor({
                 key={tpl.label}
                 type="button"
                 onClick={() => applyTemplate(tpl)}
-                className="admin-press min-h-[44px] px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-[14px] font-medium text-zinc-900 dark:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer"
+                className="admin-press min-h-[40px] px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-[13px] font-medium text-zinc-900 dark:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer"
               >
                 {tpl.label}
               </button>
@@ -238,9 +276,9 @@ export default function NoticeEditor({
             value={body}
             onChange={(e) => setBody(e.target.value)}
             maxLength={500}
-            rows={3}
+            rows={2}
             placeholder="Short guidance shown inside the banner..."
-            className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-[15px] text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500/60 resize-none"
+            className="w-full px-3.5 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-[15px] text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500/60 resize-none"
           />
         </div>
 
@@ -284,7 +322,7 @@ export default function NoticeEditor({
                     triggerHaptic('light');
                     setAudience(aud.value);
                   }}
-                  className={`admin-press min-h-[44px] px-3 rounded-xl text-[14px] font-semibold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer ${
+                  className={`admin-press min-h-[42px] px-3 rounded-xl text-[14px] font-semibold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer ${
                     active
                       ? 'bg-violet-600 text-white border-violet-600'
                       : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
@@ -340,7 +378,7 @@ export default function NoticeEditor({
                     triggerHaptic('light');
                     setExpiryPreset(preset.value);
                   }}
-                  className={`admin-press min-h-[44px] px-3 rounded-xl text-[13px] font-semibold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer ${
+                  className={`admin-press min-h-[40px] px-3 rounded-xl text-[13px] font-semibold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer ${
                     active
                       ? 'bg-violet-600 text-white border-violet-600'
                       : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
@@ -363,30 +401,83 @@ export default function NoticeEditor({
           )}
         </div>
 
-        <div className="flex flex-col gap-2 pt-2">
+        {/* Sticky action dock so Save / Publish always stays visible */}
+        <div className="sticky bottom-0 -mx-4 -mb-4 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex flex-col gap-2 z-10">
           <button
             type="submit"
-            disabled={isSaving || isEnding || !isOnline}
+            disabled={isBusy || !isOnline}
             className="admin-press w-full min-h-[44px] px-4 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-[15px] font-semibold inline-flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             <span>{notice ? 'Save notice' : 'Publish notice'}</span>
           </button>
 
-          {isLiveNotice && (
-            <button
-              type="button"
-              disabled={isSaving || isEnding || !isOnline}
-              onClick={() => void handleEndNow()}
-              className="admin-press w-full min-h-[44px] px-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 text-red-600 dark:text-red-400 text-[15px] font-semibold inline-flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer"
-            >
-              {isEnding ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <PowerOff className="w-4 h-4" />
+          {notice && !confirmDelete && (
+            <div className={`grid gap-2 ${isLiveNotice ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {isLiveNotice && (
+                <button
+                  type="button"
+                  disabled={isBusy || !isOnline}
+                  onClick={() => {
+                    playSound('tap');
+                    void handleEndNow();
+                  }}
+                  className="admin-press w-full min-h-[42px] px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 text-amber-700 dark:text-amber-400 text-[14px] font-semibold inline-flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 cursor-pointer"
+                >
+                  {isEnding ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <PowerOff className="w-4 h-4" />
+                  )}
+                  <span>Revoke / End</span>
+                </button>
               )}
-              <span>End now</span>
-            </button>
+
+              <button
+                type="button"
+                disabled={isBusy || !isOnline}
+                onClick={() => {
+                  triggerHaptic('light');
+                  playSound('tap');
+                  setConfirmDelete(true);
+                }}
+                className="admin-press w-full min-h-[42px] px-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 border border-red-500/25 disabled:opacity-50 text-red-700 dark:text-red-400 text-[14px] font-semibold inline-flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete</span>
+              </button>
+            </div>
+          )}
+
+          {notice && confirmDelete && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 space-y-2.5">
+              <p className="admin-caption font-semibold text-red-700 dark:text-red-300">
+                Permanently delete this notice from history and client inboxes?
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => setConfirmDelete(false)}
+                  className="admin-press min-h-[40px] rounded-xl bg-zinc-200/80 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[13px] font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isBusy || !isOnline}
+                  onClick={() => void handleDelete()}
+                  className="admin-press min-h-[40px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  <span>{isDeleting ? 'Deleting...' : 'Confirm delete'}</span>
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </form>

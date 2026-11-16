@@ -94,7 +94,7 @@ export function AdminToastHost() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:max-w-sm z-50 pointer-events-none flex justify-center md:justify-end"
+      className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:max-w-sm z-[110] pointer-events-none flex justify-center md:justify-end"
     >
       <div className="pointer-events-auto w-full rounded-2xl bg-zinc-900 dark:bg-zinc-800 text-zinc-100 border border-zinc-800 dark:border-zinc-700 px-4 py-2.5 flex items-center justify-between gap-3 shadow-lg admin-toast-in">
         <div className="flex items-center gap-2.5 min-w-0">

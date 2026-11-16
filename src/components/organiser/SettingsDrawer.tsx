@@ -19,6 +19,7 @@ import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
 import { useToast } from '../common/ToastProvider';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
+import { getSoundLevel, setSoundLevel, playSound, SOUND_CHANGE_EVENT, SoundLevel } from '../../lib/sound';
 import { APP_VERSION } from '../../config/version';
 import { downloadDiagnosticLog, getPendingScores, getPendingMutations } from '../../lib/offlineQueue';
 import { SignatureHardware } from '../shared/SignatureHardware';
@@ -162,6 +163,7 @@ export function SettingsDrawer({
   });
 
   const [hapticSetting, setHapticSetting] = useState<HapticStrength>(getHapticStrength);
+  const [soundSetting, setSoundSetting] = useState<SoundLevel>(() => getSoundLevel());
   const [shouldRender, setShouldRender] = useState<boolean>(isOpen);
   const [isClosing, setIsClosing] = useState<boolean>(false);
 
@@ -260,6 +262,7 @@ export function SettingsDrawer({
       setShouldRender(true);
       setIsClosing(false);
       setHapticSetting(getHapticStrength());
+      setSoundSetting(getSoundLevel());
       setConfirmRevokeId(null);
       setConfirmRevokeAll(false);
       setEditingPairingId(null);
@@ -309,7 +312,10 @@ export function SettingsDrawer({
   }, [isOpen, loadProjectorPairings]);
 
   useEffect(() => {
+    const syncSound = () => setSoundSetting(getSoundLevel());
+    window.addEventListener(SOUND_CHANGE_EVENT, syncSound);
     return () => {
+      window.removeEventListener(SOUND_CHANGE_EVENT, syncSound);
       if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
       if (tickerDebounceRef.current) window.clearTimeout(tickerDebounceRef.current);
       if (intervalDebounceRef.current) window.clearTimeout(intervalDebounceRef.current);
@@ -759,6 +765,43 @@ export function SettingsDrawer({
                         hapticSetting === lvl
                           ? 'bg-emerald-500 text-white shadow-sm'
                           : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                    Sound Effects
+                  </span>
+                  <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                    Boot chime, alerts &amp; action feedback.
+                  </p>
+                </div>
+                <div
+                  role="group"
+                  aria-label="Sound effects level"
+                  className="inline-flex shrink-0 rounded-xl bg-stone-100 dark:bg-zinc-900 p-0.5 border border-stone-200 dark:border-zinc-800"
+                >
+                  {(['off', 'soft', 'crisp'] as const).map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      aria-pressed={soundSetting === lvl}
+                      onClick={() => {
+                        setSoundLevel(lvl);
+                        setSoundSetting(lvl);
+                        triggerHaptic('tick');
+                        if (lvl !== 'off') playSound('tap');
+                      }}
+                      className={`min-h-[36px] px-2.5 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                        soundSetting === lvl
+                          ? 'bg-emerald-700 text-white shadow-sm'
+                          : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white'
                       }`}
                     >
                       {lvl}

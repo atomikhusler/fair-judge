@@ -7,10 +7,12 @@ import {
   Copy,
   Inbox,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { AdminReportFull, AdminReportSummary, adminService } from '../adminService';
 import {
   BackButton,
+  BottomSheet,
   EmptyState,
   GroupedList,
   ListRow,
@@ -21,6 +23,7 @@ import {
   showAdminToast,
 } from '../ui';
 import { triggerHaptic } from '../../lib/haptics';
+import { playSound } from '../../lib/sound';
 import {
   detectReportVerdict,
   extractReadableFacts,
@@ -58,6 +61,8 @@ export default function InboxDetail({
 
   const [adminNote, setAdminNote] = useState(cachedSummary?.admin_note || '');
   const [isSaving, setIsSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [showFullReport, setShowFullReport] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [copiedJson, setCopiedJson] = useState(false);
@@ -132,6 +137,7 @@ export default function InboxDetail({
       const res = await adminService.setReportStatus(reportId, nextStatus, adminNote);
       if (!res?.ok) throw new Error(res?.error || 'Could not update status.');
       triggerHaptic('success');
+      playSound('success');
       showAdminToast(
         nextStatus === 'resolved' ? 'Report marked Resolved.' : 'Report marked Seen.',
         { tone: 'success' }
@@ -145,6 +151,7 @@ export default function InboxDetail({
       await onReportUpdated();
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Failed to update report.', { tone: 'error' });
     } finally {
       setIsSaving(false);
@@ -159,6 +166,7 @@ export default function InboxDetail({
       const res = await adminService.setReportStatus(reportId, statusToKeep, adminNote);
       if (!res?.ok) throw new Error(res?.error || 'Could not save note.');
       triggerHaptic('success');
+      playSound('success');
       showAdminToast('Note saved.', { tone: 'success' });
       setReport((prev) =>
         prev ? { ...prev, status: statusToKeep, admin_note: adminNote } : prev
@@ -169,9 +177,31 @@ export default function InboxDetail({
       await onReportUpdated();
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Failed to save note.', { tone: 'error' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!isOnline || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const res = await adminService.deleteReport(reportId);
+      if (!res?.ok) throw new Error(res?.error || 'Could not delete report.');
+      setShowDeleteConfirm(false);
+      triggerHaptic('success');
+      playSound('success');
+      showAdminToast('Report deleted.', { tone: 'success' });
+      await onReportUpdated();
+      onBack();
+    } catch (err: any) {
+      triggerHaptic('warning');
+      playSound('warning');
+      showAdminToast(err?.message || 'Failed to delete report.', { tone: 'error' });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -181,9 +211,11 @@ export default function InboxDetail({
       await navigator.clipboard.writeText(activeItem.summary);
       setCopiedSummary(true);
       triggerHaptic('success');
+      playSound('success');
       showAdminToast('Summary copied.', { tone: 'success' });
     } catch {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast('Copy failed.', { tone: 'error' });
     }
   };
@@ -194,9 +226,11 @@ export default function InboxDetail({
       await navigator.clipboard.writeText(JSON.stringify(report.report, null, 2));
       setCopiedJson(true);
       triggerHaptic('success');
+      playSound('success');
       showAdminToast('Full report JSON copied.', { tone: 'success' });
     } catch {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast('Copy failed.', { tone: 'error' });
     }
   };
@@ -430,9 +464,61 @@ export default function InboxDetail({
                 </div>
               )}
             </section>
+
+            {/* Danger zone: Permanent Delete */}
+            <GroupedList>
+              <ListRow
+                danger
+                leading={<Trash2 className="w-5 h-5" />}
+                title="Delete report"
+                subtitle="Permanently remove this report from Inbox"
+                disabled={!isOnline || isSaving || isDeleting}
+                onClick={() => {
+                  playSound('tap');
+                  setShowDeleteConfirm(true);
+                }}
+              />
+            </GroupedList>
           </>
         )}
       </div>
+
+      <BottomSheet
+        open={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        closeDisabled={isDeleting}
+        title="Delete this report?"
+        subtitle={activeItem?.org_id ? `Report from ${activeItem.org_id}` : 'Support report'}
+      >
+        <div className="space-y-4">
+          <p className="admin-body text-zinc-700 dark:text-zinc-300">
+            This permanently deletes the diagnostic report and its attached log payload from the database.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => setShowDeleteConfirm(false)}
+              className="admin-press min-h-[44px] rounded-xl bg-zinc-200/80 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[14px] font-semibold cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isDeleting || !isOnline}
+              onClick={() => void handleConfirmDelete()}
+              className="admin-press min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-[14px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {isDeleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
     </div>
   );
 }

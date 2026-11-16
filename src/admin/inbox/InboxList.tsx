@@ -1,7 +1,17 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Inbox, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Inbox, AlertTriangle, Search, X, Trash2, Loader2 } from 'lucide-react';
 import { adminService, AdminReportSummary } from '../adminService';
-import { EmptyState, GroupedList, ListRow, Segmented, Skel } from '../ui';
+import {
+  BottomSheet,
+  EmptyState,
+  GroupedList,
+  ListRow,
+  Segmented,
+  Skel,
+  showAdminToast,
+} from '../ui';
+import { triggerHaptic } from '../../lib/haptics';
+import { playSound } from '../../lib/sound';
 import {
   InboxFilter,
   detectReportVerdict,
@@ -30,9 +40,12 @@ export function InboxList({
   onSelectReport,
 }: InboxListProps) {
   const [filter, setFilter] = useState<InboxFilter>('all');
+  const [search, setSearch] = useState('');
   const [reports, setReports] = useState<AdminReportSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [confirmClearResolved, setConfirmClearResolved] = useState(false);
+  const [isClearingResolved, setIsClearingResolved] = useState(false);
 
   const [allowEntranceAnim, setAllowEntranceAnim] = useState(true);
   const entranceUsedRef = useRef(false);
@@ -69,18 +82,102 @@ export function InboxList({
   const handleFilterChange = (next: InboxFilter) => {
     entranceUsedRef.current = true;
     setAllowEntranceAnim(false);
+    playSound('tap');
     setFilter(next);
+  };
+
+  const resolvedCount = useMemo(
+    () => reports.filter((r) => r.status === 'resolved').length,
+    [reports]
+  );
+
+  const visibleReports = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return reports;
+    return reports.filter(
+      (r) =>
+        (r.org_id || 'public').toLowerCase().includes(q) ||
+        (r.role || '').toLowerCase().includes(q) ||
+        (r.summary || '').toLowerCase().includes(q)
+    );
+  }, [reports, search]);
+
+  const handleConfirmClearResolved = async () => {
+    if (!isOnline || isClearingResolved) return;
+    setIsClearingResolved(true);
+    try {
+      const res = await adminService.clearResolvedReports();
+      if (!res?.ok) throw new Error('Could not clear resolved reports.');
+      const count = res.deleted_count ?? 0;
+      setConfirmClearResolved(false);
+      triggerHaptic('success');
+      playSound('success');
+      showAdminToast(
+        count > 0 ? `Cleared ${count} resolved report(s).` : 'No resolved reports to clear.',
+        { tone: 'success' }
+      );
+      await loadReports();
+    } catch (err: any) {
+      triggerHaptic('warning');
+      playSound('warning');
+      showAdminToast(err?.message || 'Failed to clear resolved reports.', { tone: 'error' });
+    } finally {
+      setIsClearingResolved(false);
+    }
   };
 
   return (
     <div className="space-y-4">
-      <div className="sticky top-[48px] md:top-0 z-10 bg-zinc-50 dark:bg-zinc-950 pt-1 pb-2">
+      <div className="sticky top-[48px] md:top-0 z-10 bg-zinc-50 dark:bg-zinc-950 pt-1 pb-2 space-y-2.5">
         <Segmented
           options={FILTER_OPTIONS}
           value={filter}
           onChange={handleFilterChange}
           ariaLabel="Inbox report filter"
         />
+
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
+            <Search
+              aria-hidden="true"
+              className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter by org, role, or summary..."
+              aria-label="Filter inbox reports"
+              className="w-full min-h-[40px] pl-9 pr-8 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[13px] text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-500/60"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {resolvedCount > 0 && (
+            <button
+              type="button"
+              disabled={!isOnline || isClearingResolved}
+              onClick={() => {
+                triggerHaptic('light');
+                playSound('tap');
+                setConfirmClearResolved(true);
+              }}
+              className="admin-press shrink-0 min-h-[40px] px-3 rounded-xl bg-zinc-200/80 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 disabled:opacity-50 text-zinc-800 dark:text-zinc-200 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear resolved ({resolvedCount})</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -107,20 +204,22 @@ export function InboxList({
         </GroupedList>
       )}
 
-      {!isLoading && !error && reports.length === 0 && (
+      {!isLoading && !error && visibleReports.length === 0 && (
         <EmptyState
           icon={<Inbox className="w-5 h-5" />}
           message={
-            filter === 'all'
+            search.trim()
+              ? 'No reports match your search.'
+              : filter === 'all'
               ? 'No diagnostic reports yet.'
               : `No ${getStatusLabel(filter).toLowerCase()} reports.`
           }
         />
       )}
 
-      {!error && reports.length > 0 && (
+      {!error && visibleReports.length > 0 && (
         <GroupedList>
-          {reports.map((item, idx) => {
+          {visibleReports.map((item, idx) => {
             const verdict = detectReportVerdict(item.summary);
             const isSelected = selectedReportId === item.id;
             const isNew = item.status === 'new';
@@ -128,7 +227,10 @@ export function InboxList({
               <ListRow
                 key={item.id}
                 animateIndex={allowEntranceAnim && idx < 8 ? idx : undefined}
-                onClick={() => onSelectReport(item)}
+                onClick={() => {
+                  playSound('tap');
+                  onSelectReport(item);
+                }}
                 className={
                   isSelected
                     ? 'md:bg-violet-600/8 dark:md:bg-violet-500/12'
@@ -179,6 +281,43 @@ export function InboxList({
           })}
         </GroupedList>
       )}
+
+      <BottomSheet
+        open={confirmClearResolved}
+        onClose={() => setConfirmClearResolved(false)}
+        closeDisabled={isClearingResolved}
+        title="Clear resolved reports?"
+        subtitle={`${resolvedCount} resolved report(s) will be removed.`}
+      >
+        <div className="space-y-4">
+          <p className="admin-body text-zinc-700 dark:text-zinc-300">
+            This permanently deletes all reports marked Resolved from Inbox. Unread and Seen reports remain untouched.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={isClearingResolved}
+              onClick={() => setConfirmClearResolved(false)}
+              className="admin-press min-h-[44px] rounded-xl bg-zinc-200/80 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[14px] font-semibold cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isClearingResolved || !isOnline}
+              onClick={() => void handleConfirmClearResolved()}
+              className="admin-press min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-[14px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {isClearingResolved ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              <span>{isClearingResolved ? 'Clearing...' : 'Clear resolved'}</span>
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
     </div>
   );
 }

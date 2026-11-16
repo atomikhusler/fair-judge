@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { triggerHaptic } from '../../lib/haptics';
 
@@ -107,12 +108,12 @@ export function BottomSheet({
 
   if (!open) return null;
 
-  return (
+  const sheet = (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={title || 'Dialog'}
-      className="fixed inset-0 z-50 bg-black/60 flex items-end md:items-center justify-center md:p-4 admin-overlay-in"
+      className="fixed inset-0 z-[90] bg-black/60 flex items-end md:items-center justify-center md:p-4 admin-overlay-in"
       onClick={() => {
         if (!closeDisabled) onClose();
       }}
@@ -121,7 +122,7 @@ export function BottomSheet({
         ref={panelRef}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${maxWidthClass} max-h-[calc(100dvh-2rem)] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-t-2xl md:rounded-2xl flex flex-col overflow-hidden focus:outline-none admin-sheet-in pb-[env(safe-area-inset-bottom)] md:pb-0`}
+        className={`w-full ${maxWidthClass} max-h-[calc(100dvh-1.5rem)] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-t-2xl md:rounded-2xl flex flex-col overflow-hidden focus:outline-none admin-sheet-in pb-[env(safe-area-inset-bottom)] md:pb-0`}
       >
         {/* Drag handle on mobile sheets (<768px) */}
         <div className="md:hidden pt-2.5 pb-1 flex justify-center shrink-0" aria-hidden="true">
@@ -163,4 +164,6 @@ export function BottomSheet({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(sheet, document.body) : sheet;
 }

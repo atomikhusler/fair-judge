@@ -239,6 +239,19 @@ export const adminService = {
     });
   },
 
+  deleteSecurityEvent(id: number) {
+    return callAdminRpc<{ ok: boolean; id?: number; error?: string }>('admin_delete_security_event', {
+      p_id: id,
+    });
+  },
+
+  clearSecurityEvents(mode: 'expired' | 'all' = 'expired') {
+    return callAdminRpc<{ ok: boolean; mode?: string; deleted_count: number; error?: string }>(
+      'admin_clear_security_events',
+      { p_mode: mode }
+    );
+  },
+
   listAudit(limit = 50): Promise<AdminAuditEntry[]> {
     return callAdminRpc<AdminAuditEntry[]>('admin_list_audit', {
       p_limit: limit,
@@ -253,6 +266,12 @@ export const adminService = {
 
   listAnnouncements(): Promise<AdminAnnouncement[]> {
     return callAdminRpc<AdminAnnouncement[]>('admin_list_announcements');
+  },
+
+  listOrgAnnouncements(orgId: string): Promise<AdminAnnouncement[]> {
+    return callAdminRpc<AdminAnnouncement[]>('admin_list_org_announcements', {
+      p_org_id: orgId,
+    });
   },
 
   saveAnnouncement(payload: {
@@ -279,9 +298,19 @@ export const adminService = {
   },
 
   endAnnouncement(id: string) {
-    return callAdminRpc<{ ok: boolean }>('admin_end_announcement', {
+    return callAdminRpc<{ ok: boolean; error?: string }>('admin_end_announcement', {
       p_id: id,
     });
+  },
+
+  deleteAnnouncement(id: string) {
+    return callAdminRpc<{ ok: boolean; id?: string; error?: string }>('admin_delete_announcement', {
+      p_id: id,
+    });
+  },
+
+  clearEndedAnnouncements() {
+    return callAdminRpc<{ ok: boolean; deleted_count: number }>('admin_clear_ended_announcements');
   },
 
   listReports(status: 'all' | 'new' | 'acknowledged' | 'resolved' = 'all', limit = 50): Promise<AdminReportSummary[]> {
@@ -303,5 +332,15 @@ export const adminService = {
       p_status: status,
       p_note: note ?? null,
     });
+  },
+
+  deleteReport(id: string) {
+    return callAdminRpc<{ ok: boolean; id?: string; error?: string }>('admin_delete_report', {
+      p_id: id,
+    });
+  },
+
+  clearResolvedReports() {
+    return callAdminRpc<{ ok: boolean; deleted_count: number }>('admin_clear_resolved_reports');
   },
 };

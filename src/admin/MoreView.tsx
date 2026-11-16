@@ -9,6 +9,8 @@ import {
   Sun,
   Moon,
   AlertTriangle,
+  Volume2,
+  Smartphone,
 } from 'lucide-react';
 import {
   ScreenHeader,
@@ -23,6 +25,8 @@ import { adminService, AdminAuditEntry } from './adminService';
 import { NoticesList } from './notices/NoticesList';
 import { AlertsTab } from './AlertsTab';
 import { useTheme } from '../lib/theme';
+import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../lib/haptics';
+import { getSoundLevel, setSoundLevel, playSound, SOUND_CHANGE_EVENT, SoundLevel } from '../lib/sound';
 
 interface MoreViewProps {
   section: AdminMoreSection | null;
@@ -52,7 +56,13 @@ const ACTION_LABELS: Record<string, string> = {
   create_announcement: 'Notice posted',
   update_announcement: 'Notice updated',
   end_announcement: 'Notice ended',
+  delete_announcement: 'Notice deleted',
+  clear_ended_announcements: 'Ended notices cleared',
   set_report_status: 'Support report updated',
+  delete_report: 'Support report deleted',
+  clear_resolved_reports: 'Resolved reports cleared',
+  delete_security_event: 'Alert deleted',
+  clear_security_events: 'Alerts cleared',
 };
 
 function formatDetail(entry: AdminAuditEntry): string {
@@ -72,6 +82,15 @@ function formatDetail(entry: AdminAuditEntry): string {
   }
   if (entry.action === 'create_announcement' || entry.action === 'update_announcement') {
     return d.title ? `"${d.title}" · ${d.audience || 'all'}` : 'Notice saved';
+  }
+  if (entry.action === 'delete_announcement') {
+    return d.title ? `"${d.title}"` : 'Deleted permanently';
+  }
+  if (entry.action === 'clear_security_events') {
+    return `Cleared ${d.deleted_count ?? 0} (${d.mode || 'expired'})`;
+  }
+  if (entry.action === 'clear_resolved_reports' || entry.action === 'clear_ended_announcements') {
+    return `Cleared ${d.deleted_count ?? 0} item(s)`;
   }
   if (entry.action === 'set_report_status') {
     return `Marked ${d.status || 'updated'}`;
@@ -228,6 +247,14 @@ export function MoreView({
 }: MoreViewProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
+  const [hapticSetting, setHapticSetting] = useState<HapticStrength>(() => getHapticStrength());
+  const [soundSetting, setSoundSetting] = useState<SoundLevel>(() => getSoundLevel());
+
+  useEffect(() => {
+    const syncSound = () => setSoundSetting(getSoundLevel());
+    window.addEventListener(SOUND_CHANGE_EVENT, syncSound);
+    return () => window.removeEventListener(SOUND_CHANGE_EVENT, syncSound);
+  }, []);
 
   if (section === 'notices') {
     return (
@@ -317,6 +344,7 @@ export function MoreView({
             disabled={!isOnline || isRefreshing}
             onClick={() => {
               void onRefresh().then(() => {
+                playSound('success');
                 showAdminToast('Platform data refreshed.', { tone: 'success' });
               });
             }}
@@ -326,7 +354,78 @@ export function MoreView({
             leading={isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             title="Appearance"
             trailing={isDark ? 'Dark' : 'Light'}
-            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            onClick={() => {
+              playSound('tap');
+              setTheme(isDark ? 'light' : 'dark');
+            }}
+          />
+          <ListRow
+            animateIndex={5}
+            leading={<Volume2 className="w-5 h-5" />}
+            title="Sound Effects"
+            subtitle="Alerts, actions & console feedback"
+            trailing={
+              <div
+                role="group"
+                aria-label="Admin console sound effects"
+                className="inline-flex rounded-xl bg-zinc-100 dark:bg-zinc-800 p-0.5 border border-zinc-200 dark:border-zinc-700"
+              >
+                {(['off', 'soft', 'crisp'] as const).map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    aria-pressed={soundSetting === lvl}
+                    onClick={() => {
+                      setSoundLevel(lvl);
+                      setSoundSetting(lvl);
+                      triggerHaptic('tick');
+                      if (lvl !== 'off') playSound('tap');
+                    }}
+                    className={`min-h-[36px] px-2.5 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                      soundSetting === lvl
+                        ? 'bg-violet-600 text-white shadow-xs'
+                        : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white'
+                    }`}
+                  >
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          <ListRow
+            animateIndex={6}
+            leading={<Smartphone className="w-5 h-5" />}
+            title="Haptics"
+            subtitle="Tactile vibration strength"
+            trailing={
+              <div
+                role="group"
+                aria-label="Admin console haptics"
+                className="inline-flex rounded-xl bg-zinc-100 dark:bg-zinc-800 p-0.5 border border-zinc-200 dark:border-zinc-700"
+              >
+                {(['off', 'low', 'medium', 'strong'] as const).map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    aria-pressed={hapticSetting === lvl}
+                    onClick={() => {
+                      setHapticStrength(lvl);
+                      setHapticSetting(lvl);
+                      triggerHaptic('tick');
+                      playSound('tap');
+                    }}
+                    className={`min-h-[36px] px-2 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                      hapticSetting === lvl
+                        ? 'bg-violet-600 text-white shadow-xs'
+                        : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white'
+                    }`}
+                  >
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+            }
           />
         </GroupedList>
 

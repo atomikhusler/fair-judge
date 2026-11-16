@@ -1,8 +1,17 @@
 import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Building2 } from 'lucide-react';
-import { AdminOrg, adminService } from '../adminService';
+import {
+  AlertTriangle,
+  BellRing,
+  Building2,
+  Loader2,
+  Plus,
+  PowerOff,
+  Trash2,
+} from 'lucide-react';
+import { AdminAnnouncement, AdminOrg, adminService } from '../adminService';
 import {
   BackButton,
+  BottomSheet,
   EmptyState,
   GroupedList,
   ListRow,
@@ -12,11 +21,31 @@ import {
   showAdminToast,
 } from '../ui';
 import { triggerHaptic } from '../../lib/haptics';
+import { playSound } from '../../lib/sound';
 import { OrgActions } from './OrgActions';
 import { formatFullDate, getOrgInitials, getOrgStatus } from './orgUtils';
 import type { ActiveOrgDialog, TempPasswordReveal } from './dialogs';
 
 const OrgDialogs = lazy(() => import('./dialogs'));
+const NoticeEditor = lazy(() => import('../notices/NoticeEditor'));
+
+function isWarningLive(item: AdminAnnouncement): boolean {
+  if (!item.active) return false;
+  if (!item.ends_at) return true;
+  return new Date(item.ends_at).getTime() > Date.now();
+}
+
+function formatWarningTime(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 interface OrgDetailProps {
   orgId: string;
@@ -43,6 +72,14 @@ export default function OrgDetail({
   const [activeDialog, setActiveDialog] = useState<ActiveOrgDialog>(null);
   const [tempPasswordInfo, setTempPasswordInfo] = useState<TempPasswordReveal | null>(null);
 
+  // Per-organiser warnings & notices state
+  const [orgWarnings, setOrgWarnings] = useState<AdminAnnouncement[]>([]);
+  const [warningEditorOpen, setWarningEditorOpen] = useState(false);
+  const [editingWarning, setEditingWarning] = useState<AdminAnnouncement | null>(null);
+  const [revokingWarningId, setRevokingWarningId] = useState<string | null>(null);
+  const [deletingWarning, setDeletingWarning] = useState<AdminAnnouncement | null>(null);
+  const [isDeletingWarning, setIsDeletingWarning] = useState(false);
+
   useEffect(() => {
     if (cachedOrg && cachedOrg.org_id === orgId) {
       setOrg(cachedOrg);
@@ -57,13 +94,17 @@ export default function OrgDetail({
     setIsLoading((prev) => (org?.org_id === orgId ? prev : true));
     setError(null);
     try {
-      const activeList = await adminService.listOrgs('all', orgId);
+      const [activeList, warnings] = await Promise.all([
+        adminService.listOrgs('all', orgId),
+        adminService.listOrgAnnouncements(orgId).catch(() => [] as AdminAnnouncement[]),
+      ]);
       let found = activeList.find((item) => item.org_id === orgId) || null;
       if (!found) {
         const deletedList = await adminService.listOrgs('deleted', orgId);
         found = deletedList.find((item) => item.org_id === orgId) || null;
       }
       setOrg(found);
+      setOrgWarnings(Array.isArray(warnings) ? warnings : []);
     } catch (err: any) {
       setError(err?.message || 'Could not load organiser details.');
     } finally {
@@ -104,6 +145,7 @@ export default function OrgDetail({
       const res = await adminService.setVerification(org.org_id, status, reason);
       if (!res?.ok) throw new Error(res?.error || 'Could not update verification.');
       triggerHaptic('success');
+      playSound('success');
       showAdminToast(
         status === 'verified'
           ? `${org.name} verified.`
@@ -117,6 +159,7 @@ export default function OrgDetail({
       await onOrgMutated(org.org_id);
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Verification update failed.', { tone: 'error' });
     } finally {
       setIsBusy(false);
@@ -130,6 +173,7 @@ export default function OrgDetail({
       const res = await adminService.setSuspended(org.org_id, suspended, reason);
       if (!res?.ok) throw new Error(res?.error || 'Could not update account state.');
       triggerHaptic('success');
+      playSound('success');
       showAdminToast(
         suspended ? `${org.name} suspended.` : `${org.name} reactivated.`,
         { tone: 'success' }
@@ -139,6 +183,7 @@ export default function OrgDetail({
       await onOrgMutated(org.org_id);
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Account update failed.', { tone: 'error' });
     } finally {
       setIsBusy(false);
@@ -154,6 +199,7 @@ export default function OrgDetail({
         throw new Error(res?.error || 'Could not reset password.');
       }
       triggerHaptic('success');
+      playSound('success');
       setActiveDialog(null);
       setTempPasswordInfo({
         orgId: org.org_id,
@@ -165,6 +211,7 @@ export default function OrgDetail({
       await onOrgMutated(org.org_id);
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Password reset failed.', { tone: 'error' });
     } finally {
       setIsBusy(false);
@@ -180,16 +227,19 @@ export default function OrgDetail({
       const res = await adminService.softDeleteOrg(targetId);
       if (!res?.ok) throw new Error(res?.error || 'Could not move organiser to bin.');
       triggerHaptic('success');
+      playSound('success');
       showAdminToast(`${targetName} moved to bin.`, {
         tone: 'info',
         undoLabel: 'Undo',
         onUndo: async () => {
           const restoreRes = await adminService.restoreOrg(targetId);
           if (!restoreRes?.ok) {
+            playSound('warning');
             showAdminToast(restoreRes?.error || 'Could not restore organiser.', { tone: 'error' });
             return;
           }
           triggerHaptic('success');
+          playSound('success');
           showAdminToast(`${targetName} restored.`, { tone: 'success' });
           await onOrgMutated(targetId);
         },
@@ -197,6 +247,7 @@ export default function OrgDetail({
       await onOrgMutated(targetId, { navigateAway: true });
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Move to bin failed.', { tone: 'error' });
     } finally {
       setIsBusy(false);
@@ -210,11 +261,13 @@ export default function OrgDetail({
       const res = await adminService.restoreOrg(org.org_id);
       if (!res?.ok) throw new Error(res?.error || 'Could not restore organiser.');
       triggerHaptic('success');
+      playSound('success');
       showAdminToast(`${org.name} restored.`, { tone: 'success' });
       await loadOrgDetail();
       await onOrgMutated(org.org_id);
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Restore failed.', { tone: 'error' });
     } finally {
       setIsBusy(false);
@@ -229,6 +282,7 @@ export default function OrgDetail({
       const res = await adminService.purgeDeleted(0);
       if (!res?.ok) throw new Error('Could not permanently delete bin.');
       triggerHaptic('success');
+      playSound('success');
       setActiveDialog(null);
       const count = res.purged_count ?? 0;
       showAdminToast(
@@ -238,9 +292,49 @@ export default function OrgDetail({
       await onOrgMutated(targetId, { navigateAway: true });
     } catch (err: any) {
       triggerHaptic('warning');
+      playSound('warning');
       showAdminToast(err?.message || 'Permanent delete failed.', { tone: 'error' });
     } finally {
       setIsBusy(false);
+    }
+  };
+
+  const handleRevokeWarning = async (item: AdminAnnouncement) => {
+    if (!org || !isOnline || revokingWarningId || isDeletingWarning) return;
+    setRevokingWarningId(item.id);
+    try {
+      const res = await adminService.endAnnouncement(item.id);
+      if (!res?.ok) throw new Error('Could not revoke warning.');
+      triggerHaptic('success');
+      playSound('success');
+      showAdminToast(`Revoked "${item.title}".`, { tone: 'success' });
+      await Promise.all([loadOrgDetail(), onOrgMutated(org.org_id)]);
+    } catch (err: any) {
+      triggerHaptic('warning');
+      playSound('warning');
+      showAdminToast(err?.message || 'Could not revoke warning.', { tone: 'error' });
+    } finally {
+      setRevokingWarningId(null);
+    }
+  };
+
+  const handleDeleteWarning = async () => {
+    if (!org || !deletingWarning || !isOnline || isDeletingWarning) return;
+    setIsDeletingWarning(true);
+    try {
+      const res = await adminService.deleteAnnouncement(deletingWarning.id);
+      if (!res?.ok) throw new Error('Could not delete warning.');
+      setDeletingWarning(null);
+      triggerHaptic('success');
+      playSound('success');
+      showAdminToast('Warning deleted permanently.', { tone: 'success' });
+      await Promise.all([loadOrgDetail(), onOrgMutated(org.org_id)]);
+    } catch (err: any) {
+      triggerHaptic('warning');
+      playSound('warning');
+      showAdminToast(err?.message || 'Could not delete warning.', { tone: 'error' });
+    } finally {
+      setIsDeletingWarning(false);
     }
   };
 
@@ -389,6 +483,145 @@ export default function OrgDetail({
                 <ListRow title="Scores" trailing={org.scores_count} />
               </GroupedList>
 
+              {/* Direct Warnings & Targeted Notices */}
+              <section className="space-y-2">
+                <div className="flex items-center justify-between gap-2 px-4 sm:px-1">
+                  <h2 className="admin-caption font-semibold text-zinc-500 dark:text-zinc-400">
+                    Warnings &amp; notices
+                  </h2>
+                  {!org.deleted_at && (
+                    <button
+                      type="button"
+                      disabled={!isOnline || isBusy}
+                      onClick={() => {
+                        triggerHaptic('light');
+                        playSound('tap');
+                        setEditingWarning(null);
+                        setWarningEditorOpen(true);
+                      }}
+                      className="admin-press min-h-[34px] px-3 rounded-xl bg-amber-700 hover:bg-amber-800 disabled:opacity-50 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Send warning</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+                  {orgWarnings.length === 0 ? (
+                    <ListRow
+                      leading={<BellRing className="w-5 h-5 text-amber-600 dark:text-amber-400" />}
+                      title="No targeted warnings"
+                      subtitle={`Send a direct banner warning to ${org.name}'s dashboards.`}
+                      chevron={!org.deleted_at}
+                      disabled={!isOnline || Boolean(org.deleted_at)}
+                      onClick={
+                        !org.deleted_at
+                          ? () => {
+                              playSound('tap');
+                              setEditingWarning(null);
+                              setWarningEditorOpen(true);
+                            }
+                          : undefined
+                      }
+                    />
+                  ) : (
+                    orgWarnings.map((item) => {
+                      const live = isWarningLive(item);
+                      const isRevoking = revokingWarningId === item.id;
+                      const sevLabel =
+                        item.severity === 'urgent'
+                          ? 'Urgent'
+                          : item.severity === 'warning'
+                            ? 'Warning'
+                            : 'Info';
+                      const timeText = item.ends_at
+                        ? live
+                          ? `Ends ${formatWarningTime(item.ends_at)}`
+                          : `Ended ${formatWarningTime(item.ends_at)}`
+                        : `Posted ${formatWarningTime(item.starts_at)}`;
+
+                      return (
+                        <ListRow
+                          key={item.id}
+                          title={
+                            <button
+                              type="button"
+                              onClick={() => {
+                                triggerHaptic('light');
+                                playSound('tap');
+                                setEditingWarning(item);
+                                setWarningEditorOpen(true);
+                              }}
+                              className="w-full text-left font-medium text-zinc-900 dark:text-zinc-100 hover:text-violet-600 dark:hover:text-violet-400 truncate cursor-pointer focus:outline-none"
+                            >
+                              {item.title}
+                            </button>
+                          }
+                          subtitle={
+                            <button
+                              type="button"
+                              onClick={() => {
+                                triggerHaptic('light');
+                                playSound('tap');
+                                setEditingWarning(item);
+                                setWarningEditorOpen(true);
+                              }}
+                              className="w-full text-left truncate cursor-pointer focus:outline-none"
+                            >
+                              {sevLabel} · {timeText}
+                            </button>
+                          }
+                          trailing={
+                            <div className="flex items-center gap-1.5">
+                              <StatusChip
+                                tone={live ? (item.severity === 'urgent' ? 'problem' : 'waiting') : 'neutral'}
+                                label={live ? 'Live' : 'Ended'}
+                              />
+                              {live && (
+                                <button
+                                  type="button"
+                                  disabled={!isOnline || isRevoking || isDeletingWarning}
+                                  onClick={() => {
+                                    triggerHaptic('light');
+                                    playSound('tap');
+                                    void handleRevokeWarning(item);
+                                  }}
+                                  aria-label={`Revoke warning ${item.title}`}
+                                  title="Revoke warning"
+                                  className="admin-press min-h-[36px] px-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 disabled:opacity-50 text-amber-700 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  {isRevoking ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <PowerOff className="w-3.5 h-3.5" />
+                                  )}
+                                  <span className="hidden sm:inline">Revoke</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={!isOnline || isRevoking || isDeletingWarning}
+                                onClick={() => {
+                                  triggerHaptic('light');
+                                  playSound('tap');
+                                  setDeletingWarning(item);
+                                }}
+                                aria-label={`Delete warning ${item.title}`}
+                                title="Delete warning"
+                                className="admin-press min-h-[36px] min-w-[36px] rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-red-500/40 hover:bg-red-500/10 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          }
+                        />
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+
               {/* Actions */}
               <OrgActions
                 org={org}
@@ -421,7 +654,57 @@ export default function OrgDetail({
                   onConfirmResetPassword={handleResetPassword}
                   onConfirmPurgeBin={handlePurgeBin}
                 />
+
+                <NoticeEditor
+                  open={warningEditorOpen}
+                  notice={editingWarning}
+                  isOnline={isOnline}
+                  defaultSeverity="warning"
+                  defaultAudience="org"
+                  defaultTargetOrgId={org.org_id}
+                  onClose={() => setWarningEditorOpen(false)}
+                  onSaved={async () => {
+                    await Promise.all([loadOrgDetail(), onOrgMutated(org.org_id)]);
+                  }}
+                />
               </Suspense>
+
+              <BottomSheet
+                open={deletingWarning !== null}
+                onClose={() => setDeletingWarning(null)}
+                closeDisabled={isDeletingWarning}
+                title="Delete warning permanently?"
+                subtitle={deletingWarning?.title || 'Warning'}
+              >
+                <div className="space-y-4">
+                  <p className="admin-body text-zinc-700 dark:text-zinc-300">
+                    This permanently removes this targeted warning from admin history and clears it from {org.name}&apos;s active banners and inbox.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      disabled={isDeletingWarning}
+                      onClick={() => setDeletingWarning(null)}
+                      className="admin-press min-h-[44px] rounded-xl bg-zinc-200/80 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-[14px] font-semibold cursor-pointer disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeletingWarning || !isOnline}
+                      onClick={() => void handleDeleteWarning()}
+                      className="admin-press min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white text-[14px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {isDeletingWarning ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                      <span>{isDeletingWarning ? 'Deleting...' : 'Delete'}</span>
+                    </button>
+                  </div>
+                </div>
+              </BottomSheet>
             </>
           );
         })()}
