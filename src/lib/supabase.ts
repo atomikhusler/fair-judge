@@ -881,14 +881,7 @@ export const dbService = {
     return updated;
   },
 
-  async resetOrganizationData(orgId: string): Promise<void> {
-    const cleanOrgId = orgId.toUpperCase().trim();
-
-    if (isSupabaseConfigured()) {
-      await callSecuredWriteRpc('org_reset_data', { p_org_id: cleanOrgId });
-    }
-
-    // Clear local cache for this org
+  async _purgeLocalCompetitionCache(cleanOrgId: string): Promise<void> {
     const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
     const orgEventIds = new Set(
       events.filter((e) => (e.org_id || '').toUpperCase().trim() === cleanOrgId).map((e) => e.id)
@@ -935,6 +928,143 @@ export const dbService = {
       judgeIds: orgJudgeIds,
     });
     eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
+  },
+
+  async clearOrgWorkAndInvalidateCache(orgId: string): Promise<void> {
+    const cleanOrgId = orgId.toUpperCase().trim();
+    const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
+    const orgEventIds = new Set(
+      events.filter((e) => (e.org_id || '').toUpperCase().trim() === cleanOrgId).map((e) => e.id)
+    );
+    const participants = loadCache<SupabaseParticipant>(STORAGE_KEYS.PARTICIPANTS, []);
+    const orgParticipantIds = new Set(
+      participants.filter((p) => (p.org_id || '').toUpperCase().trim() === cleanOrgId).map((p) => p.id)
+    );
+    const judges = loadCache<SupabaseJudge>(STORAGE_KEYS.JUDGES, []);
+    const orgJudgeIds = new Set(
+      judges.filter((j) => (j.org_id || '').toUpperCase().trim() === cleanOrgId).map((j) => j.id)
+    );
+
+    await invalidateCache();
+    await clearOfflineWorkForOrg(cleanOrgId, {
+      eventIds: orgEventIds,
+      participantIds: orgParticipantIds,
+      judgeIds: orgJudgeIds,
+    });
+    eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
+  },
+
+  async resetOrganizationData(orgId: string): Promise<void> {
+    const cleanOrgId = orgId.toUpperCase().trim();
+
+    if (isSupabaseConfigured()) {
+      await callSecuredWriteRpc('org_reset_data', { p_org_id: cleanOrgId });
+    }
+
+    await this._purgeLocalCompetitionCache(cleanOrgId);
+  },
+
+  async resetOrganizationAll(
+    orgId: string,
+    password: string
+  ): Promise<{
+    events: number;
+    locked_events: number;
+    judges: number;
+    participants: number;
+    scores: number;
+  }> {
+    if (!isOnlineNavigator()) {
+      throw new Error('Reset needs internet');
+    }
+
+    const cleanOrgId = orgId.toUpperCase().trim();
+    const cleanPassword = password.trim();
+    if (!cleanPassword) {
+      const err = new Error('Master password is required.');
+      (err as any).code = 'invalid_credentials';
+      throw err;
+    }
+
+    let counts = {
+      events: 0,
+      locked_events: 0,
+      judges: 0,
+      participants: 0,
+      scores: 0,
+    };
+
+    if (isSupabaseConfigured()) {
+      const token = getStoredSessionToken() || '';
+      if (!token) {
+        eventBus.emit('session_expired', {
+          role: isAuthRequiredSessionRole(),
+          reason: 'missing',
+        });
+        const authErr = new Error('Session token missing. Please sign in again.');
+        (authErr as any).code = 'unauthorized';
+        throw authErr;
+      }
+
+      const { data, error } = await withReadTimeout(
+        supabase.rpc('org_reset_all', {
+          p_token: token,
+          p_org_id: cleanOrgId,
+          p_password: cleanPassword,
+        }),
+        'Master Reset (org_reset_all)',
+        20_000
+      );
+
+      if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (error.code === 'PGRST202' || error.code === '42883' || msg.includes('function public.org_reset_all')) {
+          const rpcErr = new Error('Master Reset SQL is not deployed yet. Run sql/16.3.0-master-reset-restore.sql.');
+          (rpcErr as any).code = 'rpc_unavailable';
+          throw rpcErr;
+        }
+        throw error;
+      }
+
+      const res = data as any;
+      if (!res || !res.ok) {
+        const errCode = res?.error || res?.reason || 'RPC_ERROR';
+        if (errCode === 'unauthorized') {
+          eventBus.emit('session_expired', {
+            role: isAuthRequiredSessionRole(),
+            reason: 'expired',
+          });
+          const err = new Error(res?.message || 'Session expired or invalid. Please sign in again.');
+          (err as any).code = 'unauthorized';
+          throw err;
+        }
+        if (errCode === 'too_many_attempts') {
+          const err = new Error('Too many wrong password attempts. Try again in 15 minutes.');
+          (err as any).code = 'too_many_attempts';
+          throw err;
+        }
+        if (errCode === 'invalid_credentials') {
+          const err = new Error('Wrong master password. Nothing was deleted.');
+          (err as any).code = 'invalid_credentials';
+          throw err;
+        }
+        const err = new Error(res?.message || 'Master reset rejected.');
+        (err as any).code = errCode;
+        throw err;
+      }
+
+      const payload = res.data || res;
+      counts = {
+        events: Number(payload?.events ?? 0),
+        locked_events: Number(payload?.locked_events ?? 0),
+        judges: Number(payload?.judges ?? 0),
+        participants: Number(payload?.participants ?? 0),
+        scores: Number(payload?.scores ?? 0),
+      };
+    }
+
+    await this._purgeLocalCompetitionCache(cleanOrgId);
+    return counts;
   },
 
   async deleteOrganization(orgId: string): Promise<void> {

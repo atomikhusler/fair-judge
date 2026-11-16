@@ -1,0 +1,143 @@
+{
+  "manifest": {
+    "app": "Fair Judge",
+    "schema_version": 2,
+    "min_reader_schema": 1,
+    "format_version": "2.0.0",
+    "app_version": "16.3.0",
+    "org_id": "FJ-TEST",
+    "org_name": "Heritage Arts Festival 2026",
+    "exported_at": "2026-06-01T12:00:00.000Z",
+    "counts": {
+      "events": 1,
+      "judges": 1,
+      "participants": 1,
+      "scores": 1,
+      "settings": 13
+    },
+    "checksum": "3f134c19c4eb8160a85cf992dab7c2f903b686288cc64828cf19cd24357daba9",
+    "encrypted": false
+  },
+  "payload": {
+    "events": [
+      {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "org_id": "FJ-TEST",
+        "name": "Classical Vocal",
+        "category": "Music",
+        "date": "2026-06-01",
+        "status": "ended",
+        "is_locked": true,
+        "is_archived": false,
+        "rubric_schema": [
+          {
+            "id": "c1",
+            "name": "Pitch & Rhythm",
+            "max_marks": 50
+          },
+          {
+            "id": "c2",
+            "name": "Expression",
+            "max_marks": 50
+          }
+        ],
+        "rubric": [
+          {
+            "id": "c1",
+            "name": "Pitch & Rhythm",
+            "max_marks": 50
+          },
+          {
+            "id": "c2",
+            "name": "Expression",
+            "max_marks": 50
+          }
+        ],
+        "assigned_judges": [
+          "22222222-2222-4222-8222-222222222222"
+        ],
+        "assigned_participants": [
+          "33333333-3333-4333-8333-333333333333"
+        ],
+        "participant_sl_numbers": {
+          "33333333-3333-4333-8333-333333333333": "01"
+        },
+        "created_at": "2026-05-30T10:00:00.000Z"
+      }
+    ],
+    "judges": [
+      {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "org_id": "FJ-TEST",
+        "name": "Dr. Meera Rao",
+        "judge_id": "J-01",
+        "pin": "4921",
+        "judge_pin": "4921",
+        "assigned_events": [
+          "11111111-1111-4111-8111-111111111111"
+        ],
+        "is_active": true,
+        "created_at": "2026-05-30T10:05:00.000Z"
+      }
+    ],
+    "participants": [
+      {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "org_id": "FJ-TEST",
+        "identity_id": "P-1001",
+        "sl_no": "01",
+        "name": "Aarav Sharma",
+        "school": "Sunrise Academy",
+        "class_or_age": "Grade 10",
+        "mobile_number": "9876543210",
+        "custom_values": {},
+        "is_active": true,
+        "created_at": "2026-05-30T10:10:00.000Z"
+      }
+    ],
+    "scores": [
+      {
+        "id": "44444444-4444-4444-8444-444444444444",
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "judge_id": "22222222-2222-4222-8222-222222222222",
+        "participant_id": "33333333-3333-4333-8333-333333333333",
+        "score_payload": {
+          "criteria": {
+            "c1": 46,
+            "c2": 45
+          },
+          "total_score": 91,
+          "submitted_at": "2026-06-01T11:20:00.000Z"
+        },
+        "score_data": {
+          "c1": 46,
+          "c2": 45
+        },
+        "total_score": 91,
+        "created_at": "2026-06-01T11:20:00.000Z"
+      }
+    ],
+    "settings": {
+      "name": "Heritage Arts Festival 2026",
+      "email": "fest@heritage.edu",
+      "tie_breaker_enabled": true,
+      "tie_breaker_method": "olympic",
+      "custom_participant_fields": [
+        {
+          "id": "house",
+          "name": "House",
+          "required": false,
+          "type": "text"
+        }
+      ],
+      "blind_judging_enabled": true,
+      "auto_advance_enabled": false,
+      "grace_period_enabled": true,
+      "isolated_jury_enabled": false,
+      "projector_blind_mode": false,
+      "projector_spotlight_mode": true,
+      "projector_ticker_text": "Live Finals Now",
+      "projector_carousel_interval": 45
+    }
+  }
+}

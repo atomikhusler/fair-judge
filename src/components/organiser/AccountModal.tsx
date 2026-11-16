@@ -25,16 +25,27 @@ import {
   Upload,
   ChevronDown,
   ShieldAlert,
+  Undo2,
+  KeyRound,
+  RefreshCw,
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
-import { dbService, supabase } from '../../lib/supabase';
+import { dbService, supabase, getStoredSession, setStoredSession } from '../../lib/supabase';
 import { eventBus } from '../../lib/eventBus';
+import { DB_TABLES } from '../../lib/dbTables';
 import { useToast } from '../common/ToastProvider';
 import { BackupSheet } from './backup/BackupSheet';
 import { RestoreSheet } from './backup/RestoreSheet';
 import { triggerHaptic } from '../../lib/haptics';
 import { BrandBadge } from '../shared/BrandBadge';
 import { syncNow } from '../../lib/syncEngine';
+import {
+  collectOrganizationData,
+  createBackupFromPayload,
+  hasSafetySnapshot,
+  restoreSafetySnapshot,
+  saveEncryptedSafetySnapshot,
+} from '../../lib/backup';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -79,11 +90,35 @@ export function AccountModal({
   // Double-Confirmation Sign Out Modal State (C2)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  // Danger Zone Shutter & Confirmation States (C8)
+  // Danger Zone Shutter & Confirmation States (C8 + Stage 2 Master Reset)
   const [isDangerShutterOpen, setIsDangerShutterOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetInput, setResetInput] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [downloadBackupFirst, setDownloadBackupFirst] = useState(true);
+  const [resetError, setResetError] = useState('');
+  const [resetCountsPreview, setResetCountsPreview] = useState({
+    events: 0,
+    lockedEvents: 0,
+    judges: 0,
+    participants: 0,
+    scores: 0,
+  });
+  const [resetWipedSummary, setResetWipedSummary] = useState<{
+    events: number;
+    locked_events: number;
+    judges: number;
+    participants: number;
+    scores: number;
+  } | null>(null);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [canUndoSnapshot, setCanUndoSnapshot] = useState(false);
+  const [showUndoResetPrompt, setShowUndoResetPrompt] = useState(false);
+  const [undoResetPassword, setUndoResetPassword] = useState('');
+  const [undoResetError, setUndoResetError] = useState('');
+  const [isUndoingReset, setIsUndoingReset] = useState(false);
+
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [isProcessingDanger, setIsProcessingDanger] = useState(false);
@@ -111,26 +146,43 @@ export function AccountModal({
     }
   }, [isOpen, mustChangePassword]);
 
-  // Reset transient shutter & confirmation states whenever modal closes (C8)
+  // Check if an encrypted safety snapshot exists whenever modal opens; clear transient secrets on close
   useEffect(() => {
-    if (!isOpen) {
+    if (isOpen) {
+      hasSafetySnapshot(organization.org_id)
+        .then(setCanUndoSnapshot)
+        .catch(() => setCanUndoSnapshot(false));
+    } else {
       setIsDangerShutterOpen(false);
       setShowLogoutConfirm(false);
       setShowResetConfirm(false);
       setResetSuccess(false);
       setShowDeleteConfirm(false);
       setResetInput('');
+      setResetPassword('');
+      setShowResetPassword(false);
+      setResetError('');
+      setResetWipedSummary(null);
+      setDownloadBackupFirst(true);
+      setShowUndoResetPrompt(false);
+      setUndoResetPassword('');
+      setUndoResetError('');
       setDeleteInput('');
       setIsEditingName(false);
       setIsEditingEmail(false);
     }
-  }, [isOpen]);
+  }, [isOpen, organization.org_id]);
 
   const handleCloseModal = useCallback(() => {
     setIsDangerShutterOpen(false);
     setShowLogoutConfirm(false);
     setShowResetConfirm(false);
     setResetSuccess(false);
+    setResetPassword('');
+    setResetError('');
+    setShowUndoResetPrompt(false);
+    setUndoResetPassword('');
+    setUndoResetError('');
     setShowDeleteConfirm(false);
     onClose();
   }, [onClose]);
@@ -168,10 +220,18 @@ export function AccountModal({
         setDeleteInput('');
         return;
       }
+      if (showUndoResetPrompt) {
+        setShowUndoResetPrompt(false);
+        setUndoResetPassword('');
+        setUndoResetError('');
+        return;
+      }
       if (showResetConfirm) {
         setShowResetConfirm(false);
         setResetSuccess(false);
         setResetInput('');
+        setResetPassword('');
+        setResetError('');
         return;
       }
       if (showLogoutConfirm) {
@@ -193,6 +253,7 @@ export function AccountModal({
     showRestoreSheet,
     showDeleteConfirm,
     showResetConfirm,
+    showUndoResetPrompt,
     showLogoutConfirm,
     handleCloseModal,
   ]);
@@ -332,28 +393,147 @@ export function AccountModal({
     }
   };
 
-  // Danger Zone: Reset Data
+  // Danger Zone: Open Master Reset modal with live counts preview
+  const handleOpenMasterReset = () => {
+    const evts = dbService.getCachedEvents(organization.org_id);
+    const judges = dbService.getCachedJudges(organization.org_id);
+    const parts = dbService.getCachedParticipants(organization.org_id);
+    const scores = dbService.getCachedScores(organization.org_id);
+
+    setResetCountsPreview({
+      events: evts.length,
+      lockedEvents: evts.filter((e) => e.is_locked).length,
+      judges: judges.length,
+      participants: parts.length,
+      scores: scores.length,
+    });
+    setResetSuccess(false);
+    setResetWipedSummary(null);
+    setResetInput('');
+    setResetPassword('');
+    setShowResetPassword(false);
+    setResetError('');
+    setDownloadBackupFirst(true);
+    setShowUndoResetPrompt(false);
+    setUndoResetPassword('');
+    setUndoResetError('');
+    setShowResetConfirm(true);
+  };
+
+  // Danger Zone: Execute Master Reset (requires RESET + master password + internet)
   const handleExecuteReset = async () => {
-    if (resetInput.trim().toUpperCase() !== 'RESET') {
-      showToast("Type 'RESET' to confirm.");
+    setResetError('');
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setResetError('Reset needs internet');
+      showToast('Reset needs internet', 'error');
       return;
     }
+    if (resetInput.trim().toUpperCase() !== 'RESET') {
+      setResetError("Type 'RESET' to confirm.");
+      return;
+    }
+    const cleanPwd = resetPassword.trim();
+    if (!cleanPwd) {
+      setResetError('Master password is required.');
+      return;
+    }
+
     setIsProcessingDanger(true);
     try {
-      await dbService.resetOrganizationData(organization.org_id);
+      // 1. Collect pre-reset data in memory before wiping
+      const preResetPayload = await collectOrganizationData(organization);
+
+      // 2. Verify master password & wipe competition data atomically on server
+      const wiped = await dbService.resetOrganizationAll(organization.org_id, cleanPwd);
+
+      // 3. Only after server confirmed wipe: save AES-GCM encrypted safety snapshot in IndexedDB
+      try {
+        await saveEncryptedSafetySnapshot(organization.org_id, preResetPayload, cleanPwd);
+        setCanUndoSnapshot(true);
+      } catch (snapErr) {
+        console.warn('Encrypted safety snapshot notice:', snapErr);
+      }
+
+      // 4. Optional automatic v2.0.0 backup download before/after confirmed reset
+      if (downloadBackupFirst) {
+        try {
+          const { filename, blob } = await createBackupFromPayload(organization, preResetPayload);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (dlErr) {
+          console.warn('Pre-reset backup download notice:', dlErr);
+        }
+      }
+
+      // 5. Full refresh across all tabs (no manual reload)
+      await syncNow({ forceFull: true, reason: 'manual' });
+      eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
+
+      setResetWipedSummary(wiped);
       setResetSuccess(true);
       setResetInput('');
+      setResetPassword('');
       setIsDangerShutterOpen(false);
-      showToast('Reset complete. All competition data has been cleared.');
-      void syncNow({ forceFull: true, reason: 'manual' });
+      showToast('Reset complete. All competition data has been cleared.', 'success');
     } catch (err: any) {
-      if (err?.code === 'ROSTER_LOCKED' || err?.message?.includes('ROSTER_LOCKED')) {
-        showToast('Unlock your events first.');
-      } else {
-        showToast(`Reset failed: ${err.message}`);
-      }
+      const msg = String(err?.message || 'Reset failed.');
+      setResetError(msg);
+      showToast(msg, 'error');
     } finally {
       setIsProcessingDanger(false);
+    }
+  };
+
+  // Danger Zone: Undo Master Reset using encrypted local safety snapshot
+  const handleExecuteUndoReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUndoResetError('');
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setUndoResetError('Undo requires internet connection.');
+      return;
+    }
+    const cleanPwd = undoResetPassword.trim();
+    if (!cleanPwd) {
+      setUndoResetError('Master password is required.');
+      return;
+    }
+
+    setIsUndoingReset(true);
+    try {
+      await restoreSafetySnapshot(organization.org_id, cleanPwd);
+      await dbService.clearOrgWorkAndInvalidateCache(organization.org_id);
+      await syncNow({ forceFull: true, reason: 'manual' });
+      const freshOrgRes = await dbService.getOrganizationByOrgIdResult(organization.org_id, true);
+      if (freshOrgRes.data) {
+        onUpdateOrganization(freshOrgRes.data);
+        const existingSession = getStoredSession();
+        if (existingSession && existingSession.org?.org_id?.toUpperCase() === organization.org_id.toUpperCase()) {
+          setStoredSession({
+            ...existingSession,
+            org: freshOrgRes.data,
+          });
+        }
+      }
+      eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
+
+      setUndoResetPassword('');
+      setShowUndoResetPrompt(false);
+      setShowResetConfirm(false);
+      setResetSuccess(false);
+      setIsDangerShutterOpen(false);
+      showToast('Reset undone. All competition data and settings restored.', 'success');
+    } catch (err: any) {
+      const msg = String(err?.message || 'Undo failed.');
+      setUndoResetError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setIsUndoingReset(false);
     }
   };
 
@@ -917,16 +1097,29 @@ export function AccountModal({
                     type="button"
                     disabled={!isDangerShutterOpen}
                     tabIndex={isDangerShutterOpen ? 0 : -1}
-                    onClick={() => {
-                      setResetSuccess(false);
-                      setResetInput('');
-                      setShowResetConfirm(true);
-                    }}
+                    onClick={handleOpenMasterReset}
                     className="w-full min-h-[44px] px-4 rounded-xl bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Reset Data</span>
                   </button>
+
+                  {canUndoSnapshot && (
+                    <button
+                      type="button"
+                      disabled={!isDangerShutterOpen}
+                      tabIndex={isDangerShutterOpen ? 0 : -1}
+                      onClick={() => {
+                        setUndoResetPassword('');
+                        setUndoResetError('');
+                        setShowUndoResetPrompt(true);
+                      }}
+                      className="w-full min-h-[44px] px-4 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      <span>Undo Last Reset</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -1029,7 +1222,7 @@ export function AccountModal({
         </div>
       )}
 
-      {/* Floating Centered Confirmation Modal: Reset Data */}
+      {/* Floating Centered Confirmation Modal: Master Reset */}
       {showResetConfirm && (
         <div
           className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-150"
@@ -1037,10 +1230,10 @@ export function AccountModal({
           aria-modal="true"
           aria-labelledby="reset-confirm-title"
         >
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 max-h-[90dvh] overflow-y-auto">
             {resetSuccess ? (
               <>
-                <div className="flex items-center space-x-3 text-emerald-600 dark:text-emerald-400">
+                <div className="flex items-center space-x-3 text-emerald-700 dark:text-emerald-400">
                   <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 flex items-center justify-center shrink-0">
                     <CheckCircle2 className="w-5 h-5" />
                   </div>
@@ -1049,35 +1242,54 @@ export function AccountModal({
                       id="reset-confirm-title"
                       className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
                     >
-                      Reset Complete
+                      Master Reset Complete
                     </h3>
-                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-mono">
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400 font-mono">
                       {organization.org_id}
                     </p>
                   </div>
                 </div>
 
                 <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
-                  Reset complete. All competition data has been cleared.
+                  All competition data{resetWipedSummary ? ` (${resetWipedSummary.events} events, ${resetWipedSummary.judges} judges, ${resetWipedSummary.participants} participants, ${resetWipedSummary.scores} scores)` : ''} has been wiped. Your organisation account and settings remain intact, and an encrypted safety snapshot was saved on this device.
                 </p>
 
-                <button
-                  type="button"
-                  autoFocus
-                  onClick={() => {
-                    setShowResetConfirm(false);
-                    setResetSuccess(false);
-                    setResetInput('');
-                  }}
-                  className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
-                >
-                  Done
-                </button>
+                <div className="grid grid-cols-1 gap-2 pt-1">
+                  {canUndoSnapshot && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowResetConfirm(false);
+                        setUndoResetPassword('');
+                        setUndoResetError('');
+                        setShowUndoResetPrompt(true);
+                      }}
+                      className="w-full min-h-[44px] bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                    >
+                      <Undo2 className="w-4 h-4" />
+                      <span>Undo Reset</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => {
+                      setShowResetConfirm(false);
+                      setResetSuccess(false);
+                      setResetInput('');
+                      setResetPassword('');
+                    }}
+                    className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
               </>
             ) : (
               <>
-                <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
-                  <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center">
+                <div className="flex items-center space-x-3 text-red-700 dark:text-red-400">
+                  <div className="w-10 h-10 rounded-2xl bg-red-500/15 flex items-center justify-center shrink-0">
                     <RotateCcw className="w-5 h-5" />
                   </div>
                   <div>
@@ -1085,32 +1297,114 @@ export function AccountModal({
                       id="reset-confirm-title"
                       className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
                     >
-                      Reset Account Data
+                      Master Reset
                     </h3>
-                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
-                      Permanent data purge
+                    <p className="text-xs text-red-700 dark:text-red-400 font-mono">
+                      Wipes all competition data
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                  Permanently wipe all competition events, rosters, and scores for{' '}
-                  <strong className="text-zinc-900 dark:text-white">{organization.name}</strong>. Admin credentials remain active.
-                </p>
+                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-2">
+                  <p className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-200 leading-relaxed">
+                    Deletes everything for <strong className="text-zinc-950 dark:text-white">{organization.name}</strong>, including{' '}
+                    {resetCountsPreview.lockedEvents > 0
+                      ? `${resetCountsPreview.lockedEvents} locked event(s)`
+                      : 'locked events'}{' '}
+                    and active judge sessions. Organisation login and settings stay intact.
+                  </p>
+                  <div className="grid grid-cols-4 gap-1.5 text-center pt-1">
+                    <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
+                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                        {resetCountsPreview.events}
+                      </span>
+                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Events</span>
+                    </div>
+                    <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
+                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                        {resetCountsPreview.judges}
+                      </span>
+                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Judges</span>
+                    </div>
+                    <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
+                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                        {resetCountsPreview.participants}
+                      </span>
+                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Roster</span>
+                    </div>
+                    <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
+                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                        {resetCountsPreview.scores}
+                      </span>
+                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Scores</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Download Backup First Checkbox (Default ON) */}
+                <label className="flex items-start space-x-2.5 p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={downloadBackupFirst}
+                    onChange={(e) => setDownloadBackupFirst(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600 shrink-0"
+                  />
+                  <span className="text-[11px] text-zinc-700 dark:text-zinc-300 leading-snug">
+                    <strong className="text-zinc-900 dark:text-white block">Download backup file first</strong>
+                    Saves a full v2.0 archive (.json) plus an encrypted Undo snapshot on this device.
+                  </span>
+                </label>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
-                    Type <span className="font-mono font-black text-red-600 dark:text-red-400">RESET</span> to confirm:
+                  <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
+                    Type <span className="font-mono font-black text-red-700 dark:text-red-400">RESET</span> to confirm
                   </label>
                   <input
                     type="text"
                     autoFocus
                     placeholder="RESET"
                     value={resetInput}
-                    onChange={(e) => setResetInput(e.target.value)}
+                    onChange={(e) => {
+                      setResetInput(e.target.value);
+                      setResetError('');
+                    }}
                     className="w-full min-h-[44px] px-3.5 bg-stone-100 dark:bg-zinc-900 border border-red-500/40 rounded-xl font-mono text-sm text-center uppercase tracking-widest text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500/50"
                   />
                 </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>Master Password</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showResetPassword ? 'text' : 'password'}
+                      placeholder="Enter master password"
+                      value={resetPassword}
+                      onChange={(e) => {
+                        setResetPassword(e.target.value);
+                        setResetError('');
+                      }}
+                      className="w-full min-h-[44px] pl-3.5 pr-10 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-red-500"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowResetPassword((v) => !v)}
+                      aria-label={showResetPassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+                    >
+                      {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {resetError && (
+                  <p role="alert" className="text-[11px] text-red-700 dark:text-red-400 font-semibold">
+                    {resetError}
+                  </p>
+                )}
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <button
@@ -1119,7 +1413,10 @@ export function AccountModal({
                       setShowResetConfirm(false);
                       setResetSuccess(false);
                       setResetInput('');
+                      setResetPassword('');
+                      setResetError('');
                     }}
+                    disabled={isProcessingDanger}
                     className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                   >
                     Cancel
@@ -1127,7 +1424,11 @@ export function AccountModal({
                   <button
                     type="button"
                     onClick={handleExecuteReset}
-                    disabled={resetInput.trim().toUpperCase() !== 'RESET' || isProcessingDanger}
+                    disabled={
+                      resetInput.trim().toUpperCase() !== 'RESET' ||
+                      !resetPassword.trim() ||
+                      isProcessingDanger
+                    }
                     className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
                   >
                     {isProcessingDanger ? <span>Wiping...</span> : <span>Confirm Reset</span>}
@@ -1136,6 +1437,87 @@ export function AccountModal({
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Floating Centered Confirmation Modal: Undo Reset */}
+      {showUndoResetPrompt && (
+        <div
+          className="fixed inset-0 z-[125] bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="undo-reset-title"
+        >
+          <form
+            onSubmit={handleExecuteUndoReset}
+            className="bg-white dark:bg-zinc-950 border border-amber-500/40 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-400">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                <Undo2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3
+                  id="undo-reset-title"
+                  className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                >
+                  Undo Reset
+                </h3>
+                <p className="text-xs text-amber-700 dark:text-amber-400 font-mono">
+                  Restore encrypted safety snapshot
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              Enter your master password to decrypt the local safety snapshot and restore all competition data and settings.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
+                Master Password
+              </label>
+              <input
+                type="password"
+                autoFocus
+                placeholder="Enter master password"
+                value={undoResetPassword}
+                onChange={(e) => {
+                  setUndoResetPassword(e.target.value);
+                  setUndoResetError('');
+                }}
+                className="w-full min-h-[44px] px-3.5 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-600"
+              />
+              {undoResetError && (
+                <p role="alert" className="text-[11px] text-red-700 dark:text-red-400 font-semibold">
+                  {undoResetError}
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUndoResetPrompt(false);
+                  setUndoResetPassword('');
+                  setUndoResetError('');
+                }}
+                disabled={isUndoingReset}
+                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isUndoingReset || !undoResetPassword.trim()}
+                className="min-h-[44px] bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isUndoingReset ? 'animate-spin' : ''}`} />
+                <span>{isUndoingReset ? 'Restoring...' : 'Restore Snapshot'}</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -1218,8 +1600,14 @@ export function AccountModal({
         isOpen={showRestoreSheet}
         onClose={() => setShowRestoreSheet(false)}
         organization={organization}
-        onRestoreComplete={() => {
-          eventBus.emit('cache_updated', { table: 'all' });
+        onRestoreComplete={(updatedOrg) => {
+          if (updatedOrg) {
+            onUpdateOrganization(updatedOrg);
+          }
+          hasSafetySnapshot(organization.org_id)
+            .then(setCanUndoSnapshot)
+            .catch(() => {});
+          eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('fairjudge_session_change'));
           }
