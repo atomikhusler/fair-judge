@@ -294,6 +294,18 @@ export async function saveEncryptedSafetySnapshot(
     data: snapshot,
     timestamp: Date.now(),
   });
+
+  const savedEntry = await db.get('cache_store', key);
+  const savedSnap = savedEntry?.data as EncryptedSafetySnapshot | undefined;
+  if (
+    !savedSnap ||
+    savedSnap.encrypted !== true ||
+    savedSnap.ciphertext !== enc.ciphertext ||
+    savedSnap.salt !== enc.salt ||
+    savedSnap.iv !== enc.iv
+  ) {
+    throw new Error('Could not verify saved safety snapshot in local storage.');
+  }
 }
 
 export async function createSafetySnapshot(

@@ -169,7 +169,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
                   Set Security PIN (minimum 4 digits)
                 </label>
                 <div className="relative">
-                  <Lock className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                  <Lock className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-600 dark:text-zinc-400" />
                   <input
                     id="backup-pin-input"
                     type="password"

@@ -440,21 +440,29 @@ export function AccountModal({
 
     setIsProcessingDanger(true);
     try {
-      // 1. Collect pre-reset data in memory before wiping
-      const preResetPayload = await collectOrganizationData(organization);
-
-      // 2. Verify master password & wipe competition data atomically on server
-      const wiped = await dbService.resetOrganizationAll(organization.org_id, cleanPwd);
-
-      // 3. Only after server confirmed wipe: save AES-GCM encrypted safety snapshot in IndexedDB
+      // 1. Collect pre-reset data & persist/verify AES-GCM encrypted safety snapshot FIRST
+      let preResetPayload;
       try {
+        preResetPayload = await collectOrganizationData(organization);
         await saveEncryptedSafetySnapshot(organization.org_id, preResetPayload, cleanPwd);
-        setCanUndoSnapshot(true);
-      } catch (snapErr) {
-        console.warn('Encrypted safety snapshot notice:', snapErr);
+        const savedOk = await hasSafetySnapshot(organization.org_id);
+        if (!savedOk) {
+          throw new Error('Encrypted safety snapshot could not be verified on this device.');
+        }
+      } catch (snapErr: any) {
+        const snapMsg = snapErr?.message
+          ? `Could not save safety snapshot: ${snapErr.message} Nothing was deleted.`
+          : 'Could not save encrypted safety snapshot locally. Reset aborted — nothing was deleted.';
+        setResetError(snapMsg);
+        showToast(snapMsg, 'error');
+        return;
       }
 
-      // 4. Optional automatic v2.0.0 backup download before/after confirmed reset
+      // 2. Only after encrypted snapshot is verified: verify password & wipe competition data atomically on server
+      const wiped = await dbService.resetOrganizationAll(organization.org_id, cleanPwd);
+      setCanUndoSnapshot(true);
+
+      // 3. Optional automatic v2.0.0 backup download
       if (downloadBackupFirst) {
         try {
           const { filename, blob } = await createBackupFromPayload(organization, preResetPayload);
@@ -471,7 +479,7 @@ export function AccountModal({
         }
       }
 
-      // 5. Full refresh across all tabs (no manual reload)
+      // 4. Full refresh across all tabs (no manual reload)
       await syncNow({ forceFull: true, reason: 'manual' });
       eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
 
@@ -596,7 +604,7 @@ export function AccountModal({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-zinc-500 font-mono truncate">
+              <p className="text-[11px] text-zinc-600 dark:text-zinc-400 font-mono truncate">
                 {organization.name}
               </p>
             </div>
@@ -606,7 +614,7 @@ export function AccountModal({
             ref={closeBtnRef}
             type="button"
             onClick={handleCloseModal}
-            className="w-11 h-11 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer shrink-0"
+            className="w-11 h-11 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer shrink-0"
             aria-label="Close modal"
           >
             <X className="w-4 h-4" />
@@ -636,7 +644,7 @@ export function AccountModal({
 
             {/* Organization Identity Section Header (attached directly below Sign Out) */}
             <div className="px-4 py-2 bg-stone-50 dark:bg-zinc-900/60">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
                 Organization Identity
               </h4>
             </div>
@@ -645,7 +653,7 @@ export function AccountModal({
             <div className="p-4 space-y-2">
               {!isEditingName ? (
                 <div className="space-y-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 block">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
                     Organization Name
                   </span>
                   <div className="flex items-center justify-between gap-2.5">
@@ -662,7 +670,7 @@ export function AccountModal({
                       title="Edit organisation name"
                       className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800 flex items-center justify-center transition-colors cursor-pointer shrink-0"
                     >
-                      <Pencil className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+                      <Pencil className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
                     </button>
                   </div>
                 </div>
@@ -714,7 +722,7 @@ export function AccountModal({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
                         Email
                       </span>
                       {verificationStatus === 'verified' && (
@@ -747,7 +755,7 @@ export function AccountModal({
                       title={organization.email ? 'Edit email' : 'Add email'}
                       className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800 flex items-center justify-center transition-colors cursor-pointer shrink-0"
                     >
-                      <Pencil className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+                      <Pencil className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
                     </button>
                   </div>
 
@@ -843,7 +851,7 @@ export function AccountModal({
 
             {/* Row 3: Organization Code — one line, code on right, NO "Jury Login Key" (C5) */}
             <div className="p-4 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 shrink-0">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 shrink-0">
                 Organization Code
               </span>
 
@@ -861,7 +869,7 @@ export function AccountModal({
                   {copiedOrgId ? (
                     <Check className="w-4 h-4 text-emerald-500" />
                   ) : (
-                    <Copy className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+                    <Copy className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
                   )}
                 </button>
               </div>
@@ -872,7 +880,7 @@ export function AccountModal({
           {/* CARD 2: SECURITY — BLUE "Change password" BTN (C6)       */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
               Password
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm p-4">
@@ -899,13 +907,13 @@ export function AccountModal({
                     </div>
                   )}
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
+                    <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
                       New Password
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="min-h-[44px] px-2 text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center space-x-1 cursor-pointer"
+                      className="min-h-[44px] px-2 text-[11px] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 flex items-center space-x-1 cursor-pointer"
                     >
                       {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       <span>{showPassword ? 'Hide' : 'Show'}</span>
@@ -956,7 +964,7 @@ export function AccountModal({
           {/* CARD 3: BACKUP & RESTORE — SIDE BY SIDE, NO HINTS (C7)   */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
               Backup &amp; Restore
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm p-3.5">
@@ -986,7 +994,7 @@ export function AccountModal({
           {/* CARD 4: ABOUT & SUPPORT                                  */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
               About &amp; Support
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
@@ -998,7 +1006,7 @@ export function AccountModal({
                     <span className="text-sm font-bold text-zinc-900 dark:text-white block font-sans">
                       Fair Judge
                     </span>
-                    <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono">
+                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 uppercase tracking-widest font-mono">
                       Audited Scoring Terminal
                     </span>
                   </div>
@@ -1020,7 +1028,7 @@ export function AccountModal({
                     <span className="text-xs font-bold text-zinc-900 dark:text-white block group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors">
                       Join our Telegram Community
                     </span>
-                    <span className="text-[10px] text-zinc-500">
+                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400">
                       Product updates, live support &amp; feedback
                     </span>
                   </div>
@@ -1043,7 +1051,7 @@ export function AccountModal({
                     <span className="text-xs font-bold text-zinc-900 dark:text-white block group-hover:text-amber-500 dark:group-hover:text-amber-400 transition-colors">
                       Support the Developer
                     </span>
-                    <span className="text-[10px] text-zinc-500">
+                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400">
                       Fuel development via Ko-fi
                     </span>
                   </div>
@@ -1187,7 +1195,7 @@ export function AccountModal({
                 >
                   Sign out?
                 </h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 font-mono">
                   {organization.name}
                 </p>
               </div>
@@ -1393,7 +1401,7 @@ export function AccountModal({
                       tabIndex={-1}
                       onClick={() => setShowResetPassword((v) => !v)}
                       aria-label={showResetPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 cursor-pointer"
                     >
                       {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -1553,7 +1561,7 @@ export function AccountModal({
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
+              <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
                 Type <span className="font-mono font-black text-red-600 dark:text-red-400">DELETE</span> to confirm:
               </label>
               <input

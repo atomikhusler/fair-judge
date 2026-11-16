@@ -755,7 +755,7 @@ export function RestoreSheet({
 
                 {/* Settings Changes */}
                 <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 text-[11px] text-zinc-700 dark:text-zinc-300 flex items-start space-x-2">
-                  <Settings2 className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />
+                  <Settings2 className="w-4 h-4 text-zinc-600 dark:text-zinc-400 shrink-0 mt-0.5" />
                   <div>
                     {!parsedBackup.settingsInBackup ? (
                       <span className="font-semibold">
@@ -806,10 +806,10 @@ export function RestoreSheet({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 flex items-center space-x-1.5">
-                    <KeyRound className="w-3.5 h-3.5 text-zinc-500" />
+                    <KeyRound className="w-3.5 h-3.5 text-zinc-600 dark:text-zinc-400" />
                     <span>Organiser Master Password</span>
                   </label>
-                  <span className="text-[10px] text-zinc-500">In memory only</span>
+                  <span className="text-[10px] text-zinc-600 dark:text-zinc-400">In memory only</span>
                 </div>
 
                 <div className="relative">
@@ -829,7 +829,7 @@ export function RestoreSheet({
                     onClick={() => setShowPassword(!showPassword)}
                     tabIndex={-1}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>

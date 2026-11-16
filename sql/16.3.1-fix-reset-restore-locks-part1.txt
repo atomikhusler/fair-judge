@@ -1,0 +1,275 @@
+-- ═══════════════════════════════════════════════════════════════════
+-- EPIC 16.3.1 VERIFY-FIX — UNLOCK EVENTS BEFORE MASTER RESET & REPLACE
+-- ═══════════════════════════════════════════════════════════════════
+-- Upgrade safety:
+--   - Uses CREATE OR REPLACE FUNCTION only. NO DROP, NO REVOKE statements.
+--   - Does NOT modify or drop sql/16.3.0-master-reset-restore.sql or legacy
+--     org_reset_data / org_restore functions.
+--   - Fixes ROSTER_LOCKED trigger failures on Master Reset (org_reset_all)
+--     and Backup v2 Replace Restore (org_restore_v2) by running ONE
+--     org-wide unlock (`UPDATE public.events SET is_locked = false ...`)
+--     before any DELETE statement.
+-- ═══════════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────────
+-- 1. MASTER RESET: org_reset_all(p_token, p_org_id, p_password)
+-- ─────────────────────────────────────────────────────────────────
+create or replace function public.org_reset_all(
+  p_token text,
+  p_org_id text,
+  p_password text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_org_id text;
+  v_auth jsonb;
+  v_reason text;
+
+  c_events int := 0;
+  c_locked_events int := 0;
+  c_judges int := 0;
+  c_participants int := 0;
+  c_scores int := 0;
+  c_judge_sessions int := 0;
+  v_sync_version bigint := 1;
+begin
+  -- 1. Verify active organiser session token
+  v_org_id := public._fj_verify_org_token(p_token, p_org_id);
+  if v_org_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'unauthorized',
+      'message', 'Session expired or invalid. Please sign in again.'
+    );
+  end if;
+
+  -- 2. Verify organiser master password (shares org_login_throttle 5 strikes / 15m)
+  v_auth := public._fj_verify_org(v_org_id, p_password);
+  if not coalesce((v_auth->>'ok')::boolean, false) then
+    v_reason := coalesce(v_auth->>'error', v_auth->>'reason', 'invalid_credentials');
+    return jsonb_build_object(
+      'ok', false,
+      'error', v_reason,
+      'reason', v_reason,
+      'message', case
+        when v_reason = 'too_many_attempts'
+          then 'Too many wrong password attempts. Try again in 15 minutes.'
+        else 'Wrong master password. Nothing was deleted.'
+      end
+    );
+  end if;
+
+  -- 3. Pre-count competition data to report accurate deletion summary
+  select count(*)::int,
+         count(*) filter (where is_locked = true)::int
+  into c_events, c_locked_events
+  from public.events
+  where upper(org_id) = upper(v_org_id);
+
+  select count(*)::int into c_judges
+  from public.judges
+  where upper(org_id) = upper(v_org_id);
+
+  select count(*)::int into c_participants
+  from public.participants
+  where upper(org_id) = upper(v_org_id);
+
+  select count(*)::int into c_scores
+  from public.scores s
+  where upper(coalesce(s.org_id, '')) = upper(v_org_id)
+     or s.event_id in (select id from public.events where upper(org_id) = upper(v_org_id));
+
+  select count(*)::int into c_judge_sessions
+  from public.judge_sessions js
+  where upper(js.org_id) = upper(v_org_id)
+     or js.judge_id in (select id from public.judges where upper(org_id) = upper(v_org_id));
+
+  -- 4. Unlock all locked events for this org BEFORE any DELETE so judge/participant delete triggers pass cleanly
+  update public.events
+  set is_locked = false
+  where upper(org_id) = upper(v_org_id)
+    and is_locked = true;
+
+  -- 5. Atomic wipe in required order: scores -> judge_sessions -> judge_secrets -> judges -> participants -> events
+  delete from public.scores
+  where event_id in (select id from public.events where upper(org_id) = upper(v_org_id))
+     or upper(coalesce(org_id, '')) = upper(v_org_id);
+
+  delete from public.judge_sessions
+  where upper(org_id) = upper(v_org_id)
+     or judge_id in (select id from public.judges where upper(org_id) = upper(v_org_id));
+
+  delete from public.judge_secrets
+  where upper(org_id) = upper(v_org_id)
+     or judge_id in (select id from public.judges where upper(org_id) = upper(v_org_id));
+
+  delete from public.judges
+  where upper(org_id) = upper(v_org_id);
+
+  delete from public.participants
+  where upper(org_id) = upper(v_org_id);
+
+  delete from public.events
+  where upper(org_id) = upper(v_org_id);
+
+  -- Ensure sync_version advances even if competition tables were already empty
+  v_sync_version := public._fj_bump_org_sync_version(v_org_id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'data', jsonb_build_object(
+      'events', c_events,
+      'locked_events', c_locked_events,
+      'judges', c_judges,
+      'participants', c_participants,
+      'scores', c_scores,
+      'judge_sessions', c_judge_sessions,
+      'sync_version', v_sync_version
+    ),
+    'events', c_events,
+    'locked_events', c_locked_events,
+    'judges', c_judges,
+    'participants', c_participants,
+    'scores', c_scores,
+    'judge_sessions', c_judge_sessions,
+    'sync_version', v_sync_version
+  );
+end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────────
+-- 2. BACKUP v2 RESTORE: org_restore_v2
+-- ─────────────────────────────────────────────────────────────────
+create or replace function public.org_restore_v2(
+  p_token text,
+  p_org_id text,
+  p_password text,
+  p_mode text,
+  p_payload jsonb,
+  p_dry_run boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_org_id text;
+  v_auth jsonb;
+  v_reason text;
+  v_mode text;
+  v_schema_version int := 1;
+  v_org_row public.organizations;
+
+  v_events jsonb;
+  v_judges jsonb;
+  v_participants jsonb;
+  v_scores jsonb;
+  v_settings jsonb;
+  v_has_settings boolean := false;
+  v_settings_changed text[] := '{}'::text[];
+
+  c_events_created int := 0;
+  c_events_updated int := 0;
+  c_events_protected int := 0;
+  c_existing_locked_replaced int := 0;
+  c_judges_created int := 0;
+  c_judges_updated int := 0;
+  c_participants_created int := 0;
+  c_participants_updated int := 0;
+  c_scores_created int := 0;
+  c_scores_updated int := 0;
+
+  rec jsonb;
+  v_id uuid;
+  v_event_id uuid;
+  v_pin text;
+  v_exists boolean;
+  v_existing_org text;
+  v_locked boolean;
+  locked_event_ids uuid[];
+
+  -- Sanitized whitelisted settings candidates
+  v_next_name text;
+  v_next_email text;
+  v_next_tie_enabled boolean;
+  v_next_tie_method text;
+  v_next_custom_fields jsonb;
+  v_next_blind_judging boolean;
+  v_next_auto_advance boolean;
+  v_next_grace_period boolean;
+  v_next_isolated_jury boolean;
+  v_next_proj_blind boolean;
+  v_next_proj_spotlight boolean;
+  v_next_proj_ticker text;
+  v_next_proj_interval int;
+  v_sync_version bigint := 1;
+begin
+  -- 1. Verify active organiser session token
+  v_org_id := public._fj_verify_org_token(p_token, p_org_id);
+  if v_org_id is null then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'unauthorized',
+      'message', 'Session expired or invalid. Please sign in again.'
+    );
+  end if;
+
+  -- 2. Verify organiser master password (shares org_login_throttle)
+  v_auth := public._fj_verify_org(v_org_id, p_password);
+  if not coalesce((v_auth->>'ok')::boolean, false) then
+    v_reason := coalesce(v_auth->>'error', v_auth->>'reason', 'invalid_credentials');
+    return jsonb_build_object(
+      'ok', false,
+      'error', v_reason,
+      'reason', v_reason,
+      'message', case
+        when v_reason = 'too_many_attempts'
+          then 'Too many wrong password attempts. Try again in 15 minutes.'
+        else 'Invalid master password. Please verify credentials.'
+      end
+    );
+  end if;
+
+  v_mode := lower(btrim(coalesce(p_mode, 'merge')));
+  if v_mode not in ('replace', 'add', 'merge') then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'invalid_mode',
+      'reason', 'invalid_mode',
+      'message', 'Invalid restore mode. Expected replace, add, or merge.'
+    );
+  end if;
+
+  if p_payload is null or jsonb_typeof(p_payload) <> 'object' then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'invalid_payload',
+      'message', 'Restore payload must be a JSON object.'
+    );
+  end if;
+
+  -- 3. Reject unknown / future backup schemas cleanly
+  if p_payload ? 'schema_version' and nullif(btrim(coalesce(p_payload->>'schema_version', '')), '') is not null then
+    begin
+      v_schema_version := (p_payload->>'schema_version')::int;
+    exception when others then
+      return jsonb_build_object(
+        'ok', false,
+        'error', 'unsupported_backup_version',
+        'message', 'Invalid backup schema version.'
+      );
+    end;
+  end if;
+
+  if v_schema_version > 2 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'backup_too_new',
+      'reason', 'backup_too_new',
+      'message', 'This backup was made by a newer version. Update the app first.'
+    );

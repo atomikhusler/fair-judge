@@ -1,0 +1,219 @@
+  -- Participants
+  for rec in select * from jsonb_array_elements(v_participants) loop
+    v_id := (rec->>'id')::uuid;
+    select org_id into v_existing_org from public.participants where id = v_id;
+    if v_existing_org is not null and upper(v_existing_org) <> upper(v_org_id) then
+      return jsonb_build_object('ok', false, 'error', 'forbidden', 'message', 'Backup contains a participant ID belonging to another organization.');
+    end if;
+    if v_mode = 'add' and v_existing_org is not null then
+      continue;
+    end if;
+
+    insert into public.participants (
+      id, org_id, identity_id, sl_no, name, school, class_or_age, mobile_number, custom_values, is_active, created_at
+    ) values (
+      v_id,
+      v_org_id,
+      coalesce(nullif(btrim(rec->>'identity_id'), ''), 'P-' || substring(v_id::text from 1 for 6)),
+      rec->>'sl_no',
+      coalesce(nullif(btrim(rec->>'name'), ''), 'Participant'),
+      rec->>'school',
+      rec->>'class_or_age',
+      rec->>'mobile_number',
+      coalesce(rec->'custom_values', '{}'::jsonb),
+      coalesce((rec->>'is_active')::boolean, true),
+      coalesce((rec->>'created_at')::timestamptz, now())
+    )
+    on conflict (id) do update set
+      sl_no = excluded.sl_no,
+      name = excluded.name,
+      school = excluded.school,
+      class_or_age = excluded.class_or_age,
+      mobile_number = excluded.mobile_number,
+      custom_values = excluded.custom_values,
+      is_active = excluded.is_active;
+    c_participants_created := c_participants_created + 1;
+  end loop;
+
+  -- Events (re-inserted with is_locked from backup)
+  for rec in select * from jsonb_array_elements(v_events) loop
+    v_id := (rec->>'id')::uuid;
+    select org_id into v_existing_org from public.events where id = v_id;
+    if v_existing_org is not null and upper(v_existing_org) <> upper(v_org_id) then
+      return jsonb_build_object('ok', false, 'error', 'forbidden', 'message', 'Backup contains an event ID belonging to another organization.');
+    end if;
+    if v_id = any(locked_event_ids) then
+      c_events_protected := c_events_protected + 1;
+      continue;
+    end if;
+    if v_mode = 'add' and v_existing_org is not null then
+      continue;
+    end if;
+
+    insert into public.events (
+      id, org_id, name, category, date, status, started_at, elapsed_seconds,
+      rubric_schema, assigned_judges, assigned_participants, participant_sl_numbers,
+      created_at, updated_at, is_locked, is_archived
+    ) values (
+      v_id,
+      v_org_id,
+      coalesce(nullif(btrim(rec->>'name'), ''), 'Event'),
+      rec->>'category',
+      rec->>'date',
+      coalesce(rec->>'status', 'draft'),
+      (rec->>'started_at')::timestamptz,
+      coalesce((rec->>'elapsed_seconds')::int, 0),
+      coalesce(rec->'rubric_schema', '[]'::jsonb),
+      case when jsonb_typeof(rec->'assigned_judges') = 'array'
+           then array(select jsonb_array_elements_text(rec->'assigned_judges'))
+           else '{}'::text[] end,
+      case when jsonb_typeof(rec->'assigned_participants') = 'array'
+           then array(select jsonb_array_elements_text(rec->'assigned_participants'))
+           else '{}'::text[] end,
+      coalesce(rec->'participant_sl_numbers', '{}'::jsonb),
+      coalesce((rec->>'created_at')::timestamptz, now()),
+      now(),
+      coalesce((rec->>'is_locked')::boolean, false),
+      coalesce((rec->>'is_archived')::boolean, false)
+    )
+    on conflict (id) do update set
+      name = excluded.name,
+      category = excluded.category,
+      date = excluded.date,
+      status = excluded.status,
+      started_at = excluded.started_at,
+      elapsed_seconds = excluded.elapsed_seconds,
+      rubric_schema = excluded.rubric_schema,
+      assigned_judges = excluded.assigned_judges,
+      assigned_participants = excluded.assigned_participants,
+      participant_sl_numbers = excluded.participant_sl_numbers,
+      is_locked = excluded.is_locked,
+      is_archived = excluded.is_archived,
+      updated_at = now();
+    c_events_created := c_events_created + 1;
+  end loop;
+
+  -- Scores
+  for rec in select * from jsonb_array_elements(v_scores) loop
+    v_id := (rec->>'id')::uuid;
+    v_event_id := (rec->>'event_id')::uuid;
+
+    if v_event_id = any(locked_event_ids) then
+      continue;
+    end if;
+
+    select e.org_id into v_existing_org from public.events e where e.id = v_event_id;
+    if v_existing_org is null or upper(v_existing_org) <> upper(v_org_id) then
+      continue;
+    end if;
+
+    select coalesce(nullif(s.org_id, ''), ev.org_id) into v_existing_org
+    from public.scores s
+    left join public.events ev on ev.id = s.event_id
+    where s.id = v_id;
+    if v_existing_org is not null and upper(v_existing_org) <> upper(v_org_id) then
+      return jsonb_build_object('ok', false, 'error', 'forbidden', 'message', 'Backup contains a score ID belonging to another organization.');
+    end if;
+
+    if v_mode = 'add' and v_existing_org is not null then
+      continue;
+    end if;
+
+    insert into public.scores (
+      id, org_id, event_id, judge_id, participant_id, score_payload, total_score, created_at
+    ) values (
+      v_id,
+      v_org_id,
+      v_event_id,
+      (rec->>'judge_id')::uuid,
+      (rec->>'participant_id')::uuid,
+      coalesce(rec->'score_payload', '{}'::jsonb),
+      coalesce((rec->>'total_score')::numeric, 0),
+      coalesce((rec->>'created_at')::timestamptz, now())
+    )
+    on conflict (id) do update set
+      score_payload = excluded.score_payload,
+      total_score = excluded.total_score;
+    c_scores_created := c_scores_created + 1;
+  end loop;
+
+  -- Whitelisted Organization Settings (13 columns only)
+  if v_has_settings then
+    update public.organizations
+    set
+      name = v_next_name,
+      email = v_next_email,
+      tie_breaker_enabled = v_next_tie_enabled,
+      tie_breaker_method = v_next_tie_method,
+      custom_participant_fields = v_next_custom_fields,
+      blind_judging_enabled = v_next_blind_judging,
+      auto_advance_enabled = v_next_auto_advance,
+      grace_period_enabled = v_next_grace_period,
+      isolated_jury_enabled = v_next_isolated_jury,
+      projector_blind_mode = v_next_proj_blind,
+      projector_spotlight_mode = v_next_proj_spotlight,
+      projector_ticker_text = v_next_proj_ticker,
+      projector_carousel_interval = v_next_proj_interval
+    where upper(org_id) = upper(v_org_id);
+  end if;
+
+  -- Advance monotonic sync version so connected devices receive full/delta updates cleanly
+  v_sync_version := public._fj_bump_org_sync_version(v_org_id);
+
+  return jsonb_build_object(
+    'ok', true,
+    'dry_run', false,
+    'mode', v_mode,
+    'summary', jsonb_build_object(
+      'events_restored', c_events_created,
+      'events_protected', c_events_protected,
+      'existing_locked_replaced', c_existing_locked_replaced,
+      'judges_restored', c_judges_created,
+      'participants_restored', c_participants_created,
+      'scores_restored', c_scores_created,
+      'settings_in_backup', v_has_settings,
+      'settings_updated', to_jsonb(v_settings_changed),
+      'sync_version', v_sync_version
+    )
+  );
+end;
+$$;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- READ-ONLY VERIFICATION QUERY (returns ONE jsonb cell)
+-- ═══════════════════════════════════════════════════════════════════
+select jsonb_build_object(
+  'migration', '16.3.1-fix-reset-restore-locks',
+  'org_reset_all_unlocks_before_delete', coalesce((
+    select (
+      pg_get_functiondef(p.oid) ilike '%set is_locked = false%'
+      and position('is_locked = false' in lower(pg_get_functiondef(p.oid)))
+          < position('delete from public.judges' in lower(pg_get_functiondef(p.oid)))
+    )
+    from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.proname = 'org_reset_all'
+    limit 1
+  ), false),
+  'org_restore_v2_unlocks_before_delete', coalesce((
+    select (
+      pg_get_functiondef(p.oid) ilike '%set is_locked = false%'
+      and position('is_locked = false' in lower(pg_get_functiondef(p.oid)))
+          < position('delete from public.judges' in lower(pg_get_functiondef(p.oid)))
+    )
+    from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.proname = 'org_restore_v2'
+    limit 1
+  ), false),
+  'legacy_org_reset_data_preserved', exists (
+    select 1 from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.proname = 'org_reset_data'
+  ),
+  'legacy_org_restore_preserved', exists (
+    select 1 from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.proname = 'org_restore'
+  )
+) as verification_result;
