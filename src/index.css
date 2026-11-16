@@ -9,7 +9,7 @@
     --border-main: #e7e5e4;
     --text-primary: #0f172a;
     --text-secondary: #64748b;
-    color-scheme: light;
+    color-scheme: only light;
   }
 
   .dark, html.dark, :root.dark {

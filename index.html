@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="only light" />
     <script>
       // Gracefully prevent unhandled errors when Vite client HMR is disabled in preview environment
       window.addEventListener('error', function (event) {
@@ -48,7 +49,10 @@
             root.classList.remove('dark');
           }
           root.classList.remove('light');
-          root.style.colorScheme = shouldDark ? 'dark' : 'light';
+          var scheme = shouldDark ? 'dark' : 'only light';
+          root.style.colorScheme = scheme;
+          var metaScheme = document.querySelector('meta[name="color-scheme"]');
+          if (metaScheme) metaScheme.setAttribute('content', scheme);
           var metaTheme = document.querySelector('meta[name="theme-color"]');
           if (metaTheme) metaTheme.setAttribute('content', shouldDark ? '#000000' : '#fafaf9');
         } catch (e) {}

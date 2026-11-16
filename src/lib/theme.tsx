@@ -40,12 +40,23 @@ function applyThemeClassToDom(resolved: 'dark' | 'light'): void {
   }
   root.classList.remove('light');
   root.removeAttribute('data-theme');
-  root.style.colorScheme = resolved;
+  const scheme = resolved === 'dark' ? 'dark' : 'only light';
+  root.style.colorScheme = scheme;
   root.style.removeProperty('background-color');
 
   if (body) {
     body.classList.remove('dark', 'light');
     body.removeAttribute('data-theme');
+  }
+
+  let metaScheme = document.querySelector('meta[name="color-scheme"]');
+  if (!metaScheme && document.head) {
+    metaScheme = document.createElement('meta');
+    metaScheme.setAttribute('name', 'color-scheme');
+    document.head.appendChild(metaScheme);
+  }
+  if (metaScheme) {
+    metaScheme.setAttribute('content', scheme);
   }
 
   const metaTheme = document.querySelector('meta[name="theme-color"]');
