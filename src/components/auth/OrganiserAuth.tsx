@@ -14,10 +14,11 @@ import {
 } from 'lucide-react';
 import { BrandBadge } from '../shared/BrandBadge';
 import { dbService } from '../../lib/supabase';
-import { authService } from '../../lib/authService';
+import { authService, ActiveOrgSession, SessionLimitError } from '../../lib/authService';
 import { Organization } from '../../lib/supabaseTypes';
 import { showToast, toast } from '../common/ToastProvider';
 import { sanitizeAuthError } from './authSanitizer';
+import { SessionLimitSheet } from './SessionLimitSheet';
 
 interface OrganiserAuthProps {
   onOrganiserLogin: (org: Organization, sessionToken?: string, mustChange?: boolean) => void;
@@ -41,6 +42,10 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
   // States
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [sessionLimitSessions, setSessionLimitSessions] = useState<ActiveOrgSession[] | null>(null);
+  const [pendingLoginCreds, setPendingLoginCreds] = useState<{ identifier: string; password: string } | null>(null);
+  const [evictingSessionId, setEvictingSessionId] = useState<string | null>(null);
+  const [limitErrorMsg, setLimitErrorMsg] = useState('');
 
   // Password entropy analysis for registration
   const passwordResult = adminPassword ? zxcvbn(adminPassword) : null;
@@ -126,6 +131,12 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
 
         onOrganiserLogin(org, sessionToken, mustChange);
       } catch (err: any) {
+        if (err instanceof SessionLimitError || err?.code === 'session_limit') {
+          setPendingLoginCreds({ identifier, password });
+          setSessionLimitSessions(Array.isArray(err.sessions) ? err.sessions : []);
+          setLimitErrorMsg('');
+          return;
+        }
         console.warn('Login attempt notice:', err?.message || err);
         const rawMsg = typeof err?.message === 'string' ? err.message : '';
         const msg =
@@ -141,6 +152,35 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
       } finally {
         setIsSubmitting(false);
       }
+    }
+  };
+
+  const handleEvictSessionAndRetry = async (sessionId: string) => {
+    if (!pendingLoginCreds || evictingSessionId) return;
+    setEvictingSessionId(sessionId);
+    setLimitErrorMsg('');
+    try {
+      await authService.evictSessionOnLimit(
+        pendingLoginCreds.identifier,
+        pendingLoginCreds.password,
+        sessionId
+      );
+      const { org, sessionToken, mustChange } = await authService.loginOrganiser(
+        pendingLoginCreds.identifier,
+        pendingLoginCreds.password
+      );
+      setSessionLimitSessions(null);
+      setPendingLoginCreds(null);
+      onOrganiserLogin(org, sessionToken, mustChange);
+    } catch (err: any) {
+      if (err instanceof SessionLimitError || err?.code === 'session_limit') {
+        setSessionLimitSessions(Array.isArray(err.sessions) ? err.sessions : []);
+        setLimitErrorMsg('All 3 slots are still occupied. Log out another session to continue.');
+      } else {
+        setLimitErrorMsg(err?.message || 'Could not log out that device. Please try again.');
+      }
+    } finally {
+      setEvictingSessionId(null);
     }
   };
 
@@ -389,6 +429,21 @@ export function OrganiserAuth({ onOrganiserLogin, onBack }: OrganiserAuthProps) 
           </p>
         )}
       </form>
+
+      {sessionLimitSessions && (
+        <SessionLimitSheet
+          sessions={sessionLimitSessions}
+          busySessionId={evictingSessionId}
+          errorMessage={limitErrorMsg}
+          onEvictSession={handleEvictSessionAndRetry}
+          onCancel={() => {
+            setSessionLimitSessions(null);
+            setPendingLoginCreds(null);
+            setEvictingSessionId(null);
+            setLimitErrorMsg('');
+          }}
+        />
+      )}
     </div>
   );
 }

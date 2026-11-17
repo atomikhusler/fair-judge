@@ -1,0 +1,234 @@
+-- ─────────────────────────────────────────────────────────────────
+-- 6. UPGRADE-SAFE LEGACY WRAPPERS (org_login, org_register, org_logout)
+--    Keep signatures intact for rolling clients; store SHA-256 hash only.
+-- ─────────────────────────────────────────────────────────────────
+
+create or replace function public.org_login(p_identifier text, p_password text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  return public.org_login_v2(p_identifier, p_password, null, 'Web browser (legacy client)');
+end;
+$$;
+
+revoke all on function public.org_login(text, text) from public;
+grant execute on function public.org_login(text, text) to anon, authenticated;
+
+create or replace function public.org_register(
+  p_org_id text,
+  p_name text,
+  p_email text,
+  p_password text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  clean_org_id text;
+  clean_name text;
+  clean_email text;
+  clean_pass text;
+  existing_id text;
+  v_org_row public.organizations;
+  v_token text;
+  v_hash text;
+begin
+  clean_org_id := upper(btrim(coalesce(p_org_id, '')));
+  clean_name := btrim(coalesce(p_name, ''));
+  clean_email := lower(btrim(coalesce(p_email, '')));
+  if clean_email = '' then
+    clean_email := null;
+  end if;
+  clean_pass := btrim(coalesce(p_password, ''));
+
+  if clean_org_id = '' or clean_name = '' then
+    return jsonb_build_object('ok', false, 'error', 'invalid_input', 'reason', 'invalid_input');
+  end if;
+
+  if length(clean_pass) < 6 or length(clean_pass) > 72 then
+    return jsonb_build_object('ok', false, 'error', 'weak_password', 'reason', 'weak_password');
+  end if;
+
+  select org_id into existing_id
+  from public.organizations
+  where lower(org_id) = lower(clean_org_id)
+     or (clean_email is not null and lower(coalesce(email, '')) = clean_email)
+  limit 1;
+
+  if existing_id is not null then
+    return jsonb_build_object('ok', false, 'error', 'duplicate', 'reason', 'duplicate');
+  end if;
+
+  insert into public.organizations (
+    id, org_id, name, email, verification_status,
+    tie_breaker_enabled, tie_breaker_method, custom_participant_fields,
+    blind_judging_enabled, auto_advance_enabled, grace_period_enabled,
+    isolated_jury_enabled, created_at
+  ) values (
+    gen_random_uuid(),
+    clean_org_id, clean_name, clean_email, 'pending',
+    false, 'olympic', '[]'::jsonb,
+    false, true, false,
+    false, now()
+  )
+  returning * into v_org_row;
+
+  insert into public.org_secrets (org_id, password_hash, updated_at)
+  values (clean_org_id, extensions.crypt(clean_pass, extensions.gen_salt('bf', 10)), now())
+  on conflict (org_id) do update set password_hash = excluded.password_hash, updated_at = now();
+
+  delete from public.org_login_throttle where key in (lower(clean_org_id), lower(coalesce(clean_email, '')));
+
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  v_hash := public._fj_hash_org_token(v_token);
+
+  insert into public.org_sessions (
+    org_id,
+    token,
+    token_hash,
+    device_id,
+    device_label,
+    created_at,
+    last_seen_at,
+    expires_at,
+    revoked_at
+  )
+  values (
+    clean_org_id,
+    null,
+    v_hash,
+    null,
+    'Primary device',
+    now(),
+    now(),
+    now() + interval '30 days',
+    null
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'org', to_jsonb(v_org_row) - 'password',
+    'session_token', v_token
+  );
+end;
+$$;
+
+revoke all on function public.org_register(text, text, text, text) from public;
+grant execute on function public.org_register(text, text, text, text) to anon, authenticated;
+
+create or replace function public.org_logout(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_tok text;
+  v_hash text;
+begin
+  v_tok := btrim(coalesce(p_token, ''));
+  if v_tok <> '' then
+    v_hash := public._fj_hash_org_token(v_tok);
+    update public.org_sessions
+    set revoked_at = now()
+    where revoked_at is null
+      and (token_hash = v_hash or token = v_tok);
+  end if;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.org_logout(text) from public;
+grant execute on function public.org_logout(text) to anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────────
+-- 7. SINGLE-CELL JSONB VERIFICATION CHECK
+-- ─────────────────────────────────────────────────────────────────
+
+select jsonb_build_object(
+  'epic', '16.5.0',
+  'org_sessions_rls', (
+    select c.relrowsecurity
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'org_sessions'
+  ),
+  'org_sessions_pk', (
+    select array_agg(a.attname order by u.ord)
+    from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    cross join lateral unnest(c.conkey) with ordinality as u(attnum, ord)
+    join pg_attribute a on a.attrelid = t.oid and a.attnum = u.attnum
+    where n.nspname = 'public' and t.relname = 'org_sessions' and c.contype = 'p'
+  ),
+  'token_nullable', (
+    select is_nullable = 'YES'
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'org_sessions' and column_name = 'token'
+  ),
+  'columns_present', (
+    select jsonb_agg(column_name order by column_name)
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'org_sessions'
+      and column_name in ('id', 'org_id', 'token_hash', 'device_id', 'device_label', 'created_at', 'last_seen_at', 'expires_at', 'revoked_at')
+  ),
+  'raw_tokens_remaining', (
+    select count(*)::int from public.org_sessions where token is not null
+  ),
+  'table_grants_to_public_roles', (
+    select count(*)::int
+    from information_schema.table_privileges
+    where table_schema = 'public'
+      and table_name = 'org_sessions'
+      and grantee in ('anon', 'authenticated', 'PUBLIC')
+  ),
+  'rpcs_deployed', (
+    select jsonb_agg(p.proname order by p.proname)
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        '_fj_hash_org_token',
+        '_fj_org_session_context',
+        '_fj_verify_org_token',
+        'org_login_v2',
+        'org_session_revoke_on_limit',
+        'org_sessions_list',
+        'org_session_terminate',
+        'org_sessions_terminate_others',
+        'org_change_password_v2',
+        'org_login',
+        'org_logout',
+        'org_register'
+      )
+  ),
+  'anon_can_exec_internal_helpers', (
+    select
+      has_function_privilege('anon', 'public._fj_verify_org_token(text, text)', 'EXECUTE')
+      or has_function_privilege('anon', 'public._fj_org_session_context(text)', 'EXECUTE')
+      or has_function_privilege('anon', 'public._fj_hash_org_token(text)', 'EXECUTE')
+  ),
+  'verify_uses_hash_not_raw', (
+    select position('token_hash' in pg_get_functiondef('public._fj_org_session_context(text)'::regprocedure)) > 0
+       and position('s.token =' in pg_get_functiondef('public._fj_org_session_context(text)'::regprocedure)) = 0
+  ),
+  'limit_check_present', (
+    select position('session_limit' in pg_get_functiondef('public.org_login_v2(text, text, text, text)'::regprocedure)) > 0
+       and position('>= 3' in pg_get_functiondef('public.org_login_v2(text, text, text, text)'::regprocedure)) > 0
+  ),
+  'self_terminate_blocked', (
+    select position('cannot_terminate_current' in pg_get_functiondef('public.org_session_terminate(text, uuid)'::regprocedure)) > 0
+  ),
+  'sessions_list_hides_hashes', (
+    select position('token_hash' in pg_get_functiondef('public.org_sessions_list(text)'::regprocedure)) = 0
+       and position('s.token' in pg_get_functiondef('public.org_sessions_list(text)'::regprocedure)) = 0
+       and position('''token''' in pg_get_functiondef('public.org_sessions_list(text)'::regprocedure)) = 0
+  )
+) as epic_16_5_0_verification;

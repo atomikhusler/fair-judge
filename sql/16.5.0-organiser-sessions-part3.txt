@@ -1,0 +1,197 @@
+-- ─────────────────────────────────────────────────────────────────
+-- 4. SESSION MANAGEMENT RPCs (LIST, TERMINATE ONE, TERMINATE OTHERS)
+-- ─────────────────────────────────────────────────────────────────
+
+create or replace function public.org_sessions_list(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_ctx jsonb;
+  v_org_id text;
+  v_cur_id uuid;
+  v_sessions jsonb := '[]'::jsonb;
+begin
+  v_ctx := public._fj_org_session_context(p_token);
+  if not coalesce((v_ctx->>'ok')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', 'unauthorized');
+  end if;
+
+  v_org_id := v_ctx->>'org_id';
+  v_cur_id := (v_ctx->>'session_id')::uuid;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', s.id,
+        'device_label', coalesce(nullif(btrim(s.device_label), ''), 'Unknown device'),
+        'created_at', s.created_at,
+        'last_seen_at', s.last_seen_at,
+        'expires_at', s.expires_at,
+        'is_current', (s.id = v_cur_id)
+      )
+      order by (s.id = v_cur_id) desc, s.last_seen_at desc, s.created_at desc
+    ),
+    '[]'::jsonb
+  )
+  into v_sessions
+  from public.org_sessions s
+  where upper(s.org_id) = upper(v_org_id)
+    and s.revoked_at is null
+    and s.expires_at > now();
+
+  return jsonb_build_object('ok', true, 'sessions', v_sessions);
+end;
+$$;
+
+revoke all on function public.org_sessions_list(text) from public;
+grant execute on function public.org_sessions_list(text) to anon, authenticated;
+
+create or replace function public.org_session_terminate(p_token text, p_session_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_ctx jsonb;
+  v_org_id text;
+  v_cur_id uuid;
+  v_terminated_id uuid;
+begin
+  v_ctx := public._fj_org_session_context(p_token);
+  if not coalesce((v_ctx->>'ok')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', 'unauthorized');
+  end if;
+
+  if p_session_id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_input');
+  end if;
+
+  v_org_id := v_ctx->>'org_id';
+  v_cur_id := (v_ctx->>'session_id')::uuid;
+
+  -- Server-enforced rule: current device can never be terminated from its own list
+  if p_session_id = v_cur_id then
+    return jsonb_build_object('ok', false, 'error', 'cannot_terminate_current');
+  end if;
+
+  update public.org_sessions
+  set revoked_at = now()
+  where id = p_session_id
+    and upper(org_id) = upper(v_org_id)
+    and id <> v_cur_id
+    and revoked_at is null
+  returning id into v_terminated_id;
+
+  if v_terminated_id is null then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  return jsonb_build_object('ok', true, 'terminated_id', v_terminated_id);
+end;
+$$;
+
+revoke all on function public.org_session_terminate(text, uuid) from public;
+grant execute on function public.org_session_terminate(text, uuid) to anon, authenticated;
+
+create or replace function public.org_sessions_terminate_others(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_ctx jsonb;
+  v_org_id text;
+  v_cur_id uuid;
+  v_count int := 0;
+begin
+  v_ctx := public._fj_org_session_context(p_token);
+  if not coalesce((v_ctx->>'ok')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', 'unauthorized');
+  end if;
+
+  v_org_id := v_ctx->>'org_id';
+  v_cur_id := (v_ctx->>'session_id')::uuid;
+
+  update public.org_sessions
+  set revoked_at = now()
+  where upper(org_id) = upper(v_org_id)
+    and id <> v_cur_id
+    and revoked_at is null;
+
+  get diagnostics v_count = row_count;
+
+  return jsonb_build_object('ok', true, 'terminated_count', v_count);
+end;
+$$;
+
+revoke all on function public.org_sessions_terminate_others(text) from public;
+grant execute on function public.org_sessions_terminate_others(text) to anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────────
+-- 5. PASSWORD CHANGE V2 (REVOKES ALL OTHER SESSIONS, KEEPS CURRENT)
+-- ─────────────────────────────────────────────────────────────────
+
+create or replace function public.org_change_password_v2(
+  p_token text,
+  p_old text,
+  p_new text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_ctx jsonb;
+  v_org_id text;
+  v_cur_id uuid;
+  v_verify jsonb;
+  clean_new text;
+  v_revoked_count int := 0;
+begin
+  v_ctx := public._fj_org_session_context(p_token);
+  if not coalesce((v_ctx->>'ok')::boolean, false) then
+    return jsonb_build_object('ok', false, 'error', 'unauthorized');
+  end if;
+
+  v_org_id := v_ctx->>'org_id';
+  v_cur_id := (v_ctx->>'session_id')::uuid;
+
+  v_verify := public._fj_verify_org(v_org_id, p_old);
+  if not coalesce((v_verify->>'ok')::boolean, false) then
+    return v_verify;
+  end if;
+
+  clean_new := btrim(coalesce(p_new, ''));
+  if length(clean_new) < 6 or length(clean_new) > 72 then
+    return jsonb_build_object('ok', false, 'error', 'weak_password', 'reason', 'weak_password');
+  end if;
+
+  update public.org_secrets
+  set password_hash = extensions.crypt(clean_new, extensions.gen_salt('bf', 10)),
+      must_change = false,
+      updated_at = now()
+  where upper(org_id) = upper(v_org_id);
+
+  delete from public.org_login_throttle where key = lower(v_org_id);
+
+  update public.org_sessions
+  set revoked_at = now()
+  where upper(org_id) = upper(v_org_id)
+    and id <> v_cur_id
+    and revoked_at is null;
+
+  get diagnostics v_revoked_count = row_count;
+
+  return jsonb_build_object('ok', true, 'terminated_others', v_revoked_count);
+end;
+$$;
+
+revoke all on function public.org_change_password_v2(text, text, text) from public;
+grant execute on function public.org_change_password_v2(text, text, text) to anon, authenticated;
+

@@ -28,9 +28,12 @@ import {
   Undo2,
   KeyRound,
   RefreshCw,
+  MonitorSmartphone,
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
-import { dbService, supabase, getStoredSession, setStoredSession } from '../../lib/supabase';
+import { dbService, getStoredSession, setStoredSession } from '../../lib/supabase';
+import { authService, ActiveOrgSession } from '../../lib/authService';
+import { formatSessionTimestamp } from '../../lib/deviceIdentity';
 import { eventBus } from '../../lib/eventBus';
 import { DB_TABLES } from '../../lib/dbTables';
 import { useToast } from '../common/ToastProvider';
@@ -90,6 +93,15 @@ export function AccountModal({
   // Double-Confirmation Sign Out Modal State (C2)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
+  // Active Sessions State (Epic 16.5.0 — loaded only when AccountModal opens)
+  const [activeSessions, setActiveSessions] = useState<ActiveOrgSession[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [confirmTerminateTarget, setConfirmTerminateTarget] = useState<
+    { mode: 'one'; session: ActiveOrgSession } | { mode: 'others'; count: number } | null
+  >(null);
+  const [isTerminatingSession, setIsTerminatingSession] = useState(false);
+
   // Danger Zone Shutter & Confirmation States (C8 + Stage 2 Master Reset)
   const [isDangerShutterOpen, setIsDangerShutterOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -146,15 +158,36 @@ export function AccountModal({
     }
   }, [isOpen, mustChangePassword]);
 
-  // Check if an encrypted safety snapshot exists whenever modal opens; clear transient secrets on close
+  const loadActiveSessions = useCallback(async () => {
+    setIsLoadingSessions(true);
+    setSessionsError(null);
+    try {
+      const res = await authService.listOrgSessions();
+      if (!res.ok) {
+        setSessionsError(res.error || 'Could not load active sessions.');
+        return;
+      }
+      setActiveSessions(res.sessions);
+    } catch (err: any) {
+      setSessionsError(err?.message || 'Could not load active sessions.');
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, []);
+
+  // Check encrypted safety snapshot & fetch active sessions whenever modal opens; clear transient secrets on close
   useEffect(() => {
     if (isOpen) {
       hasSafetySnapshot(organization.org_id)
         .then(setCanUndoSnapshot)
         .catch(() => setCanUndoSnapshot(false));
+      void loadActiveSessions();
     } else {
       setIsDangerShutterOpen(false);
       setShowLogoutConfirm(false);
+      setConfirmTerminateTarget(null);
+      setIsTerminatingSession(false);
+      setSessionsError(null);
       setShowResetConfirm(false);
       setResetSuccess(false);
       setShowDeleteConfirm(false);
@@ -171,11 +204,12 @@ export function AccountModal({
       setIsEditingName(false);
       setIsEditingEmail(false);
     }
-  }, [isOpen, organization.org_id]);
+  }, [isOpen, organization.org_id, loadActiveSessions]);
 
   const handleCloseModal = useCallback(() => {
     setIsDangerShutterOpen(false);
     setShowLogoutConfirm(false);
+    setConfirmTerminateTarget(null);
     setShowResetConfirm(false);
     setResetSuccess(false);
     setResetPassword('');
@@ -238,6 +272,10 @@ export function AccountModal({
         setShowLogoutConfirm(false);
         return;
       }
+      if (confirmTerminateTarget && !isTerminatingSession) {
+        setConfirmTerminateTarget(null);
+        return;
+      }
       handleCloseModal();
     };
 
@@ -255,6 +293,8 @@ export function AccountModal({
     showResetConfirm,
     showUndoResetPrompt,
     showLogoutConfirm,
+    confirmTerminateTarget,
+    isTerminatingSession,
     handleCloseModal,
   ]);
 
@@ -353,43 +393,60 @@ export function AccountModal({
     }
     setIsSavingPassword(true);
     try {
-      const { data, error } = await supabase.rpc('org_change_password', {
-        p_org_id: organization.org_id,
-        p_old: currentPassword.trim(),
-        p_new: newPassword.trim(),
-      });
-      if (error) throw error;
-      const res = data as any;
-      if (!res || !res.ok) {
-        const errCode = res?.error || res?.reason;
-        if (errCode === 'too_many_attempts') {
-          showToast('Too many attempts. Try again in 15 minutes.');
-          return;
-        }
-        if (errCode === 'weak_password') {
-          showToast('New password is too short (minimum 6 characters).');
-          return;
-        }
-        showToast('Current password is wrong.');
-        return;
-      }
-      showToast('Master password updated.');
+      await authService.changeOrganiserPassword(currentPassword, newPassword);
+      showToast('Master password updated. Other sessions signed out.');
       onPasswordChanged?.();
       setIsUpdatingPassword(false);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      void loadActiveSessions();
     } catch (err: any) {
-      const msg = err.message || '';
-      if (msg.includes('too_many_attempts')) {
+      const code = err?.code || '';
+      const msg = err?.message || '';
+      if (code === 'too_many_attempts' || msg.includes('too_many_attempts')) {
         showToast('Too many attempts. Try again in 15 minutes.');
-      } else if (msg.includes('invalid') || msg.includes('wrong')) {
+      } else if (code === 'weak_password') {
+        showToast('New password is too short (minimum 6 characters).');
+      } else if (code === 'unauthorized') {
+        showToast('Session expired. Please sign in again.');
+      } else if (code === 'invalid_credentials' || msg.includes('invalid') || msg.includes('wrong')) {
         showToast('Current password is wrong.');
       } else {
         showToast(`Password update failed: ${msg || 'Error'}`);
       }
     } finally {
       setIsSavingPassword(false);
+    }
+  };
+
+  // Active Sessions: Execute single or bulk session termination
+  const handleConfirmTerminateSession = async () => {
+    if (!confirmTerminateTarget || isTerminatingSession) return;
+    setIsTerminatingSession(true);
+    try {
+      if (confirmTerminateTarget.mode === 'one') {
+        if (confirmTerminateTarget.session.is_current) {
+          showToast('This device cannot be terminated from its own session list.');
+          setConfirmTerminateTarget(null);
+          return;
+        }
+        await authService.terminateOrgSession(confirmTerminateTarget.session.id);
+        showToast(`Session ended on ${confirmTerminateTarget.session.device_label || 'device'}.`);
+      } else {
+        const count = await authService.terminateOtherOrgSessions();
+        showToast(
+          count > 0
+            ? `Terminated ${count} other active session${count === 1 ? '' : 's'}.`
+            : 'No other active sessions found.'
+        );
+      }
+      setConfirmTerminateTarget(null);
+      await loadActiveSessions();
+    } catch (err: any) {
+      showToast(err?.message || 'Could not terminate session.');
+    } finally {
+      setIsTerminatingSession(false);
     }
   };
 
@@ -624,30 +681,153 @@ export function AccountModal({
         {/* Modal Body: Solid Inset Grouped Cards */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-stone-100 dark:bg-black overscroll-contain pb-16">
           {/* ======================================================== */}
-          {/* TOP: SIGN OUT ATTACHED TO ORGANIZATION IDENTITY (C2)     */}
+          {/* TOP CARD 1A: SIGN OUT                                    */}
           {/* ======================================================== */}
-          <div className="mt-2 bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
-            {/* Padded Sign Out Button matching Change Password shape & padding (C2) */}
-            <div className="p-4">
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('tick');
-                  setShowLogoutConfirm(true);
-                }}
-                className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white shadow-sm group"
-              >
-                <LogOut className="w-3.5 h-3.5 text-white transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
-                <span>Sign out</span>
-              </button>
+          <div className="mt-2 bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm p-4">
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('tick');
+                setShowLogoutConfirm(true);
+              }}
+              className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white shadow-sm group"
+            >
+              <LogOut className="w-3.5 h-3.5 text-white transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+              <span>Sign out</span>
+            </button>
+          </div>
+
+          {/* ======================================================== */}
+          {/* TOP CARD 1B: ACTIVE SESSIONS (MAX 3 DEVICES)             */}
+          {/* ======================================================== */}
+          <div>
+            <div className="flex items-center justify-between px-4 mb-2 mt-6">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                Active sessions
+              </h4>
+              {!isLoadingSessions && !sessionsError && (
+                <span className="text-[11px] font-mono font-semibold text-zinc-600 dark:text-zinc-400 tabular-nums">
+                  {activeSessions.length} of 3
+                </span>
+              )}
             </div>
 
-            {/* Organization Identity Section Header (attached directly below Sign Out) */}
-            <div className="px-4 py-2 bg-stone-50 dark:bg-zinc-900/60">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-                Organization Identity
-              </h4>
+            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
+              {isLoadingSessions ? (
+                <div className="p-4 space-y-3" aria-busy="true" aria-label="Loading active sessions">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-1.5 flex-1">
+                      <span className="fj-skel h-4 w-36 block" />
+                      <span className="fj-skel h-3 w-48 block" />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-1.5 flex-1">
+                      <span className="fj-skel h-4 w-32 block" />
+                      <span className="fj-skel h-3 w-44 block" />
+                    </div>
+                    <span className="fj-skel h-9 w-20 block" />
+                  </div>
+                </div>
+              ) : sessionsError ? (
+                <div className="p-4 flex items-center justify-between gap-3">
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                    {sessionsError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void loadActiveSessions()}
+                    className="min-h-[44px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-800 dark:text-zinc-200 transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry</span>
+                  </button>
+                </div>
+              ) : activeSessions.length === 0 ? (
+                <div className="p-4 text-xs text-zinc-600 dark:text-zinc-400">
+                  No active sessions returned for this account.
+                </div>
+              ) : (
+                <>
+                  {activeSessions.map((sess) => {
+                    const isCurrent = Boolean(sess.is_current);
+                    return (
+                      <div
+                        key={sess.id}
+                        className="p-4 flex items-center justify-between gap-3"
+                      >
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <div className="w-9 h-9 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shrink-0 mt-0.5">
+                            <MonitorSmartphone className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs sm:text-sm font-bold text-zinc-900 dark:text-white truncate">
+                                {sess.device_label || 'Unknown device'}
+                              </span>
+                              {isCurrent && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-800 dark:text-emerald-300 whitespace-nowrap shrink-0">
+                                  This device
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 tabular-nums">
+                              <span title={new Date(sess.created_at).toLocaleString()}>
+                                Signed in {formatSessionTimestamp(sess.created_at)}
+                              </span>
+                              <span aria-hidden="true">·</span>
+                              <span title={new Date(sess.last_seen_at).toLocaleString()}>
+                                Last seen {formatSessionTimestamp(sess.last_seen_at)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {!isCurrent && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              triggerHaptic('tick');
+                              setConfirmTerminateTarget({ mode: 'one', session: sess });
+                            }}
+                            className="min-h-[44px] px-3.5 rounded-xl bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+                          >
+                            Terminate
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {activeSessions.some((s) => !s.is_current) && (
+                    <div className="p-4 bg-stone-50/70 dark:bg-zinc-900/40">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic('tick');
+                          const otherCount = activeSessions.filter((s) => !s.is_current).length;
+                          setConfirmTerminateTarget({ mode: 'others', count: otherCount });
+                        }}
+                        className="w-full min-h-[44px] px-4 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-rose-700 dark:text-rose-400 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Terminate all others</span>
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
+          </div>
+
+          {/* ======================================================== */}
+          {/* CARD 1C: ORGANIZATION IDENTITY                           */}
+          {/* ======================================================== */}
+          <div>
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
+              Organization Identity
+            </h4>
+            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
 
             {/* Row 1: Organization Name — pencil to the right, NO "Host Entity" (C3) */}
             <div className="p-4 space-y-2">
@@ -873,6 +1053,7 @@ export function AccountModal({
                   )}
                 </button>
               </div>
+            </div>
             </div>
           </div>
 
@@ -1224,6 +1405,77 @@ export function AccountModal({
               >
                 <LogOut className="w-4 h-4" />
                 <span>Sign out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Pop-up: Terminate Other Session(s) (Epic 16.5.0) */}
+      {confirmTerminateTarget && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="org-session-terminate-title"
+          onClick={() => {
+            if (!isTerminatingSession) setConfirmTerminateTarget(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-zinc-950 border border-rose-500/30 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
+          >
+            <div className="flex items-center space-x-3 text-rose-700 dark:text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/15 flex items-center justify-center shrink-0">
+                <MonitorSmartphone className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h3
+                  id="org-session-terminate-title"
+                  className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                >
+                  {confirmTerminateTarget.mode === 'one'
+                    ? 'Terminate session?'
+                    : 'Terminate all other sessions?'}
+                </h3>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate">
+                  {confirmTerminateTarget.mode === 'one'
+                    ? confirmTerminateTarget.session.device_label || 'Unknown device'
+                    : `${confirmTerminateTarget.count} other device${confirmTerminateTarget.count === 1 ? '' : 's'} signed in`}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+              {confirmTerminateTarget.mode === 'one'
+                ? 'That device will be signed out automatically within about 60 seconds. This device stays signed in.'
+                : 'Every other signed-in device will be signed out automatically within about 60 seconds. This device stays signed in.'}
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                disabled={isTerminatingSession}
+                onClick={() => setConfirmTerminateTarget(null)}
+                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isTerminatingSession}
+                onClick={() => void handleConfirmTerminateSession()}
+                className="min-h-[44px] bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-1.5"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>
+                  {isTerminatingSession
+                    ? 'Terminating...'
+                    : confirmTerminateTarget.mode === 'one'
+                      ? 'Terminate'
+                      : 'Terminate all'}
+                </span>
               </button>
             </div>
           </div>

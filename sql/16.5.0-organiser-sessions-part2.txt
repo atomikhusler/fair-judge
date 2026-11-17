@@ -1,0 +1,211 @@
+-- ─────────────────────────────────────────────────────────────────
+-- 3. ORGANISER LOGIN V2 (MAX 3 DEVICES, SHA-256 HASH ONLY)
+-- ─────────────────────────────────────────────────────────────────
+
+create or replace function public.org_login_v2(
+  p_identifier text,
+  p_password text,
+  p_device_id text default null,
+  p_device_label text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v jsonb;
+  v_org_row public.organizations;
+  v_org jsonb;
+  v_org_id text;
+  v_must_change boolean;
+  v_device_id text;
+  v_device_label text;
+  v_active_count int := 0;
+  v_sessions jsonb := '[]'::jsonb;
+  v_token text;
+  v_hash text;
+  v_session_id uuid;
+begin
+  v := public._fj_verify_org(p_identifier, p_password);
+  if not coalesce((v->>'ok')::boolean, false) then
+    return v;
+  end if;
+
+  v_org_id := v->>'org_id';
+
+  select * into v_org_row
+  from public.organizations o
+  where upper(o.org_id) = upper(v_org_id)
+  limit 1;
+
+  if v_org_row.id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_credentials', 'reason', 'invalid_credentials');
+  end if;
+
+  if v_org_row.deleted_at is not null then
+    return jsonb_build_object('ok', false, 'error', 'org_deleted', 'reason', 'org_deleted');
+  end if;
+
+  if coalesce(v_org_row.suspended, false) then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'org_suspended',
+      'reason', 'org_suspended',
+      'detail', coalesce(v_org_row.suspended_reason, '')
+    );
+  end if;
+
+  -- Serialize concurrent logins per org so max-3 cannot race
+  perform pg_advisory_xact_lock(hashtext('org_sessions:' || upper(v_org_row.org_id)));
+
+  -- Remove expired and terminated rows for this org at login to keep table small
+  delete from public.org_sessions
+  where upper(org_id) = upper(v_org_row.org_id)
+    and (expires_at <= now() or revoked_at is not null);
+
+  v_device_id := left(nullif(btrim(coalesce(p_device_id, '')), ''), 128);
+  v_device_label := left(
+    coalesce(nullif(btrim(coalesce(p_device_label, '')), ''), 'Web browser'),
+    120
+  );
+
+  select
+    count(*)::int,
+    coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', s.id,
+          'device_label', coalesce(nullif(btrim(s.device_label), ''), 'Unknown device'),
+          'created_at', s.created_at,
+          'last_seen_at', s.last_seen_at,
+          'expires_at', s.expires_at,
+          'is_same_device', (v_device_id is not null and s.device_id = v_device_id)
+        )
+        order by s.last_seen_at desc, s.created_at desc
+      ),
+      '[]'::jsonb
+    )
+  into v_active_count, v_sessions
+  from public.org_sessions s
+  where upper(s.org_id) = upper(v_org_row.org_id)
+    and s.revoked_at is null
+    and s.expires_at > now();
+
+  if v_active_count >= 3 then
+    return jsonb_build_object(
+      'ok', false,
+      'error', 'session_limit',
+      'reason', 'session_limit',
+      'max_sessions', 3,
+      'sessions', v_sessions
+    );
+  end if;
+
+  select coalesce(s.must_change, false) into v_must_change
+  from public.org_secrets s
+  where upper(s.org_id) = upper(v_org_row.org_id)
+  limit 1;
+
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  v_hash := public._fj_hash_org_token(v_token);
+
+  insert into public.org_sessions (
+    org_id,
+    token,
+    token_hash,
+    device_id,
+    device_label,
+    created_at,
+    last_seen_at,
+    expires_at,
+    revoked_at
+  )
+  values (
+    v_org_row.org_id,
+    null,
+    v_hash,
+    v_device_id,
+    v_device_label,
+    now(),
+    now(),
+    now() + interval '30 days',
+    null
+  )
+  returning id into v_session_id;
+
+  v_org := to_jsonb(v_org_row) - 'password';
+
+  return jsonb_build_object(
+    'ok', true,
+    'org', v_org,
+    'session_token', v_token,
+    'session_id', v_session_id,
+    'must_change', coalesce(v_must_change, false)
+  );
+end;
+$$;
+
+revoke all on function public.org_login_v2(text, text, text, text) from public;
+grant execute on function public.org_login_v2(text, text, text, text) to anon, authenticated;
+
+-- Evict a chosen active session when a 4th device hits session_limit (re-verifies credentials)
+create or replace function public.org_session_revoke_on_limit(
+  p_identifier text,
+  p_password text,
+  p_session_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v jsonb;
+  v_org_row public.organizations;
+  v_revoked_id uuid;
+begin
+  if p_session_id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_input');
+  end if;
+
+  v := public._fj_verify_org(p_identifier, p_password);
+  if not coalesce((v->>'ok')::boolean, false) then
+    return v;
+  end if;
+
+  select * into v_org_row
+  from public.organizations o
+  where upper(o.org_id) = upper(v->>'org_id')
+  limit 1;
+
+  if v_org_row.id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_credentials');
+  end if;
+
+  if v_org_row.deleted_at is not null then
+    return jsonb_build_object('ok', false, 'error', 'org_deleted');
+  end if;
+
+  if coalesce(v_org_row.suspended, false) then
+    return jsonb_build_object('ok', false, 'error', 'org_suspended');
+  end if;
+
+  update public.org_sessions
+  set revoked_at = now()
+  where id = p_session_id
+    and upper(org_id) = upper(v_org_row.org_id)
+    and revoked_at is null
+  returning id into v_revoked_id;
+
+  if v_revoked_id is null then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  return jsonb_build_object('ok', true, 'revoked_id', v_revoked_id);
+end;
+$$;
+
+revoke all on function public.org_session_revoke_on_limit(text, text, uuid) from public;
+grant execute on function public.org_session_revoke_on_limit(text, text, uuid) to anon, authenticated;
+

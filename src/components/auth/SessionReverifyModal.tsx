@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ShieldAlert, KeyRound, Eye, EyeOff, Loader2, LogOut, X } from 'lucide-react';
-import { authService } from '../../lib/authService';
+import { authService, ActiveOrgSession, SessionLimitError } from '../../lib/authService';
 import { Organization, SupabaseJudge } from '../../lib/supabaseTypes';
 import { StoredUserSession } from '../../lib/supabase';
 import { getPendingCount } from '../../lib/offlineQueue';
 import { sanitizeAuthError } from './authSanitizer';
+import { SessionLimitSheet } from './SessionLimitSheet';
 
 export interface SessionReverifySuccessPayload {
   org?: Organization;
@@ -33,6 +34,10 @@ export function SessionReverifyModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [pendingCount, setPendingCount] = useState(0);
+  const [sessionLimitSessions, setSessionLimitSessions] = useState<ActiveOrgSession[] | null>(null);
+  const [pendingCreds, setPendingCreds] = useState<{ orgId: string; password: string } | null>(null);
+  const [evictingSessionId, setEvictingSessionId] = useState<string | null>(null);
+  const [limitErrorMsg, setLimitErrorMsg] = useState('');
 
   const inputRef = useRef<HTMLInputElement>(null);
   const isJudge = session.role === 'judge';
@@ -51,7 +56,7 @@ export function SessionReverifyModal({
       .catch(() => {});
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isSubmitting) {
+      if (e.key === 'Escape' && !isSubmitting && !sessionLimitSessions) {
         e.preventDefault();
         onDismiss();
       }
@@ -63,7 +68,7 @@ export function SessionReverifyModal({
       window.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = prevOverflow;
     };
-  }, [isSubmitting, onDismiss]);
+  }, [isSubmitting, sessionLimitSessions, onDismiss]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,11 +115,46 @@ export function SessionReverifyModal({
         });
       }
     } catch (err: any) {
+      if (!isJudge && (err instanceof SessionLimitError || err?.code === 'session_limit')) {
+        setPendingCreds({ orgId: session.org.org_id, password: cleanSecret });
+        setSessionLimitSessions(Array.isArray(err.sessions) ? err.sessions : []);
+        setLimitErrorMsg('');
+        return;
+      }
       const msg = sanitizeAuthError(err);
       setErrorMsg(msg);
       inputRef.current?.focus();
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleEvictAndRetry = async (sessionId: string) => {
+    if (!pendingCreds || evictingSessionId) return;
+    setEvictingSessionId(sessionId);
+    setLimitErrorMsg('');
+    try {
+      await authService.evictSessionOnLimit(pendingCreds.orgId, pendingCreds.password, sessionId);
+      const res = await authService.loginOrganiser(pendingCreds.orgId, pendingCreds.password);
+      if (!res.sessionToken) {
+        throw new Error('Could not obtain a server session token. Please try again.');
+      }
+      setSessionLimitSessions(null);
+      setPendingCreds(null);
+      onSuccess({
+        org: res.org,
+        sessionToken: res.sessionToken,
+        mustChange: res.mustChange,
+      });
+    } catch (err: any) {
+      if (err instanceof SessionLimitError || err?.code === 'session_limit') {
+        setSessionLimitSessions(Array.isArray(err.sessions) ? err.sessions : []);
+        setLimitErrorMsg('All 3 slots are still occupied. Log out another session to continue.');
+      } else {
+        setLimitErrorMsg(err?.message || 'Could not log out that device. Please try again.');
+      }
+    } finally {
+      setEvictingSessionId(null);
     }
   };
 
@@ -246,6 +286,21 @@ export function SessionReverifyModal({
           </div>
         </form>
       </div>
+
+      {sessionLimitSessions && (
+        <SessionLimitSheet
+          sessions={sessionLimitSessions}
+          busySessionId={evictingSessionId}
+          errorMessage={limitErrorMsg}
+          onEvictSession={handleEvictAndRetry}
+          onCancel={() => {
+            setSessionLimitSessions(null);
+            setPendingCreds(null);
+            setEvictingSessionId(null);
+            setLimitErrorMsg('');
+          }}
+        />
+      )}
     </div>
   );
 }

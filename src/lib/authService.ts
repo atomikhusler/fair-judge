@@ -4,7 +4,7 @@
  * Eliminates all automated insert/upsert fallbacks to prevent phantom duplicate accounts.
  */
 
-import { supabase, isSupabaseConfigured, dbService } from './supabase';
+import { supabase, isSupabaseConfigured, dbService, getStoredSessionToken } from './supabase';
 import {
   Organization,
   SupabaseJudge,
@@ -13,6 +13,8 @@ import {
 import { getHotCache, setIndexedDBCache } from './db/indexedDB';
 import { STORAGE_KEYS, generateOrgId } from './supabase';
 import { blackBox } from './blackBox';
+import { eventBus } from './eventBus';
+import { buildDeviceLabel, getOrCreateDeviceId } from './deviceIdentity';
 
 export interface JudgeAuthParams {
   orgId?: string;
@@ -32,6 +34,27 @@ export interface OrganiserAuthResult {
   org: Organization;
   sessionToken?: string;
   mustChange?: boolean;
+}
+
+export interface ActiveOrgSession {
+  id: string;
+  device_label: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at?: string;
+  is_current?: boolean;
+  is_same_device?: boolean;
+}
+
+export class SessionLimitError extends Error {
+  readonly code = 'session_limit' as const;
+  readonly sessions: ActiveOrgSession[];
+
+  constructor(sessions: ActiveOrgSession[], message = 'Maximum of 3 active devices reached.') {
+    super(message);
+    this.name = 'SessionLimitError';
+    this.sessions = sessions;
+  }
 }
 
 const OFFLINE_VERIFIERS_KEY = 'fairjudge_judge_offline_verifiers';
@@ -373,9 +396,14 @@ export const authService = {
     }
 
     try {
-      const { data, error } = await supabase.rpc('org_login', {
+      const deviceId = getOrCreateDeviceId();
+      const deviceLabel = buildDeviceLabel();
+
+      const { data, error } = await supabase.rpc('org_login_v2', {
         p_identifier: cleanId,
         p_password: cleanPass,
+        p_device_id: deviceId,
+        p_device_label: deviceLabel,
       });
 
       if (error) {
@@ -385,6 +413,10 @@ export const authService = {
       const res = data as any;
       if (!res || !res.ok) {
         const errCode = res?.error || res?.reason;
+        if (errCode === 'session_limit') {
+          const sessions: ActiveOrgSession[] = Array.isArray(res?.sessions) ? res.sessions : [];
+          throw new SessionLimitError(sessions);
+        }
         if (errCode === 'too_many_attempts') {
           throw new Error('Too many attempts. Try again in 15 minutes.');
         }
@@ -414,6 +446,9 @@ export const authService = {
         mustChange: Boolean(res.must_change),
       };
     } catch (err: any) {
+      if (err instanceof SessionLimitError || err?.code === 'session_limit') {
+        throw err;
+      }
       if (
         err.message === 'Organiser sign-in needs an internet connection.' ||
         err.message === 'Too many attempts. Try again in 15 minutes.' ||
@@ -427,6 +462,45 @@ export const authService = {
         throw new Error('Too many attempts. Try again in 15 minutes.');
       }
       throw new Error('Invalid Organization ID or Master Password.');
+    }
+  },
+
+  /**
+   * Revokes one of the 3 active organiser sessions when a 4th device hits session_limit.
+   * Server re-verifies identifier + password and shares brute-force throttling.
+   */
+  async evictSessionOnLimit(identifier: string, password: string, sessionId: string): Promise<void> {
+    const cleanId = identifier.trim();
+    const cleanPass = password.trim();
+
+    if (!isSupabaseConfigured() || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      throw new Error('Needs an internet connection to manage active sessions.');
+    }
+
+    const { data, error } = await supabase.rpc('org_session_revoke_on_limit', {
+      p_identifier: cleanId,
+      p_password: cleanPass,
+      p_session_id: sessionId,
+    });
+
+    if (error) {
+      throw new Error('Could not log out that device. Please try again.');
+    }
+
+    const res = data as any;
+    if (!res || !res.ok) {
+      const errCode = res?.error || res?.reason;
+      if (errCode === 'too_many_attempts') {
+        throw new Error('Too many attempts. Try again in 15 minutes.');
+      }
+      if (errCode === 'invalid_credentials') {
+        throw new Error('Invalid Organization ID or Master Password.');
+      }
+      if (errCode === 'not_found') {
+        // Already logged out or expired — safe to retry login
+        return;
+      }
+      throw new Error('Could not log out that device. Please try again.');
     }
   },
 
@@ -512,5 +586,170 @@ export const authService = {
     } catch {
       // Best-effort revocation; local session is still cleared immediately
     }
+  },
+
+  /**
+   * Lists active organiser sessions for the Account Modal (server checks token_hash).
+   */
+  async listOrgSessions(
+    tokenOverride?: string | null
+  ): Promise<{ ok: boolean; sessions: ActiveOrgSession[]; unauthorized?: boolean; error?: string }> {
+    const token = (tokenOverride ?? getStoredSessionToken() ?? '').trim();
+    if (!token) {
+      return { ok: false, sessions: [], unauthorized: true, error: 'Session missing.' };
+    }
+    if (!isSupabaseConfigured() || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      return { ok: false, sessions: [], error: 'Needs internet to load active sessions.' };
+    }
+
+    const { data, error } = await supabase.rpc('org_sessions_list', {
+      p_token: token,
+    });
+
+    if (error) {
+      return { ok: false, sessions: [], error: error.message || 'Could not load active sessions.' };
+    }
+
+    const res = data as any;
+    if (!res || !res.ok) {
+      if (res?.error === 'unauthorized') {
+        eventBus.emit('session_expired', { role: 'organiser', reason: 'expired' });
+        return { ok: false, sessions: [], unauthorized: true, error: 'Session expired.' };
+      }
+      return { ok: false, sessions: [], error: res?.error || 'Could not load active sessions.' };
+    }
+
+    return {
+      ok: true,
+      sessions: Array.isArray(res.sessions) ? (res.sessions as ActiveOrgSession[]) : [],
+    };
+  },
+
+  /**
+   * Terminates another active organiser session (server refuses current device).
+   */
+  async terminateOrgSession(sessionId: string, tokenOverride?: string | null): Promise<void> {
+    const token = (tokenOverride ?? getStoredSessionToken() ?? '').trim();
+    if (!token) {
+      eventBus.emit('session_expired', { role: 'organiser', reason: 'missing' });
+      throw new Error('Session expired. Please sign in again.');
+    }
+    if (!isSupabaseConfigured() || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      throw new Error('Needs internet to terminate a session.');
+    }
+
+    const { data, error } = await supabase.rpc('org_session_terminate', {
+      p_token: token,
+      p_session_id: sessionId,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Could not terminate session.');
+    }
+
+    const res = data as any;
+    if (!res || !res.ok) {
+      if (res?.error === 'unauthorized') {
+        eventBus.emit('session_expired', { role: 'organiser', reason: 'expired' });
+        throw new Error('Session expired. Please sign in again.');
+      }
+      if (res?.error === 'cannot_terminate_current') {
+        throw new Error('This device cannot be terminated from its own session list.');
+      }
+      if (res?.error === 'not_found') {
+        return;
+      }
+      throw new Error('Could not terminate session.');
+    }
+  },
+
+  /**
+   * Terminates all other active organiser sessions while keeping this device signed in.
+   */
+  async terminateOtherOrgSessions(tokenOverride?: string | null): Promise<number> {
+    const token = (tokenOverride ?? getStoredSessionToken() ?? '').trim();
+    if (!token) {
+      eventBus.emit('session_expired', { role: 'organiser', reason: 'missing' });
+      throw new Error('Session expired. Please sign in again.');
+    }
+    if (!isSupabaseConfigured() || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      throw new Error('Needs internet to terminate other sessions.');
+    }
+
+    const { data, error } = await supabase.rpc('org_sessions_terminate_others', {
+      p_token: token,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Could not terminate other sessions.');
+    }
+
+    const res = data as any;
+    if (!res || !res.ok) {
+      if (res?.error === 'unauthorized') {
+        eventBus.emit('session_expired', { role: 'organiser', reason: 'expired' });
+        throw new Error('Session expired. Please sign in again.');
+      }
+      throw new Error('Could not terminate other sessions.');
+    }
+
+    return Number(res.terminated_count ?? 0);
+  },
+
+  /**
+   * Changes master password and terminates all other active sessions (keeping current).
+   */
+  async changeOrganiserPassword(
+    oldPassword: string,
+    newPassword: string,
+    tokenOverride?: string | null
+  ): Promise<{ ok: true; terminatedOthers: number }> {
+    const token = (tokenOverride ?? getStoredSessionToken() ?? '').trim();
+    if (!token) {
+      eventBus.emit('session_expired', { role: 'organiser', reason: 'missing' });
+      throw new Error('Session expired. Please verify your credentials.');
+    }
+    if (!isSupabaseConfigured() || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      throw new Error('Needs internet to update password.');
+    }
+
+    const { data, error } = await supabase.rpc('org_change_password_v2', {
+      p_token: token,
+      p_old: oldPassword.trim(),
+      p_new: newPassword.trim(),
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const res = data as any;
+    if (!res || !res.ok) {
+      const errCode = res?.error || res?.reason;
+      if (errCode === 'unauthorized') {
+        eventBus.emit('session_expired', { role: 'organiser', reason: 'expired' });
+        const err = new Error('Session expired. Please sign in again.');
+        (err as any).code = 'unauthorized';
+        throw err;
+      }
+      if (errCode === 'too_many_attempts') {
+        const err = new Error('too_many_attempts');
+        (err as any).code = 'too_many_attempts';
+        throw err;
+      }
+      if (errCode === 'weak_password') {
+        const err = new Error('weak_password');
+        (err as any).code = 'weak_password';
+        throw err;
+      }
+      const err = new Error('invalid_credentials');
+      (err as any).code = errCode || 'invalid_credentials';
+      throw err;
+    }
+
+    return {
+      ok: true,
+      terminatedOthers: Number(res.terminated_others ?? 0),
+    };
   },
 };

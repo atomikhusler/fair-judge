@@ -1,0 +1,198 @@
+-- ═══════════════════════════════════════════════════════════════════
+-- EPIC 16.5.0 — Organiser Active Sessions (Max 3 Devices, SHA-256 Hash)
+-- ═══════════════════════════════════════════════════════════════════
+-- Additive, upgrade-safe migration for organiser multi-device control:
+-- 1. Evolves public.org_sessions with id (PK), token_hash (SHA-256 hex),
+--    device_id, device_label, last_seen_at, revoked_at; keeps legacy token
+--    column nullable until a future cleanup migration.
+-- 2. Purges pre-migration unhashed rows so zero raw tokens remain stored
+--    (one-time organiser sign-out at migration) and old rows cannot occupy
+--    the 3-device quota.
+-- 3. Updates _fj_verify_org_token to verify SHA-256 token_hash only, reject
+--    revoked/expired/suspended/deleted sessions, and rate-limit last_seen_at
+--    updates to at most once every 10 minutes per session.
+-- 4. Adds org_login_v2, org_session_revoke_on_limit, org_sessions_list,
+--    org_session_terminate, org_sessions_terminate_others, and
+--    org_change_password_v2.
+-- 5. Keeps legacy org_login, org_register, and org_logout working using
+--    hashed tokens (never writing new raw tokens).
+-- 6. Ends with a single-cell JSONB verification query.
+-- ═══════════════════════════════════════════════════════════════════
+
+create extension if not exists pgcrypto with schema extensions;
+
+-- ─────────────────────────────────────────────────────────────────
+-- 1. EVOLVE public.org_sessions SCHEMA (Additive & Idempotent)
+-- ─────────────────────────────────────────────────────────────────
+
+alter table public.org_sessions
+  add column if not exists id uuid default gen_random_uuid(),
+  add column if not exists token_hash text,
+  add column if not exists device_id text,
+  add column if not exists device_label text,
+  add column if not exists last_seen_at timestamptz not null default now(),
+  add column if not exists revoked_at timestamptz;
+
+-- Backfill id on any pre-existing rows and enforce NOT NULL + default
+update public.org_sessions
+set id = gen_random_uuid()
+where id is null;
+
+alter table public.org_sessions
+  alter column id set default gen_random_uuid(),
+  alter column id set not null;
+
+-- Move PRIMARY KEY from legacy token column to id (safe & idempotent)
+do $$
+declare
+  v_pk_name text;
+  v_pk_cols text[];
+begin
+  select c.conname,
+         array_agg(a.attname order by u.ord)
+  into v_pk_name, v_pk_cols
+  from pg_constraint c
+  join pg_class t on t.oid = c.conrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  cross join lateral unnest(c.conkey) with ordinality as u(attnum, ord)
+  join pg_attribute a on a.attrelid = t.oid and a.attnum = u.attnum
+  where n.nspname = 'public'
+    and t.relname = 'org_sessions'
+    and c.contype = 'p'
+  group by c.conname;
+
+  if v_pk_name is null then
+    alter table public.org_sessions
+      add constraint org_sessions_pkey primary key (id);
+  elsif v_pk_cols <> array['id']::text[] then
+    execute format('alter table public.org_sessions drop constraint %I', v_pk_name);
+    alter table public.org_sessions
+      add constraint org_sessions_pkey primary key (id);
+  end if;
+end;
+$$;
+
+-- Keep legacy token column until next cleanup file, but allow NULL so raw tokens are never stored
+alter table public.org_sessions
+  alter column token drop not null;
+
+-- Purge legacy unhashed rows so zero raw tokens remain and old rows do not consume the 3-device quota
+delete from public.org_sessions
+where token_hash is null;
+
+-- Helpful partial & expiry indexes
+create unique index if not exists idx_org_sessions_token_hash
+  on public.org_sessions(token_hash)
+  where token_hash is not null;
+
+create index if not exists idx_org_sessions_org_active
+  on public.org_sessions(org_id, created_at)
+  where revoked_at is null;
+
+create index if not exists idx_org_sessions_expires_at
+  on public.org_sessions(expires_at);
+
+alter table public.org_sessions enable row level security;
+revoke all on table public.org_sessions from anon, authenticated, public;
+
+-- ─────────────────────────────────────────────────────────────────
+-- 2. INTERNAL TOKEN HASH & SESSION CONTEXT HELPERS
+-- ─────────────────────────────────────────────────────────────────
+
+create or replace function public._fj_hash_org_token(p_token text)
+returns text
+language sql
+immutable
+security definer
+set search_path = public, extensions
+as $$
+  select case
+    when btrim(coalesce(p_token, '')) = '' then null
+    else encode(extensions.digest(convert_to(btrim(p_token), 'utf8'), 'sha256'), 'hex')
+  end;
+$$;
+
+revoke all on function public._fj_hash_org_token(text) from public, anon, authenticated;
+
+create or replace function public._fj_org_session_context(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_hash text;
+  v_rec record;
+begin
+  v_hash := public._fj_hash_org_token(p_token);
+  if v_hash is null then
+    return jsonb_build_object('ok', false, 'error', 'unauthorized');
+  end if;
+
+  select
+    s.id,
+    s.org_id,
+    s.last_seen_at,
+    coalesce(o.suspended, false) as org_suspended,
+    o.deleted_at as org_deleted_at
+  into v_rec
+  from public.org_sessions s
+  join public.organizations o on upper(o.org_id) = upper(s.org_id)
+  where s.token_hash = v_hash
+    and s.revoked_at is null
+    and s.expires_at > now()
+  limit 1;
+
+  if v_rec.id is null then
+    return jsonb_build_object('ok', false, 'error', 'unauthorized');
+  end if;
+
+  if v_rec.org_deleted_at is not null or v_rec.org_suspended then
+    return jsonb_build_object('ok', false, 'error', 'unauthorized');
+  end if;
+
+  -- Rate-limit last_seen_at writes to at most once every 10 minutes per session
+  if v_rec.last_seen_at is null or v_rec.last_seen_at <= now() - interval '10 minutes' then
+    update public.org_sessions
+    set last_seen_at = now()
+    where id = v_rec.id
+      and (last_seen_at is null or last_seen_at <= now() - interval '10 minutes');
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'session_id', v_rec.id,
+    'org_id', v_rec.org_id
+  );
+end;
+$$;
+
+revoke all on function public._fj_org_session_context(text) from public, anon, authenticated;
+
+-- Update _fj_verify_org_token used by all read & write RPCs
+create or replace function public._fj_verify_org_token(p_token text, p_org_id text default null)
+returns text
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_ctx jsonb;
+  v_org_id text;
+begin
+  v_ctx := public._fj_org_session_context(p_token);
+  if not coalesce((v_ctx->>'ok')::boolean, false) then
+    return null;
+  end if;
+
+  v_org_id := v_ctx->>'org_id';
+  if p_org_id is not null and btrim(p_org_id) <> '' and upper(v_org_id) <> upper(btrim(p_org_id)) then
+    return null;
+  end if;
+
+  return v_org_id;
+end;
+$$;
+
+revoke all on function public._fj_verify_org_token(text, text) from public, anon, authenticated;
+
