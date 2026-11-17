@@ -1514,7 +1514,8 @@ export function EventsTab({
       {/* FULL-SCREEN CREATE / EDIT EVENT PAGE (Framer-grade UI)    */}
       {/* ======================================================== */}
       {isWizardOpen ? (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto">
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
+          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
           {/* 1. Ultra-Minimal Header */}
           <div className="sticky top-0 z-30 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800 px-4 py-3.5 flex items-center justify-between shrink-0">
             {/* Top Left: Red [ Cancel ] button */}
@@ -1542,7 +1543,7 @@ export function EventsTab({
           </div>
 
           {/* Scrollable Page Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-8">
+          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-8 md:min-h-0 md:overflow-y-auto">
             {/* Draft Recovery Banner */}
             {showDraftBanner && cachedDraft && !editingEventId && (
               <div className="p-3.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-2xl text-xs sm:text-sm font-medium flex flex-wrap items-center justify-between gap-2 animate-in fade-in motion-reduce:animate-none">
@@ -1696,6 +1697,7 @@ export function EventsTab({
               </span>
             </div>
           </div>
+          </div>
         </div>
       ) : null}
 
@@ -1737,7 +1739,8 @@ export function EventsTab({
       {/* FULL-SCREEN PARTICIPANTS LIST MODAL (With Strict Rules)   */}
       {/* ======================================================== */}
       {activeParticipantsModalEvent ? (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto">
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
+          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
           {/* Header */}
           <div className="sticky top-0 z-30 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800 px-4 py-3.5 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -1779,7 +1782,7 @@ export function EventsTab({
           </div>
 
           {/* Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
+          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4 md:min-h-0 md:overflow-y-auto md:pb-6">
             {/* Event Locked / Live / Sealed Banner */}
             {activeParticipantsModalEvent.is_locked ? (
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
@@ -2067,6 +2070,7 @@ export function EventsTab({
               })()}
             </div>
           </div>
+          </div>
         </div>
       ) : null}
 
@@ -2074,7 +2078,8 @@ export function EventsTab({
       {/* FULL-SCREEN JUDGES LIST MODAL (With Strict Rules)         */}
       {/* ======================================================== */}
       {activeJudgesModalEvent ? (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto">
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
+          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
           {/* Header */}
           <div className="sticky top-0 z-30 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800 px-4 py-3.5 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -2117,7 +2122,7 @@ export function EventsTab({
           </div>
 
           {/* Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4">
+          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4 md:min-h-0 md:overflow-y-auto md:pb-6">
             {/* Event Locked / Live / Sealed Warning */}
             {activeJudgesModalEvent.is_locked ? (
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
@@ -2281,6 +2286,7 @@ export function EventsTab({
                 ));
               })()}
             </div>
+          </div>
           </div>
         </div>
       ) : null}

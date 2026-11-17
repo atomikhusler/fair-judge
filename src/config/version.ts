@@ -1,4 +1,4 @@
-export const APP_VERSION = '16.6.1';
+export const APP_VERSION = '16.7.0';
 
 export function getRunningBuildId(): string {
   return typeof __APP_BUILD_ID__ !== 'undefined' && __APP_BUILD_ID__ ? __APP_BUILD_ID__ : APP_VERSION;

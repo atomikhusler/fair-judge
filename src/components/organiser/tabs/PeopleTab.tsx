@@ -2305,9 +2305,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* FULL-SCREEN PARTICIPANT CREATION WIZARD                  */}
       {/* ======================================================== */}
       {showParticipantModal && (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none">
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
+          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
           {/* Sticky Top Header */}
-          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
+          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800 md:shrink-0">
             <button
               type="button"
               onClick={() => setShowParticipantModal(false)}
@@ -2329,7 +2330,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           </div>
 
           {/* Form Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6">
+          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6 md:min-h-0 md:overflow-y-auto">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 tracking-wider uppercase block">
@@ -2414,6 +2415,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               ))}
             </div>
           </div>
+          </div>
         </div>
       )}
 
@@ -2421,9 +2423,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* FULL-SCREEN JUDGE CREATION WIZARD                        */}
       {/* ======================================================== */}
       {showJudgeModal && (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none">
+        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
+          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
           {/* Sticky Top Header */}
-          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800">
+          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800 md:shrink-0">
             <button
               type="button"
               onClick={() => setShowJudgeModal(false)}
@@ -2445,7 +2448,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           </div>
 
           {/* Form Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6">
+          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6 md:min-h-0 md:overflow-y-auto">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase block">
@@ -2505,6 +2508,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 </div>
               </div>
             </div>
+          </div>
           </div>
         </div>
       )}

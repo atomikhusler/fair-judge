@@ -306,12 +306,12 @@ export function OrganiserDashboard({
   }
 
   return (
-    <div className="h-[100dvh] w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-between overflow-hidden transition-colors duration-200 relative select-none">
+    <div className="h-[100dvh] w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-between overflow-hidden transition-colors duration-200 relative select-none lg:pl-64">
       
       {/* ======================================================== */}
       {/* 1. THE TOP HEADER (Framer-Grade Premium Navigation)     */}
       {/* ======================================================== */}
-      <header className="h-[10dvh] min-h-[72px] max-h-[90px] shrink-0 bg-white dark:bg-zinc-950 border-b border-stone-200 dark:border-zinc-800/80 flex items-center justify-between px-3 sm:px-4 transition-colors z-30">
+      <header className="h-[10dvh] min-h-[72px] max-h-[90px] shrink-0 bg-white dark:bg-zinc-950 border-b border-stone-200 dark:border-zinc-800/80 flex items-center justify-between px-3 sm:px-4 transition-colors z-30 lg:hidden">
         
         {/* Left: Hamburger Menu Icon */}
         <button
@@ -480,7 +480,7 @@ export function OrganiserDashboard({
       ) : null}
 
       {orgLoadError && (
-        <div className="shrink-0 max-w-4xl w-full mx-auto px-3 sm:px-4 pt-2 z-20">
+        <div className="shrink-0 max-w-4xl lg:max-w-[1100px] w-full mx-auto px-3 sm:px-4 pt-2 z-20">
           <ReadRetryBanner
             message={orgLoadError}
             isRetrying={isRetryingOrg}
@@ -494,7 +494,7 @@ export function OrganiserDashboard({
       {/* ======================================================== */}
       <PullToRefresh
         onRefresh={handleManualPullRefresh}
-        className="flex-1 flex flex-col overflow-hidden max-w-4xl w-full mx-auto relative animate-fade-in"
+        className="flex-1 flex flex-col overflow-hidden max-w-4xl lg:max-w-[1100px] w-full mx-auto relative animate-fade-in"
       >
         <div
           key={activeTab}
@@ -541,9 +541,95 @@ export function OrganiserDashboard({
       </PullToRefresh>
 
       {/* ======================================================== */}
+      {/* 4B. DESKTOP SIDEBAR NAVIGATION (1024px+ only)            */}
+      {/* ======================================================== */}
+      <aside
+        aria-label="Organiser desktop navigation"
+        className="hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 lg:flex-col lg:justify-between lg:bg-white lg:dark:bg-zinc-950 lg:border-r lg:border-stone-200 lg:dark:border-zinc-800/80 lg:z-30 lg:select-none"
+      >
+        {/* Top: Branding & Organisation Name */}
+        <div className="lg:px-5 lg:py-5 lg:border-b lg:border-stone-200 lg:dark:border-zinc-800/80 lg:space-y-1.5">
+          <div className="lg:flex lg:items-center lg:gap-2.5">
+            <BrandBadge size="xs" role="organiser" motion="still" strokeWidth={2.4} />
+            <span className="lg:text-lg lg:font-black lg:tracking-tight lg:text-zinc-900 lg:dark:text-white lg:font-sans">
+              Fair Judge
+            </span>
+          </div>
+          <div className="lg:flex lg:items-center lg:gap-1.5 lg:min-w-0">
+            <span className="lg:text-xs lg:font-bold lg:text-zinc-700 lg:dark:text-zinc-300 lg:tracking-wide lg:uppercase lg:truncate">
+              {organization.name}
+            </span>
+            {verificationStatus === 'verified' && (
+              <span title="Verified Organization" className="lg:inline-flex lg:shrink-0">
+                <CheckCircle2 className="lg:w-3.5 lg:h-3.5 lg:text-emerald-500 lg:shrink-0" />
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Middle: Navigation Tabs */}
+        <div className="lg:flex-1 lg:px-3 lg:py-4 lg:space-y-1 lg:overflow-y-auto">
+          {navTabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  setActiveTab(tab.id);
+                }}
+                className={`lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:transition-colors lg:duration-150 lg:motion-reduce:transition-none lg:cursor-pointer ${
+                  isActive
+                    ? 'lg:bg-emerald-500/10 lg:text-emerald-700 lg:dark:text-emerald-400 lg:font-bold'
+                    : 'lg:text-zinc-600 lg:dark:text-zinc-400 lg:hover:bg-stone-100 lg:dark:hover:bg-zinc-900 lg:hover:text-zinc-900 lg:dark:hover:text-zinc-100 lg:font-medium'
+                }`}
+              >
+                <Icon className="lg:w-5 lg:h-5 lg:stroke-[2.2] lg:shrink-0" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Bottom: Settings & Account Entry Points */}
+        <div className="lg:px-3 lg:py-4 lg:border-t lg:border-stone-200 lg:dark:border-zinc-800/80 lg:space-y-1">
+          <button
+            type="button"
+            onClick={() => setIsDrawerOpen(true)}
+            className="lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:font-medium lg:text-zinc-700 lg:dark:text-zinc-300 lg:hover:bg-stone-100 lg:dark:hover:bg-zinc-900 lg:hover:text-zinc-900 lg:dark:hover:text-white lg:transition-colors lg:cursor-pointer"
+            aria-label="Open Navigation Drawer"
+          >
+            <Menu className="lg:w-5 lg:h-5 lg:stroke-[2.2] lg:shrink-0" />
+            <span>Settings</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAccountModalOpen(true)}
+            className="lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:justify-between lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:font-medium lg:text-zinc-700 lg:dark:text-zinc-300 lg:hover:bg-stone-100 lg:dark:hover:bg-zinc-900 lg:hover:text-zinc-900 lg:dark:hover:text-white lg:transition-colors lg:cursor-pointer"
+            aria-label="Open Account Settings"
+          >
+            <span className="lg:flex lg:items-center lg:gap-3 lg:min-w-0">
+              <CircleUser className="lg:w-5 lg:h-5 lg:stroke-[2.2] lg:shrink-0" />
+              <span className="lg:truncate">Account</span>
+            </span>
+            {verificationStatus !== 'verified' && (
+              <span
+                className={`lg:w-2.5 lg:h-2.5 lg:rounded-full lg:shrink-0 ${
+                  verificationStatus === 'rejected' ? 'lg:bg-red-500' : 'lg:bg-amber-500'
+                }`}
+              />
+            )}
+          </button>
+        </div>
+      </aside>
+
+      {/* ======================================================== */}
       {/* 4. THE 4-TAB BOTTOM NAVIGATION SHELL (Framer-Grade)     */}
       {/* ======================================================== */}
-      <nav className="fixed bottom-0 left-0 w-full h-[8dvh] min-h-[64px] pb-safe bg-white dark:bg-zinc-950 border-t border-stone-200 dark:border-zinc-800/80 flex items-center justify-around px-2 sm:px-6 select-none z-40">
+      <nav className="fixed bottom-0 left-0 w-full h-[8dvh] min-h-[64px] pb-safe bg-white dark:bg-zinc-950 border-t border-stone-200 dark:border-zinc-800/80 flex items-center justify-around px-2 sm:px-6 select-none z-40 lg:hidden">
         {navTabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
