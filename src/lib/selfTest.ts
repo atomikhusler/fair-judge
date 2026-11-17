@@ -6,7 +6,7 @@
  */
 
 import { supabase, isSupabaseConfigured, dbService, getStoredSession } from './supabase';
-import { APP_VERSION } from '../config/version';
+import { APP_VERSION, isSilentUpdateReady, setSwWaitingReady } from '../config/version';
 import { stampLocal, safeName, downloadJson } from './downloadUtils';
 import { 
   getOfflineDB,
@@ -872,10 +872,22 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
   return checks;
 }
 
+export async function checkSwUpdateWaiting(): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const hasWaiting = Boolean(reg && reg.waiting);
+      setSwWaitingReady(hasWaiting);
+      return hasWaiting;
+    }
+  } catch {}
+  return false;
+}
+
 // -------------------------------------------------------------
 // GROUP C: Storage & Offline
 // -------------------------------------------------------------
-async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
+async function probeStorageOffline(role: 'organiser' | 'judge'): Promise<SelfTestCheckItem[]> {
   const checks: SelfTestCheckItem[] = [];
 
   const [pendingScores, pendingMutations, failedMutations] = await Promise.all([
@@ -1237,20 +1249,15 @@ async function probeStorageOffline(): Promise<SelfTestCheckItem[]> {
 
   // 7. Update Waiting
   try {
-    let hasWaiting = false;
-    if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (reg && reg.waiting) {
-        hasWaiting = true;
-      }
-    }
-    if (hasWaiting) {
+    const hasWaiting = await checkSwUpdateWaiting();
+    const updateReady = role === 'organiser' && (hasWaiting || isSilentUpdateReady());
+    if (updateReady) {
       checks.push({
         id: 'sw_update',
         group: 'storage_offline',
         label: 'Update Status',
         status: 'notice',
-        plain: 'A newer version of Fair Judge is waiting to activate',
+        plain: 'Update ready: installs on next launch',
         code: 'SW_UPDATE_WAITING',
       });
     } else {
@@ -1874,7 +1881,7 @@ export async function runSelfTest(
     return grp;
   });
 
-  const groupCPromise = probeStorageOffline().then((checks) => {
+  const groupCPromise = probeStorageOffline(role).then((checks) => {
     const grp = aggregateGroup('storage_offline', 'Storage & Offline', checks);
     handleGroup(grp);
     return grp;

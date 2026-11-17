@@ -14,12 +14,16 @@ import {
   getStoredSession,
   setStoredSession,
   StoredUserSession,
+  supabase,
+  isSupabaseConfigured,
 } from './lib/supabase';
 import { initCacheStorage } from './lib/db/indexedDB';
 import {
   initOfflineSyncListener,
   clearAllScoreDrafts,
   flushOfflineQueueToSupabase,
+  getPendingCount,
+  subscribeToQueueChanges,
 } from './lib/offlineQueue';
 import { clearSyncCursorForSession } from './lib/syncEngine';
 import { areRecordsEqual, areOrganizationsEqual, eventBus } from './lib/eventBus';
@@ -29,7 +33,12 @@ import { scrubCachedPasswords } from './lib/authScrubber';
 import { lazyWithRetry } from './lib/lazyWithRetry';
 import { authService } from './lib/authService';
 import { resetSignatureHardwareSession } from './components/shared/SignatureHardware';
-import { resetLastTestResult } from './lib/selfTest';
+import { resetLastTestResult, checkSwUpdateWaiting } from './lib/selfTest';
+import {
+  APP_VERSION,
+  compareVersionsNumeric,
+  checkVersionJsonForUpdate,
+} from './config/version';
 import { playSound, unlockSoundEngine } from './lib/sound';
 import { RouteShellSkeleton } from './components/common/Skeletons';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -140,6 +149,10 @@ export default function App() {
 
   // Forced temporary password reset flag (set via org_login must_change)
   const [mustChangePassword, setMustChangePassword] = useState(false);
+
+  // Epic 16.6.0: Minimum-version safety net state (null = not blocked)
+  const [minRequiredVersion, setMinRequiredVersion] = useState<string | null>(null);
+  const [minVersionPendingCount, setMinVersionPendingCount] = useState<number>(0);
 
   // In-app Session Re-verification prompt (Stage 1 security lock)
   const [reverifyPrompt, setReverifyPrompt] = useState<{
@@ -388,6 +401,127 @@ export default function App() {
     });
     return unsub;
   }, [session, isAdminRoute, isProjectorRoute]);
+
+  // Epic 16.6.0: Silent update check (/version.json + reg.waiting) and minimum client version safety net
+  useEffect(() => {
+    let cancelled = false;
+
+    const runChecks = async () => {
+      void checkVersionJsonForUpdate();
+      void checkSwUpdateWaiting();
+
+      if (isProjectorRoute || !isSupabaseConfigured()) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+      try {
+        const { data, error } = await supabase.rpc('fj_min_client_version');
+        if (cancelled || error || typeof data !== 'string') return;
+        const minVer = data.trim();
+        if (!minVer) return;
+
+        if (compareVersionsNumeric(APP_VERSION, minVer) < 0) {
+          const pending = await getPendingCount().catch(() => 0);
+          if (cancelled) return;
+          setMinVersionPendingCount(pending);
+          setMinRequiredVersion(minVer);
+        } else {
+          setMinRequiredVersion(null);
+        }
+      } catch {
+        // Offline or RPC unavailable: do nothing
+      }
+    };
+
+    void runChecks();
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        void runChecks();
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      cancelled = true;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [isProjectorRoute]);
+
+  // Epic 16.6.0: While minimum version blocks the app, flush and monitor pending IndexedDB work until empty
+  useEffect(() => {
+    if (!minRequiredVersion || isProjectorRoute) return;
+
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    let flushing = false;
+
+    const clearRetry = () => {
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
+
+    const refreshAndSync = async () => {
+      if (cancelled || flushing) return;
+      flushing = true;
+      clearRetry();
+      try {
+        const before = await getPendingCount().catch(() => 0);
+        if (cancelled) return;
+        setMinVersionPendingCount(before);
+
+        if (before > 0 && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+          const result = await flushOfflineQueueToSupabase().catch(() => ({
+            syncedCount: 0,
+            failedCount: 0,
+            authRequired: false,
+          }));
+          if (cancelled) return;
+          const after = await getPendingCount().catch(() => 0);
+          if (cancelled) return;
+          setMinVersionPendingCount(after);
+
+          if (after > 0 && !result.authRequired && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+            retryTimer = window.setTimeout(() => {
+              void refreshAndSync();
+            }, 3000);
+          }
+        }
+      } finally {
+        flushing = false;
+      }
+    };
+
+    void refreshAndSync();
+    const unsubQueue = subscribeToQueueChanges(() => {
+      void getPendingCount()
+        .then((count) => {
+          if (!cancelled) setMinVersionPendingCount(count);
+        })
+        .catch(() => {});
+    });
+
+    const handleOnlineOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refreshAndSync();
+    };
+    window.addEventListener('online', handleOnlineOrVisible);
+    document.addEventListener('visibilitychange', handleOnlineOrVisible);
+
+    return () => {
+      cancelled = true;
+      clearRetry();
+      unsubQueue();
+      window.removeEventListener('online', handleOnlineOrVisible);
+      document.removeEventListener('visibilitychange', handleOnlineOrVisible);
+    };
+  }, [minRequiredVersion, isProjectorRoute]);
 
   // Helper to trigger hardware-accelerated ~2.4s sign-in splash
   const triggerAuthSplash = useCallback((displayName: string) => {
@@ -881,6 +1015,51 @@ export default function App() {
             void handleLogout();
           }}
         />
+      )}
+
+      {minRequiredVersion && !isProjectorRoute && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="fj-min-version-title"
+          className="fixed inset-0 z-[940] flex items-center justify-center p-4 bg-black/85 select-none"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 p-6 shadow-2xl space-y-4 text-center">
+            {minVersionPendingCount > 0 ? (
+              <>
+                <h2
+                  id="fj-min-version-title"
+                  className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white"
+                >
+                  Syncing your work, then update
+                </h2>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  {minVersionPendingCount} queued{' '}
+                  {minVersionPendingCount === 1 ? 'change is' : 'changes are'} being saved to the server before updating to v{minRequiredVersion}. Nothing has been discarded.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2
+                  id="fj-min-version-title"
+                  className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white"
+                >
+                  Update required
+                </h2>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  Fair Judge v{APP_VERSION} must be updated to at least v{minRequiredVersion} to continue.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider cursor-pointer active:scale-[0.98] transition-transform motion-reduce:transition-none"
+                >
+                  Update now
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </ToastProvider>
   );

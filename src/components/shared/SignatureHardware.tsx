@@ -13,7 +13,11 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { APP_VERSION } from '../../config/version';
+import {
+  APP_VERSION,
+  isSilentUpdateReady,
+  subscribeSilentUpdateReady,
+} from '../../config/version';
 import { TELEGRAM_SUPPORT_URL } from '../../config/support';
 import { triggerHaptic } from '../../lib/haptics';
 import {
@@ -40,6 +44,7 @@ import {
   SelfTestGroupResult,
   SelfTestCheckItem,
   getLastTestResult,
+  checkSwUpdateWaiting,
 } from '../../lib/selfTest';
 import {
   getPendingCount,
@@ -170,6 +175,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
   const [downloadedFilename, setDownloadedFilename] = useState<string | null>(null);
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [soundLevel, setSoundLevel] = useState<SoundLevel>(() => getSoundLevel());
+  const [updateReady, setUpdateReady] = useState<boolean>(() => isSilentUpdateReady());
 
   const [isDocVisible, setIsDocVisible] = useState(() =>
     typeof document !== 'undefined' ? !document.hidden : true
@@ -221,6 +227,18 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
       document.removeEventListener('visibilitychange', handleVis);
     };
   }, []);
+
+  // Organiser diagnostics update-ready subscription
+  useEffect(() => {
+    if (role !== 'organiser') return;
+    setUpdateReady(isSilentUpdateReady());
+    if (screenState === 'diagnostics') {
+      void checkSwUpdateWaiting();
+    }
+    return subscribeSilentUpdateReady(() => {
+      setUpdateReady(isSilentUpdateReady());
+    });
+  }, [role, screenState]);
 
   // Queue-aware LED state via getPendingCount & getFailedMutations (+ getFailedScores)
   const refreshQueueHealth = useCallback(async () => {
@@ -1030,6 +1048,12 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
 
                     {/* Comprehensive Scrolling Suite & Check Readout */}
                     <div className="flex-1 min-h-0 overflow-y-auto pt-1.5 pr-1 space-y-2 font-mono text-xs select-text">
+                      {role === 'organiser' && updateReady && (
+                        <div className="rounded-lg border border-amber-500/45 bg-amber-950/40 px-2.5 py-2 text-amber-200 font-semibold">
+                          › Update ready: installs on next launch
+                        </div>
+                      )}
+
                       {/* AUTO-SURFACED CRITICAL FAULTS BLOCK */}
                       {!testRunning && hasCriticalFaults && topProblems.length > 0 && (
                         <div className="rounded-lg border border-red-500/60 bg-red-950/60 p-2.5 space-y-1">
