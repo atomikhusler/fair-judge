@@ -898,7 +898,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                       <button
                         type="button"
                         onClick={handleNavigateDiagnostics}
-                        className={`min-h-[44px] px-3 rounded-xl border text-[13px] font-semibold flex items-center justify-between gap-2 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
+                        className={`min-h-[44px] px-3 rounded-xl border text-sm font-semibold flex items-center justify-between gap-2 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
                           role === 'organiser'
                             ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/55 text-emerald-200'
                             : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/55 text-amber-200'
@@ -914,7 +914,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                       <button
                         type="button"
                         onClick={handleOpenReporting}
-                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-[13px] font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
                       >
                         <Send className="w-4 h-4 shrink-0" />
                         <span>Report</span>
@@ -935,7 +935,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                       <button
                         type="button"
                         onClick={handleNavigateAbout}
-                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-[13px] font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
                       >
                         <ChevronLeft className="w-4 h-4 stroke-[2.2]" />
                         <span>Back</span>
@@ -1031,7 +1031,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                               <button
                                 type="button"
                                 onClick={handleOpenReporting}
-                                className="shrink-0 min-h-[44px] text-[13px] font-sans font-semibold px-3 rounded-xl border border-emerald-500/60 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 inline-flex items-center gap-1 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer"
+                                className="shrink-0 min-h-[44px] text-sm font-sans font-semibold px-3 rounded-xl border border-emerald-500/60 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 inline-flex items-center gap-1 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer"
                               >
                                 <span>Report</span>
                                 <ChevronRight className="w-4 h-4 stroke-[2.2]" />
@@ -1154,7 +1154,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                             setScreenState('diagnostics');
                           }
                         }}
-                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-[13px] font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+                        className="min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm font-semibold inline-flex items-center gap-1.5 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none cursor-pointer disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
                       >
                         <ChevronLeft className="w-4 h-4 stroke-[2.2]" />
                         <span>Back</span>
@@ -1212,7 +1212,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                               void handleSwitchTelemetryTelegram();
                             }}
                             disabled={reportSubmitting || preparingTelegram}
-                            className="min-h-[44px] px-3 text-[13px] font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 hover:border-emerald-500/60 rounded-xl inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
+                            className="min-h-[44px] px-3 text-sm font-semibold text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 hover:border-emerald-500/60 rounded-xl inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
                             <span>{preparingTelegram ? 'Preparing...' : 'Telegram'}</span>
                             <ChevronRight className="w-4 h-4 stroke-[2.2]" />
@@ -1258,7 +1258,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                               triggerHaptic('light');
                               playSound('tap');
                             }}
-                            className="min-h-[44px] px-3 text-[13px] font-semibold text-center text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 rounded-xl inline-flex items-center justify-center gap-1 no-underline active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
+                            className="min-h-[44px] px-3 text-sm font-semibold text-center text-zinc-100 bg-zinc-900 hover:bg-zinc-800 border border-zinc-600 rounded-xl inline-flex items-center justify-center gap-1 no-underline active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                           >
                             <span>Open Telegram</span>
                             <ChevronRight className="w-4 h-4 stroke-[2.2]" />
@@ -1302,7 +1302,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                             triggerHaptic('light');
                             playSound('tap');
                           }}
-                          className="w-full min-h-[44px] px-3 text-[13px] font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl inline-flex items-center justify-center gap-1.5 no-underline shrink-0 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
+                          className="w-full min-h-[44px] px-3 text-sm font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-zinc-950 rounded-xl inline-flex items-center justify-center gap-1.5 no-underline shrink-0 active:scale-[0.98] transition-transform duration-75 ease-out motion-reduce:transition-none"
                         >
                           <span>3. Send via Telegram</span>
                           <ChevronRight className="w-4 h-4 stroke-[2.2]" />

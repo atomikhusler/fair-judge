@@ -32,14 +32,14 @@ export const OrgBlockedScreen: React.FC<OrgBlockedScreenProps> = ({
               {isDeleted ? 'Organization Removed' : 'Organization Suspended'}
             </h1>
             {(orgName || orgId) && (
-              <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
+              <p className="text-sm font-mono text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
                 {orgName ? `${orgName}${orgId ? ` (${orgId})` : ''}` : orgId}
               </p>
             )}
           </div>
         </div>
 
-        <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+        <p className="text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
           {isDeleted
             ? 'This organization has been removed by a platform administrator and can no longer run live events or sync ballots.'
             : 'Access for this organization has been temporarily suspended by a platform administrator.'}
@@ -47,10 +47,10 @@ export const OrgBlockedScreen: React.FC<OrgBlockedScreenProps> = ({
 
         {reason && (
           <div className="rounded-xl bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 p-3 space-y-1">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            <span className="block text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
               Reason
             </span>
-            <p className="text-xs text-zinc-800 dark:text-zinc-200 leading-relaxed">{reason}</p>
+            <p className="text-sm text-zinc-800 dark:text-zinc-200 leading-relaxed">{reason}</p>
           </div>
         )}
 
@@ -61,7 +61,7 @@ export const OrgBlockedScreen: React.FC<OrgBlockedScreenProps> = ({
               triggerHaptic('tick');
               onLogout();
             }}
-            className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             <span>Sign Out</span>
@@ -72,10 +72,10 @@ export const OrgBlockedScreen: React.FC<OrgBlockedScreenProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => triggerHaptic('light')}
-            className="w-full min-h-[44px] rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 font-medium text-xs flex items-center justify-center gap-2 no-underline"
+            className="w-full min-h-[44px] rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 font-medium text-sm flex items-center justify-center gap-2 no-underline"
           >
             <span>Contact Support on Telegram</span>
-            <ExternalLink className="w-3.5 h-3.5" />
+            <ExternalLink className="w-4 h-4" />
           </a>
         </div>
       </div>

@@ -1318,20 +1318,20 @@ export function ScoringPanel({
           <div className="flex items-center justify-between gap-2">
             <button
               onClick={handleBackNavigation}
-              className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-5 min-h-[48px] rounded-xl shadow-md active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center gap-2 cursor-pointer shrink-0"
+              className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-4 sm:px-5 min-h-[48px] rounded-xl shadow-md active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center gap-2 cursor-pointer shrink-0"
               title="Return to My Events"
             >
               <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
               <span>My Events</span>
             </button>
 
-            <div className="flex items-center space-x-2 shrink-0">
+            <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
               {isBlindJudging && (
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                <span className="text-xs font-mono font-bold uppercase tracking-wider bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-500/20 px-2 py-1 rounded-full">
                   Blind Judging
                 </span>
               )}
-              <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-500/20">
                 <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-amber-600 dark:bg-amber-400' : 'bg-amber-500'}`} />
                 <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
               </div>
@@ -1347,9 +1347,9 @@ export function ScoringPanel({
 
           <div className="border-t border-stone-200/80 dark:border-zinc-800/80 pt-2.5 mt-2.5 flex items-start justify-between">
             <div className="min-w-0 flex-1 mr-3">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-amber-700 dark:text-amber-400 font-extrabold flex items-center space-x-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400" />
-                <span>{activeEvent.category || 'Official Competition'}</span>
+              <span className="text-sm font-mono uppercase tracking-wider text-amber-800 dark:text-amber-400 font-extrabold flex items-center space-x-1.5 min-w-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 shrink-0" />
+                <span className="truncate">{activeEvent.category || 'Official Competition'}</span>
               </span>
               <h1 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white mt-0.5 truncate">
                 {activeEvent.name}
@@ -1361,7 +1361,7 @@ export function ScoringPanel({
                 <span className="text-sm font-mono font-black text-zinc-900 dark:text-white">
                   {scoredCount} / {participants.length}
                 </span>
-                <span className="text-[10px] text-zinc-600 dark:text-zinc-300 font-mono font-semibold block">Evaluated</span>
+                <span className="text-xs text-zinc-600 dark:text-zinc-300 font-mono font-semibold block">Evaluated</span>
               </div>
             )}
           </div>
@@ -1384,20 +1384,20 @@ export function ScoringPanel({
 
             {/* Smart Search Bar */}
             <div className="relative">
-              <Search className="w-4 h-4 text-zinc-600 dark:text-zinc-300 absolute left-3.5 top-3.5" />
+              <Search className="w-4 h-4 text-zinc-600 dark:text-zinc-300 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder={isBlindJudging ? 'Search by Sl. No. or ID...' : 'Search by Sl. No., Name, or School...'}
                 value={listSearch}
                 onChange={(e) => setListSearch(e.target.value)}
-                className="w-full pl-10 pr-9 py-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-xs text-zinc-900 dark:text-white placeholder-zinc-600 dark:placeholder-zinc-300 shadow-sm focus:outline-none focus:border-amber-600"
+                className="w-full pl-10 pr-9 py-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-sm text-zinc-900 dark:text-white placeholder-zinc-600 dark:placeholder-zinc-300 shadow-sm focus:outline-none focus:border-amber-600"
               />
               {listSearch && (
                 <button
                   onClick={() => setListSearch('')}
-                  className="absolute right-3 top-3 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white p-0.5 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white p-0.5 cursor-pointer"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
               )}
             </div>
@@ -1405,12 +1405,12 @@ export function ScoringPanel({
             <div className="space-y-6">
               {/* SECTION 1: UPCOMING PERFORMANCES */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h2 className="text-xs font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-wider flex items-center space-x-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <h2 className="text-sm font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-wider flex items-center space-x-1.5 shrink-0">
+                    <Clock className="w-4 h-4 text-amber-800 dark:text-amber-400" />
                     <span>Upcoming ({filteredUpcoming.length})</span>
                   </h2>
-                  <span className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 font-bold uppercase">
+                  <span className="text-xs font-mono text-zinc-600 dark:text-zinc-300 font-bold uppercase truncate">
                     VIP SCORING QUEUE
                   </span>
                 </div>
@@ -1419,7 +1419,7 @@ export function ScoringPanel({
                   <div className="space-y-3">
                     <div className="flex items-center space-x-2 px-1">
                       <span className="w-2 h-2 rounded-full bg-amber-600 dark:bg-amber-400 animate-pulse motion-reduce:animate-none shrink-0" />
-                      <span className="text-xs font-mono font-bold tracking-widest text-amber-700 dark:text-amber-400 uppercase animate-pulse motion-reduce:animate-none">
+                      <span className="text-sm font-mono font-bold tracking-widest text-amber-800 dark:text-amber-400 uppercase animate-pulse motion-reduce:animate-none">
                         Syncing Stage...
                       </span>
                     </div>
@@ -1459,7 +1459,7 @@ export function ScoringPanel({
                     </div>
                   </div>
                 ) : filteredUpcoming.length === 0 ? (
-                  <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-xs font-semibold text-zinc-600 dark:text-zinc-300 shadow-sm">
+                  <div className="p-6 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl text-center text-sm font-semibold text-zinc-600 dark:text-zinc-300 shadow-sm">
                     {listSearch
                       ? 'No upcoming competitors match your search.'
                       : participants.length === 0
@@ -1489,7 +1489,7 @@ export function ScoringPanel({
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3.5 min-w-0 mr-3">
-                              <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 font-mono font-black text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform motion-reduce:transition-none shadow-xs">
+                              <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-500/20 font-mono font-black text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform motion-reduce:transition-none shadow-xs">
                                 {participantSerial}
                               </div>
                               <div className="min-w-0">
@@ -1499,10 +1499,10 @@ export function ScoringPanel({
                                   </h3>
                                 ) : (
                                   <>
-                                    <h3 className="text-sm font-extrabold text-zinc-900 dark:text-white truncate group-hover:text-amber-700 dark:group-hover:text-amber-400">
+                                    <h3 className="text-base font-extrabold text-zinc-900 dark:text-white truncate group-hover:text-amber-800 dark:group-hover:text-amber-400">
                                       {p.name}
                                     </h3>
-                                    <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
+                                    <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
                                       {p.school}
                                     </p>
                                   </>
@@ -1517,7 +1517,7 @@ export function ScoringPanel({
                                   e.stopPropagation();
                                   handleOpenParticipant(p);
                                 }}
-                                className="px-4 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-xs tracking-wide shadow-sm active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center space-x-1.5 cursor-pointer"
+                                className="px-4 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-sm tracking-wide shadow-sm active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center space-x-1.5 cursor-pointer"
                               >
                                 <span>{unsaved ? 'Review' : 'Score'}</span>
                                 <ChevronRight className="w-4 h-4 stroke-[2.5]" />
@@ -1528,10 +1528,10 @@ export function ScoringPanel({
                           {unsaved && (
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              className="mt-3 pt-2.5 border-t border-red-500/20 flex items-center justify-between gap-2 text-xs"
+                              className="mt-3 pt-2.5 border-t border-red-500/20 flex items-center justify-between gap-2 text-sm"
                             >
                               <div className="min-w-0 flex items-center gap-1.5 text-red-700 dark:text-red-400 font-semibold">
-                                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                <AlertTriangle className="w-4 h-4 shrink-0" />
                                 <span className="truncate">Not saved: {unsaved.reason}</span>
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
@@ -1539,7 +1539,7 @@ export function ScoringPanel({
                                   type="button"
                                   disabled={isSubmitting}
                                   onClick={() => handleConfirmLockScore(unsaved)}
-                                  className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-[11px] shadow-sm cursor-pointer active:scale-95 transition-transform motion-reduce:transition-none"
+                                  className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-sm shadow-sm cursor-pointer active:scale-95 transition-transform motion-reduce:transition-none"
                                 >
                                   Retry
                                 </button>
@@ -1547,7 +1547,7 @@ export function ScoringPanel({
                                   type="button"
                                   disabled={isSubmitting}
                                   onClick={() => handleDiscardUnsaved(unsaved)}
-                                  className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-stone-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700 font-bold text-[11px] cursor-pointer active:scale-95 transition-transform motion-reduce:transition-none"
+                                  className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-stone-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700 font-bold text-sm cursor-pointer active:scale-95 transition-transform motion-reduce:transition-none"
                                 >
                                   Discard
                                 </button>
@@ -1563,18 +1563,18 @@ export function ScoringPanel({
 
               {/* SECTION 2: COMPLETED EVALUATIONS */}
               <div className="space-y-3 pt-2">
-                <div className="flex items-center justify-between px-1">
-                  <h2 className="text-xs font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-wider flex items-center space-x-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <h2 className="text-sm font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-wider flex items-center space-x-1.5 shrink-0">
+                    <CheckCircle2 className="w-4 h-4 text-amber-800 dark:text-amber-400" />
                     <span>Completed ({filteredCompleted.length})</span>
                   </h2>
-                  <span className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 font-bold uppercase">
+                  <span className="text-xs font-mono text-zinc-600 dark:text-zinc-300 font-bold uppercase truncate">
                     SEALED IN AUDIT LEDGER
                   </span>
                 </div>
 
                 {filteredCompleted.length === 0 ? (
-                  <div className="p-6 bg-stone-100/50 dark:bg-zinc-900/20 border border-stone-200/50 dark:border-zinc-800/40 rounded-2xl text-center text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                  <div className="p-6 bg-stone-100/50 dark:bg-zinc-900/20 border border-stone-200/50 dark:border-zinc-800/40 rounded-2xl text-center text-sm font-semibold text-zinc-600 dark:text-zinc-300">
                     No ballots completed yet. Select an upcoming competitor above to begin scoring.
                   </div>
                 ) : (
@@ -1595,7 +1595,7 @@ export function ScoringPanel({
                           className="p-3.5 sm:p-4 bg-stone-100 dark:bg-zinc-900/50 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between gap-3 cursor-pointer active:scale-95 transition-transform duration-150 ease-out motion-reduce:transition-none will-change-transform shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both motion-reduce:animate-none"
                         >
                           <div className="flex items-center space-x-3.5 min-w-0 flex-1">
-                            <div className="w-10 h-10 rounded-2xl bg-stone-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-mono font-bold text-xs sm:text-sm flex items-center justify-center shrink-0">
+                            <div className="w-10 h-10 rounded-2xl bg-stone-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-mono font-bold text-sm flex items-center justify-center shrink-0">
                               {participantSerial}
                             </div>
                             <div className="min-w-0 flex-1">
@@ -1605,10 +1605,10 @@ export function ScoringPanel({
                                 </h3>
                               ) : (
                                 <>
-                                  <h3 className="text-xs sm:text-sm font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
+                                  <h3 className="text-sm sm:text-base font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
                                     {p.name}
                                   </h3>
-                                  <p className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
+                                  <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
                                     {isPendingSync ? 'Saved offline — queued for sync' : p.school}
                                   </p>
                                 </>
@@ -1618,13 +1618,13 @@ export function ScoringPanel({
 
                           <div className="shrink-0 flex items-center space-x-3 text-right">
                             <div className="font-mono text-right tabular-nums whitespace-nowrap">
-                              <span className="text-base sm:text-lg font-black text-amber-700 dark:text-amber-400 tabular-nums whitespace-nowrap">
+                              <span className="text-base sm:text-lg font-black text-amber-800 dark:text-amber-400 tabular-nums whitespace-nowrap">
                                 {scoreRecord?.total_score ?? '—'}
                               </span>
-                              <span className="text-[11px] font-mono font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
+                              <span className="text-sm font-mono font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
                             </div>
                             <div className="w-8 h-8 rounded-xl bg-stone-200/80 dark:bg-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white">
-                              <Eye className="w-3.5 h-3.5" />
+                              <Eye className="w-4 h-4" />
                             </div>
                           </div>
                         </div>
@@ -1662,7 +1662,7 @@ export function ScoringPanel({
         {/* Right: Sealed or Submit/Update */}
         <div>
           {!currentParticipant ? null : existingScore && !isWithinGracePeriod ? (
-            <div className="flex items-center space-x-2 text-base font-black text-amber-700 dark:text-amber-400 bg-amber-500/10 px-6 min-h-[48px] rounded-xl border border-amber-500/20 tracking-wide">
+            <div className="flex items-center space-x-2 text-base font-black text-amber-800 dark:text-amber-400 bg-amber-500/10 px-6 min-h-[48px] rounded-xl border border-amber-500/20 tracking-wide">
               <Lock className="w-4 h-4 stroke-[2.5]" />
               <span>Sealed</span>
             </div>
@@ -1705,7 +1705,7 @@ export function ScoringPanel({
             <div className="shrink-0 z-40 px-4 pt-3 pb-2 bg-stone-100 dark:bg-zinc-900 border-b border-stone-200/60 dark:border-zinc-800/40">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3 min-w-0 flex-1">
-                  <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-amber-700 dark:text-amber-400 shrink-0 shadow-sm">
+                  <div className="w-11 h-11 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 flex items-center justify-center font-mono font-black text-sm text-amber-800 dark:text-amber-400 shrink-0 shadow-sm">
                     {currentSerial}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -1715,10 +1715,10 @@ export function ScoringPanel({
                       </h2>
                     ) : (
                       <>
-                        <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white truncate">
+                        <h2 className="text-base font-extrabold text-zinc-900 dark:text-white truncate">
                           {currentParticipant.name}
                         </h2>
-                        <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 truncate">
+                        <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate">
                           {currentParticipant.school}
                         </p>
                       </>
@@ -1727,7 +1727,7 @@ export function ScoringPanel({
                 </div>
 
                 {!isIsolatedJury && (
-                  <div className="text-right shrink-0 font-mono font-semibold text-[11px] text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-zinc-700">
+                  <div className="text-right shrink-0 font-mono font-semibold text-xs text-zinc-600 dark:text-zinc-300 bg-white dark:bg-zinc-800 px-2.5 py-1 rounded-xl border border-stone-200 dark:border-zinc-700">
                     {currentIndex + 1} of {participants.length}
                   </div>
                 )}
@@ -1735,9 +1735,9 @@ export function ScoringPanel({
 
               {/* Grace Period Notification Pill */}
               {isWithinGracePeriod && (
-                <div className="mt-2 py-1 px-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-[11px] text-amber-700 dark:text-amber-400 font-mono font-semibold">
+                <div className="mt-2 py-1 px-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-between gap-2 text-sm text-amber-800 dark:text-amber-400 font-sans font-semibold">
                   <span>5m Grace Period Active: Ballots can be re-adjusted</span>
-                  <Clock className="w-3 h-3 animate-pulse motion-reduce:animate-none" />
+                  <Clock className="w-4 h-4 shrink-0 animate-pulse motion-reduce:animate-none" />
                 </div>
               )}
             </div>
@@ -1772,13 +1772,13 @@ export function ScoringPanel({
               <p className="text-sm font-bold text-zinc-900 dark:text-white">
                 Competitor not available
               </p>
-              <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300">
                 The assigned competitor list changed or is empty. Return to the event list to select a competitor.
               </p>
               <button
                 type="button"
                 onClick={handleExitToList}
-                className="px-4 min-h-[44px] rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-xs shadow-sm cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none"
+                className="px-4 min-h-[44px] rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-sm shadow-sm cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none"
               >
                 Back to List
               </button>
@@ -1787,7 +1787,7 @@ export function ScoringPanel({
             <>
               {/* Rejected / Unsaved Ballot Banner (Never shown as Locked) */}
               {currentUnsaved && (
-                <div className="p-3.5 bg-red-500/10 border border-red-500/35 rounded-2xl space-y-2.5 text-xs shadow-sm">
+                <div className="p-3.5 bg-red-500/10 border border-red-500/35 rounded-2xl space-y-2.5 text-sm shadow-sm">
                   <div className="flex items-start gap-2.5 text-red-700 dark:text-red-300 font-bold">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
                     <span className="leading-snug">Not saved: {currentUnsaved.reason}</span>
@@ -1797,12 +1797,12 @@ export function ScoringPanel({
                       type="button"
                       disabled={isSubmitting}
                       onClick={() => handleConfirmLockScore(currentUnsaved)}
-                      className="flex-1 min-h-[44px] px-3 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs shadow-sm cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none flex items-center justify-center gap-1.5"
+                      className="flex-1 min-h-[44px] px-3 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-sm shadow-sm cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none flex items-center justify-center gap-1.5"
                     >
                       {isSubmitting ? (
                         <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" />
                       ) : (
-                        <RotateCcw className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <RotateCcw className="w-4 h-4 stroke-[2.5]" />
                       )}
                       <span>Retry</span>
                     </button>
@@ -1810,9 +1810,9 @@ export function ScoringPanel({
                       type="button"
                       disabled={isSubmitting}
                       onClick={() => handleDiscardUnsaved(currentUnsaved)}
-                      className="flex-1 min-h-[44px] px-3 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-extrabold text-xs cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none flex items-center justify-center gap-1.5"
+                      className="flex-1 min-h-[44px] px-3 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-extrabold text-sm cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none flex items-center justify-center gap-1.5"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                       <span>Discard</span>
                     </button>
                   </div>
@@ -1820,14 +1820,14 @@ export function ScoringPanel({
               )}
 
               {existingScore && !isWithinGracePeriod && (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between text-xs text-amber-700 dark:text-amber-400 font-semibold shadow-sm">
-                  <div className="flex items-center space-x-2">
-                    <Lock className="w-4 h-4 shrink-0 text-amber-700 dark:text-amber-400" />
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-2 text-sm text-amber-800 dark:text-amber-400 font-semibold shadow-sm">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <Lock className="w-4 h-4 shrink-0 text-amber-800 dark:text-amber-400" />
                     <span>Ballot sealed in audit ledger (Read-Only).</span>
                   </div>
                   <button
                     onClick={handleExitToList}
-                    className="px-2.5 py-1 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-[11px] shadow-sm shrink-0 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
+                    className="px-3 py-1.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-sm shadow-sm shrink-0 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
                   >
                     Roster
                   </button>
@@ -1850,32 +1850,32 @@ export function ScoringPanel({
                       {/* Criterion Header */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-0 min-w-0 flex-1">
-                          <h3 className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-wider">
+                          <h3 className="text-sm font-black text-zinc-900 dark:text-white uppercase tracking-wider">
                             {crit.name}
                           </h3>
                           {crit.description && (
-                            <p className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 line-clamp-2 mt-0.5">
+                            <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 line-clamp-2 mt-0.5">
                               {crit.description}
                             </p>
                           )}
-                          <span className="text-[10px] text-zinc-600 dark:text-zinc-300 font-mono font-semibold block mt-0.5">
+                          <span className="text-sm text-zinc-600 dark:text-zinc-300 font-mono font-semibold block mt-0.5">
                             Max: {max} pts
                           </span>
                         </div>
 
                         <div className="font-mono text-right shrink-0 pl-2">
                           {isScored ? (
-                            <span className="text-2xl sm:text-3xl font-black text-amber-700 dark:text-amber-400 tracking-tight tabular-nums whitespace-nowrap">
+                            <span className="text-2xl sm:text-3xl font-black text-amber-800 dark:text-amber-400 tracking-tight tabular-nums whitespace-nowrap">
                               <span
                                 key={currentVal}
                                 className="inline-block animate-in fade-in slide-in-from-bottom-1 duration-150 motion-reduce:animate-none"
                               >
                                 {currentVal}
                               </span>
-                              <span className="text-xs text-zinc-600 dark:text-zinc-300 font-semibold"> / {max}</span>
+                              <span className="text-sm text-zinc-600 dark:text-zinc-300 font-semibold"> / {max}</span>
                             </span>
                           ) : (
-                            <span className="text-[11px] text-zinc-600 dark:text-zinc-300 bg-stone-100 dark:bg-zinc-800 px-3 py-1 rounded-full border border-stone-200 dark:border-zinc-700 font-sans font-semibold">
+                            <span className="text-xs text-zinc-600 dark:text-zinc-300 bg-stone-100 dark:bg-zinc-800 px-3 py-1 rounded-full border border-stone-200 dark:border-zinc-700 font-sans font-semibold">
                               Slide to Score
                             </span>
                           )}
@@ -1942,7 +1942,7 @@ export function ScoringPanel({
                           </button>
                         </div>
 
-                        <div className="flex justify-between px-14 text-[10px] font-mono font-bold text-zinc-600 dark:text-zinc-300">
+                        <div className="flex justify-between px-14 text-sm font-mono font-bold text-zinc-600 dark:text-zinc-300">
                           <span>0</span>
                           <span>{Math.floor(max / 2)}</span>
                           <span>{max}</span>
@@ -1973,14 +1973,14 @@ export function ScoringPanel({
           <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white tracking-tight leading-none tabular-nums whitespace-nowrap">
             <span
               key={currentTotal}
-              className="text-amber-700 dark:text-amber-400 tabular-nums whitespace-nowrap inline-block animate-in fade-in slide-in-from-bottom-1 duration-150 motion-reduce:animate-none"
+              className="text-amber-800 dark:text-amber-400 tabular-nums whitespace-nowrap inline-block animate-in fade-in slide-in-from-bottom-1 duration-150 motion-reduce:animate-none"
             >
               {currentTotal}
             </span>
             <span className="text-zinc-600 dark:text-zinc-300 text-sm font-semibold"> / {maxPossible}</span>
-            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
+            <span className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
           </div>
-          <span className="text-[10px] font-mono text-zinc-600 dark:text-zinc-300 uppercase tracking-widest mt-1 font-bold">
+          <span className="text-sm font-mono text-zinc-600 dark:text-zinc-300 uppercase tracking-wider mt-1 font-bold">
             Total Composite
           </span>
         </div>
@@ -2007,7 +2007,7 @@ export function ScoringPanel({
 
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
               <div className="flex items-center space-x-3 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center font-mono font-black text-sm text-amber-700 dark:text-amber-400 shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center font-mono font-black text-sm text-amber-800 dark:text-amber-400 shrink-0">
                   {(() => {
                     const assignedIds = activeEvent.assigned_participants || [];
                     const orderIdx = assignedIds.indexOf(currentParticipant.id);
@@ -2018,12 +2018,12 @@ export function ScoringPanel({
                   })()}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm font-black text-zinc-900 dark:text-white truncate">
+                  <h3 className="text-base font-black text-zinc-900 dark:text-white truncate">
                     {isBlindJudging
                       ? `Participant ${currentParticipant.identity_id || `P-${currentParticipant.id.slice(0, 4)}`}`
                       : currentParticipant.name}
                   </h3>
-                  <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 truncate">
+                  <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate">
                     {isBlindJudging ? 'Blind Evaluation' : currentParticipant.school}
                   </p>
                 </div>
@@ -2042,27 +2042,27 @@ export function ScoringPanel({
             </div>
 
             {currentUnsaved && (
-              <div className="mt-3 p-3 rounded-2xl bg-red-500/10 border border-red-500/35 text-xs text-red-700 dark:text-red-300 font-bold flex items-start gap-2 shrink-0">
+              <div className="mt-3 p-3 rounded-2xl bg-red-500/10 border border-red-500/35 text-sm text-red-700 dark:text-red-300 font-bold flex items-start gap-2 shrink-0">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
                 <span>Not saved: {currentUnsaved.reason}</span>
               </div>
             )}
 
             <div className="py-4 my-2 text-center bg-zinc-50 dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shrink-0">
-              <span className="text-xs font-mono uppercase tracking-widest text-zinc-600 dark:text-zinc-300 font-bold block mb-1">
+              <span className="text-sm font-mono uppercase tracking-widest text-zinc-600 dark:text-zinc-300 font-bold block mb-1">
                 Final Score Review
               </span>
               <div className="text-3xl font-black text-zinc-900 dark:text-white tabular-nums whitespace-nowrap">
-                <span className="text-amber-700 dark:text-amber-400 font-mono text-3xl font-black">
+                <span className="text-amber-800 dark:text-amber-400 font-mono text-3xl font-black">
                   {currentTotal}
                 </span>
                 <span className="text-zinc-600 dark:text-zinc-300 text-base font-semibold"> / {maxPossible}</span>
-                <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
+                <span className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-zinc-200 dark:divide-zinc-800 py-1 pr-1 my-2">
-              <span className="text-xs font-mono uppercase tracking-wider text-zinc-600 dark:text-zinc-300 font-bold px-1 block pb-2">
+              <span className="text-sm font-mono uppercase tracking-wider text-zinc-600 dark:text-zinc-300 font-bold px-1 block pb-2">
                 Criteria Marks
               </span>
               {rubricList.map((criterion) => {
@@ -2073,17 +2073,17 @@ export function ScoringPanel({
                     className="flex items-center justify-between py-2.5 px-1 border-b border-zinc-200 dark:border-zinc-800 last:border-b-0"
                   >
                     <div className="min-w-0 pr-3">
-                      <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
+                      <p className="text-sm font-bold text-zinc-900 dark:text-white truncate">
                         {criterion.name}
                       </p>
                       {criterion.description && (
-                        <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 truncate">
+                        <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate">
                           {criterion.description}
                         </p>
                       )}
                     </div>
-                    <div className="font-mono text-xs font-bold shrink-0 tabular-nums whitespace-nowrap">
-                      <span className="text-amber-700 dark:text-amber-400 font-black">{mark}</span>
+                    <div className="font-mono text-sm font-bold shrink-0 tabular-nums whitespace-nowrap">
+                      <span className="text-amber-800 dark:text-amber-400 font-black">{mark}</span>
                       <span className="text-zinc-600 dark:text-zinc-300 font-semibold"> / {criterion.max_marks}</span>
                     </div>
                   </div>
@@ -2137,7 +2137,7 @@ export function ScoringPanel({
                     onClick={() => handleConfirmLockScore()}
                     className={`flex-1 py-3.5 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform cursor-pointer ${
                       isSubmittedBeat
-                        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30'
+                        ? 'bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/30'
                         : 'bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white shadow-sm'
                     }`}
                   >

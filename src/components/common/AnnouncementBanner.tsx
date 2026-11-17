@@ -61,10 +61,10 @@ export const AnnouncementBanner: React.FC<AnnouncementBannerProps> = ({
           : 'text-zinc-600 dark:text-zinc-300';
 
         const closeBtnClass = isUrgent
-          ? 'text-red-700/70 hover:text-red-900 hover:bg-red-100 dark:text-red-300/70 dark:hover:text-red-100 dark:hover:bg-red-900'
+          ? 'text-red-800 hover:text-red-950 hover:bg-red-100 dark:text-red-200 dark:hover:text-white dark:hover:bg-red-900'
           : isWarning
-          ? 'text-amber-700/70 hover:text-amber-900 hover:bg-amber-100 dark:text-amber-300/70 dark:hover:text-amber-100 dark:hover:bg-amber-900'
-          : 'text-zinc-500 hover:text-zinc-900 hover:bg-stone-200 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800';
+          ? 'text-amber-800 hover:text-amber-950 hover:bg-amber-100 dark:text-amber-200 dark:hover:text-white dark:hover:bg-amber-900'
+          : 'text-zinc-600 hover:text-zinc-900 hover:bg-stone-200 dark:text-zinc-300 dark:hover:text-zinc-100 dark:hover:bg-zinc-800';
 
         return (
           <div
@@ -79,7 +79,7 @@ export const AnnouncementBanner: React.FC<AnnouncementBannerProps> = ({
                 ) : (
                   <Megaphone className={`w-4 h-4 shrink-0 mt-0.5 ${iconClass}`} />
                 )}
-                <div className="min-w-0 text-xs leading-snug">
+                <div className="min-w-0 text-sm leading-snug">
                   <span className="font-bold mr-1.5">{notice.title}:</span>
                   <span className={`break-words ${subTextClass}`}>{notice.body}</span>
                 </div>
