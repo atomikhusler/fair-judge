@@ -282,7 +282,7 @@ export const EventCard = React.memo(function EventCard({
       {/* ---------------- TOP ROW: [CATEGORY] Pill & Lock Button (Left) | [STATUS] Badge (Right) ---------------- */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-700/50 truncate max-w-[130px]">
+          <span className="text-xs lg:text-sm font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-700/50 truncate max-w-[130px]">
             {event.category || 'General'}
           </span>
 
@@ -311,12 +311,12 @@ export const EventCard = React.memo(function EventCard({
             }
           >
             {event.is_locked ? (
-              <span className="flex items-center gap-1 text-[11px] font-bold">
+              <span className="flex items-center gap-1 text-[11px] lg:text-sm font-bold">
                 <Lock className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Locked</span>
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-[11px] font-bold">
+              <span className="flex items-center gap-1 text-[11px] lg:text-sm font-bold">
                 <Unlock className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Unlocked</span>
               </span>
@@ -326,25 +326,25 @@ export const EventCard = React.memo(function EventCard({
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {event.status === 'active' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] lg:text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               LIVE
             </span>
           )}
           {event.status === 'paused' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] lg:text-xs font-black bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
               PAUSED
             </span>
           )}
           {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] lg:text-xs font-black bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700">
               <span className="w-1.5 h-1.5 rounded-full bg-stone-400 dark:bg-zinc-500" />
               UPCOMING
             </span>
           )}
           {(event.status === 'ended' || event.status === 'archived') && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] lg:text-xs font-black bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
               ENDED
             </span>
@@ -366,7 +366,7 @@ export const EventCard = React.memo(function EventCard({
             e.stopPropagation();
             onToggle(event.id);
           }}
-          className="p-1 rounded-lg text-stone-400 dark:text-zinc-500 group-hover:text-stone-800 dark:group-hover:text-white transition-colors cursor-pointer"
+          className="p-1 rounded-lg text-stone-400 dark:text-zinc-500 group-hover:text-stone-800 dark:group-hover:text-white transition-colors cursor-pointer md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center"
           aria-label={isExpanded ? 'Collapse event' : 'Expand event'}
         >
           <ChevronDown
@@ -393,7 +393,7 @@ export const EventCard = React.memo(function EventCard({
             <button
               type="button"
               onClick={(e) => onStart(event, e)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs lg:text-sm px-3.5 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer md:min-h-[44px]"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Start</span>
@@ -406,7 +406,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onPause(event, e)}
-                className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
+                className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs lg:text-sm px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer md:min-h-[44px]"
               >
                 <Pause className="w-3.5 h-3.5 fill-current" />
                 <span>Pause</span>
@@ -414,7 +414,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onOpenEndConfirm(event, e)}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs lg:text-sm px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer md:min-h-[44px]"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>End</span>
@@ -428,7 +428,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onResume(event, e)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs lg:text-sm px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer md:min-h-[44px]"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Resume</span>
@@ -436,7 +436,7 @@ export const EventCard = React.memo(function EventCard({
               <button
                 type="button"
                 onClick={(e) => onOpenEndConfirm(event, e)}
-                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer"
+                className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs lg:text-sm px-3 py-1.5 rounded-xl shadow-xs active:scale-95 flex items-center gap-1.5 transition-[transform,opacity] motion-reduce:transition-none cursor-pointer md:min-h-[44px]"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>End</span>
@@ -446,7 +446,7 @@ export const EventCard = React.memo(function EventCard({
 
           {/* Ended / Sealed Indicator */}
           {(event.status === 'ended' || event.status === 'archived') && (
-            <span className="text-[11px] font-bold text-stone-400 dark:text-zinc-500 flex items-center gap-1 bg-stone-100 dark:bg-zinc-800/60 px-2.5 py-1 rounded-lg border border-stone-200/50 dark:border-zinc-800">
+            <span className="text-[11px] lg:text-xs font-bold text-stone-400 dark:text-zinc-500 flex items-center gap-1 bg-stone-100 dark:bg-zinc-800/60 px-2.5 py-1 rounded-lg border border-stone-200/50 dark:border-zinc-800">
               <CheckCircle2 className="w-3 h-3 text-stone-400 dark:text-zinc-500" />
               <span>Sealed</span>
             </span>
@@ -460,7 +460,7 @@ export const EventCard = React.memo(function EventCard({
                 e.stopPropagation();
                 onOpenPublicView(event.id);
               }}
-              className="p-1.5 rounded-lg text-stone-400 dark:text-zinc-500 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-stone-400 dark:text-zinc-500 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center"
               title="Open Public Leaderboard"
               aria-label="Public View"
             >
@@ -482,7 +482,7 @@ export const EventCard = React.memo(function EventCard({
           {(event.status === 'upcoming' || event.status === 'draft' || event.status === 'ready') && (
             <div className="space-y-2.5">
               {/* Telemetry Counts */}
-              <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
+              <div className="flex items-center gap-2.5 text-xs lg:text-sm font-bold text-stone-600 dark:text-zinc-300">
                 <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
                   <Users className="w-3.5 h-3.5 text-stone-400" />
                   Judges: {eventJudgesCount}
@@ -495,10 +495,10 @@ export const EventCard = React.memo(function EventCard({
 
               {/* Muted Guidance Message */}
               <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center">
-                <p className="text-xs font-semibold text-stone-500 dark:text-zinc-400">
+                <p className="text-xs lg:text-sm font-semibold text-stone-500 dark:text-zinc-400">
                   The Event has not been started yet.
                 </p>
-                <p className="text-[11px] text-stone-400 dark:text-zinc-500 mt-0.5">
+                <p className="text-[11px] lg:text-sm text-stone-400 dark:text-zinc-500 mt-0.5">
                   Click &ldquo;Start&rdquo; above when judges and participants are ready on stage.
                 </p>
               </div>
@@ -509,7 +509,7 @@ export const EventCard = React.memo(function EventCard({
           {(event.status === 'active' || event.status === 'paused') && (
             <div className="space-y-3">
               {/* Telemetry Counts */}
-              <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
+              <div className="flex items-center gap-2.5 text-xs lg:text-sm font-bold text-stone-600 dark:text-zinc-300">
                 <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
                   <Users className="w-3.5 h-3.5 text-stone-400" />
                   Judges: {eventJudgesCount}
@@ -522,7 +522,7 @@ export const EventCard = React.memo(function EventCard({
 
               {/* Sequence Tracker */}
               {eventParticipants.length === 0 ? (
-                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs text-stone-500 dark:text-zinc-400">
+                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs lg:text-sm text-stone-500 dark:text-zinc-400">
                   No participants assigned to this event lineup.
                 </div>
               ) : (
@@ -532,7 +532,7 @@ export const EventCard = React.memo(function EventCard({
                     <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 ring-1 ring-amber-500/20">
                       {/* Top Row */}
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                        <span className="text-[10px] lg:text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                           Performing
                         </span>
@@ -545,20 +545,20 @@ export const EventCard = React.memo(function EventCard({
                         <span className="text-sm font-black text-stone-900 dark:text-white truncate">
                           {getParticipantDisplayName(performingParticipant, event)}
                         </span>
-                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 shrink-0">
+                        <span className="text-[11px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 shrink-0">
                           [ID: {performingParticipant.identity_id || `P-${performingParticipant.sl_no}`}]
                         </span>
                       </div>
                       {/* Bottom Row */}
-                      <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                      <div className="flex justify-between items-center text-xs lg:text-sm text-stone-500 dark:text-zinc-400">
                         <span className="truncate">{performingParticipant.school || 'General / Independent'}</span>
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
+                        <span className="text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
                           ORDER #{String((event.assigned_participants || []).indexOf(performingParticipant.id) + 1).padStart(2, '0')}
                         </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between text-xs font-semibold text-stone-500 dark:text-zinc-400">
+                    <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 flex items-center justify-between text-xs lg:text-sm font-semibold text-stone-500 dark:text-zinc-400">
                       <span>All participants have concluded performance.</span>
                       <span className="text-emerald-500 font-bold">Ledger Complete</span>
                     </div>
@@ -569,7 +569,7 @@ export const EventCard = React.memo(function EventCard({
                     <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
                       {/* Top Row */}
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                        <span className="text-[10px] lg:text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                           Just Performed
                         </span>
@@ -582,14 +582,14 @@ export const EventCard = React.memo(function EventCard({
                         <span className="text-sm font-black text-stone-900 dark:text-white truncate">
                           {getParticipantDisplayName(justPerformedParticipant, event)}
                         </span>
-                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
+                        <span className="text-[11px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
                           [ID: {justPerformedParticipant.identity_id || `P-${justPerformedParticipant.sl_no}`}]
                         </span>
                       </div>
                       {/* Bottom Row */}
-                      <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                      <div className="flex justify-between items-center text-xs lg:text-sm text-stone-500 dark:text-zinc-400">
                         <span className="truncate">{justPerformedParticipant.school || 'General / Independent'}</span>
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
+                        <span className="text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
                           ORDER #{String((event.assigned_participants || []).indexOf(justPerformedParticipant.id) + 1).padStart(2, '0')}
                         </span>
                       </div>
@@ -601,11 +601,11 @@ export const EventCard = React.memo(function EventCard({
                     <div className="flex flex-col space-y-1.5 p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800">
                       {/* Top Row */}
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-stone-500 dark:text-zinc-400 flex items-center gap-1.5">
+                        <span className="text-[10px] lg:text-xs font-black uppercase tracking-wider text-stone-500 dark:text-zinc-400 flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
                           Up Next
                         </span>
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500">
+                        <span className="text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500">
                           Next in Queue
                         </span>
                       </div>
@@ -614,14 +614,14 @@ export const EventCard = React.memo(function EventCard({
                         <span className="text-sm font-black text-stone-900 dark:text-white truncate">
                           {getParticipantDisplayName(upNextParticipant, event)}
                         </span>
-                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
+                        <span className="text-[11px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-stone-200/70 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300/60 dark:border-zinc-700/60 shrink-0">
                           [ID: {upNextParticipant.identity_id || `P-${upNextParticipant.sl_no}`}]
                         </span>
                       </div>
                       {/* Bottom Row */}
-                      <div className="flex justify-between items-center text-xs text-stone-500 dark:text-zinc-400">
+                      <div className="flex justify-between items-center text-xs lg:text-sm text-stone-500 dark:text-zinc-400">
                         <span className="truncate">{upNextParticipant.school || 'General / Independent'}</span>
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
+                        <span className="text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 shrink-0">
                           ORDER #{String((event.assigned_participants || []).indexOf(upNextParticipant.id) + 1).padStart(2, '0')}
                         </span>
                       </div>
@@ -636,7 +636,7 @@ export const EventCard = React.memo(function EventCard({
           {(event.status === 'ended' || event.status === 'archived') && (
             <div className="space-y-3">
               {/* Telemetry Counts */}
-              <div className="flex items-center gap-2.5 text-xs font-bold text-stone-600 dark:text-zinc-300">
+              <div className="flex items-center gap-2.5 text-xs lg:text-sm font-bold text-stone-600 dark:text-zinc-300">
                 <span className="inline-flex items-center gap-1.5 bg-stone-100 dark:bg-zinc-800/80 px-2.5 py-1 rounded-lg">
                   <Users className="w-3.5 h-3.5 text-stone-400" />
                   Judges: {eventJudgesCount}
@@ -649,12 +649,12 @@ export const EventCard = React.memo(function EventCard({
 
               {/* Podium Standings */}
               {top3Podium.length === 0 ? (
-                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs text-stone-500 dark:text-zinc-400">
+                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-100 dark:border-zinc-800 text-center text-xs lg:text-sm text-stone-500 dark:text-zinc-400">
                   No scores were recorded for this session.
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <div className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                  <div className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1">
                     <Trophy className="w-3.5 h-3.5 text-amber-500" />
                     Official Podium Results
                   </div>
@@ -665,13 +665,13 @@ export const EventCard = React.memo(function EventCard({
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-lg">🥇</span>
                           <div className="min-w-0">
-                            <div className="text-xs font-black text-stone-900 dark:text-white truncate">
+                            <div className="text-xs lg:text-sm font-black text-stone-900 dark:text-white truncate">
                               <span className="font-mono text-amber-700 dark:text-amber-400 font-bold mr-1">
                                 [ID: {top3Podium[0].participant.identity_id || `P-${top3Podium[0].participant.sl_no}`}]
                               </span>
                               <span>{getParticipantDisplayName(top3Podium[0].participant, event)}</span>
                             </div>
-                            <div className="text-[10px] text-amber-700 dark:text-amber-300 font-bold">
+                            <div className="text-[10px] lg:text-xs text-amber-700 dark:text-amber-300 font-bold">
                               1st Place
                             </div>
                           </div>
@@ -680,7 +680,7 @@ export const EventCard = React.memo(function EventCard({
                           <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
                             {top3Podium[0].totalScore}
                           </div>
-                          <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
+                          <div className="text-[9px] lg:text-xs text-stone-400 dark:text-zinc-500 font-bold uppercase">
                             pts
                           </div>
                         </div>
@@ -693,13 +693,13 @@ export const EventCard = React.memo(function EventCard({
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-lg">🥈</span>
                           <div className="min-w-0">
-                            <div className="text-xs font-black text-stone-900 dark:text-white truncate">
+                            <div className="text-xs lg:text-sm font-black text-stone-900 dark:text-white truncate">
                               <span className="font-mono text-stone-500 dark:text-zinc-400 font-bold mr-1">
                                 [ID: {top3Podium[1].participant.identity_id || `P-${top3Podium[1].participant.sl_no}`}]
                               </span>
                               <span>{getParticipantDisplayName(top3Podium[1].participant, event)}</span>
                             </div>
-                            <div className="text-[10px] text-stone-500 dark:text-zinc-400 font-bold">
+                            <div className="text-[10px] lg:text-xs text-stone-500 dark:text-zinc-400 font-bold">
                               2nd Place
                             </div>
                           </div>
@@ -708,7 +708,7 @@ export const EventCard = React.memo(function EventCard({
                           <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
                             {top3Podium[1].totalScore}
                           </div>
-                          <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
+                          <div className="text-[9px] lg:text-xs text-stone-400 dark:text-zinc-500 font-bold uppercase">
                             pts
                           </div>
                         </div>
@@ -721,13 +721,13 @@ export const EventCard = React.memo(function EventCard({
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-lg">🥉</span>
                           <div className="min-w-0">
-                            <div className="text-xs font-black text-stone-900 dark:text-white truncate">
+                            <div className="text-xs lg:text-sm font-black text-stone-900 dark:text-white truncate">
                               <span className="font-mono text-amber-800 dark:text-amber-400 font-bold mr-1">
                                 [ID: {top3Podium[2].participant.identity_id || `P-${top3Podium[2].participant.sl_no}`}]
                               </span>
                               <span>{getParticipantDisplayName(top3Podium[2].participant, event)}</span>
                             </div>
-                            <div className="text-[10px] text-amber-800 dark:text-amber-400 font-bold">
+                            <div className="text-[10px] lg:text-xs text-amber-800 dark:text-amber-400 font-bold">
                               3rd Place
                             </div>
                           </div>
@@ -736,7 +736,7 @@ export const EventCard = React.memo(function EventCard({
                           <div className="text-xs sm:text-sm font-black text-stone-900 dark:text-white tabular-nums whitespace-nowrap">
                             {top3Podium[2].totalScore}
                           </div>
-                          <div className="text-[9px] text-stone-400 dark:text-zinc-500 font-bold uppercase">
+                          <div className="text-[9px] lg:text-xs text-stone-400 dark:text-zinc-500 font-bold uppercase">
                             pts
                           </div>
                         </div>
@@ -1388,7 +1388,7 @@ export function LiveTab({
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-full text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                className="min-w-[36px] min-h-[36px] md:min-w-[44px] md:min-h-[44px] flex items-center justify-center rounded-full text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 transition-colors cursor-pointer"
                 aria-label="Clear Search"
               >
                 <X className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -1420,7 +1420,7 @@ export function LiveTab({
             <h3 className="text-base font-bold text-stone-900 dark:text-white mb-1">
               {searchQuery ? 'No Matching Events Found' : 'No Events in Competition'}
             </h3>
-            <p className="text-xs text-stone-500 dark:text-zinc-400 max-w-sm mx-auto">
+            <p className="text-xs lg:text-sm text-stone-500 dark:text-zinc-400 max-w-sm mx-auto">
               {searchQuery
                 ? `No event matched "${searchQuery}". Try searching for another name or category.`
                 : 'Create events in the Events Tab and assign judges to start real-time telemetry.'}
@@ -1479,12 +1479,12 @@ export function LiveTab({
               <h3 className="text-lg font-black text-stone-900 dark:text-white tracking-tight">
                 End Live Session?
               </h3>
-              <p className="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">
+              <p className="text-xs lg:text-sm text-stone-500 dark:text-zinc-400 leading-relaxed">
                 Are you sure you want to end &ldquo;{confirmingEvent.name}&rdquo;? This will finalize all submitted judge scores and seal the scoring ledger permanently.
               </p>
             </div>
 
-            <div className="p-3 rounded-2xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 text-[11px] text-stone-600 dark:text-zinc-400 space-y-1">
+            <div className="p-3 rounded-2xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 text-[11px] lg:text-sm text-stone-600 dark:text-zinc-400 space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-stone-900 dark:text-white">
                 <ShieldCheck className="w-4 h-4 text-emerald-500" />
                 Ledger Security Enforcement
@@ -1537,7 +1537,7 @@ export function LiveTab({
               <h3 className="text-lg font-black text-stone-900 dark:text-white">
                 Unlock Live Event Roster?
               </h3>
-              <p className="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">
+              <p className="text-xs lg:text-sm text-stone-500 dark:text-zinc-400 leading-relaxed">
                 &ldquo;{unlockConfirmEvent.name}&rdquo; is currently <span className="font-bold text-emerald-600 dark:text-emerald-400">LIVE</span>. Unlocking the roster permits modifications to the participant order and jury lineup while judges may be evaluating.
               </p>
             </div>
@@ -1586,7 +1586,7 @@ export function LiveTab({
                   <h3 className="text-sm font-black text-stone-900 dark:text-white">
                     Notifications &amp; Alerts
                   </h3>
-                  <p className="text-[10px] text-stone-400 dark:text-zinc-500 font-medium">
+                  <p className="text-[10px] lg:text-sm text-stone-400 dark:text-zinc-500 font-medium">
                     Operational warnings &amp; platform announcements
                   </p>
                 </div>
@@ -1606,7 +1606,7 @@ export function LiveTab({
               {/* Permanent Mutation Failures */}
               {failedMutations.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <div className="text-[11px] lg:text-sm font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" />
                     Permanent Sync Failures ({failedMutations.length})
                   </div>
@@ -1616,10 +1616,10 @@ export function LiveTab({
                       className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 space-y-2"
                     >
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                        <div className="text-xs lg:text-sm font-bold text-rose-600 dark:text-rose-400">
                           {m.table.toUpperCase()} Mutation Rejected
                         </div>
-                        <div className="text-[11px] text-stone-600 dark:text-zinc-300 mt-0.5 leading-relaxed font-mono break-all">
+                        <div className="text-[11px] lg:text-sm text-stone-600 dark:text-zinc-300 mt-0.5 leading-relaxed font-mono break-all">
                           {m.lastError || 'Server rejected mutation (roster locked or constraints)'}
                         </div>
                       </div>
@@ -1634,7 +1634,7 @@ export function LiveTab({
                               showToast(err?.message || 'Retry failed.', 'error');
                             }
                           }}
-                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-stone-900 text-white dark:bg-zinc-100 dark:text-black hover:opacity-90 transition-opacity motion-reduce:transition-none cursor-pointer"
+                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs lg:text-sm font-bold bg-stone-900 text-white dark:bg-zinc-100 dark:text-black hover:opacity-90 transition-opacity motion-reduce:transition-none cursor-pointer"
                         >
                           Retry
                         </button>
@@ -1648,7 +1648,7 @@ export function LiveTab({
                               showToast(err?.message || 'Discard failed.', 'error');
                             }
                           }}
-                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors motion-reduce:transition-none cursor-pointer"
+                          className="min-h-[44px] px-4 py-1.5 rounded-xl text-xs lg:text-sm font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors motion-reduce:transition-none cursor-pointer"
                         >
                           Discard
                         </button>
@@ -1668,10 +1668,10 @@ export function LiveTab({
                     >
                       <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-stone-900 dark:text-white">
+                        <div className="text-xs lg:text-sm font-bold text-stone-900 dark:text-white">
                           {warning.title}
                         </div>
-                        <div className="text-[11px] text-stone-600 dark:text-zinc-300 mt-0.5 leading-relaxed">
+                        <div className="text-[11px] lg:text-sm text-stone-600 dark:text-zinc-300 mt-0.5 leading-relaxed">
                           {warning.desc}
                         </div>
                       </div>
@@ -1682,10 +1682,10 @@ export function LiveTab({
                 <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 flex items-center gap-3">
                   <ShieldCheck className="w-5 h-5 text-emerald-500 flex-shrink-0" />
                   <div>
-                    <div className="text-xs font-bold text-stone-900 dark:text-white">
+                    <div className="text-xs lg:text-sm font-bold text-stone-900 dark:text-white">
                       All Systems Operational
                     </div>
-                    <div className="text-[11px] text-stone-500 dark:text-zinc-400 mt-0.5">
+                    <div className="text-[11px] lg:text-sm text-stone-500 dark:text-zinc-400 mt-0.5">
                       No active warnings or missing rosters detected across your events.
                     </div>
                   </div>
@@ -1694,17 +1694,17 @@ export function LiveTab({
 
               {/* Platform Announcements (Last 30 days) */}
               <div className="space-y-2 pt-1">
-                <div className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                <div className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <Megaphone className="w-3.5 h-3.5 text-emerald-500" />
                     Announcements
                   </span>
-                  <span className="text-[10px] font-mono text-stone-400 dark:text-zinc-500 normal-case">
+                  <span className="text-[10px] lg:text-xs font-mono text-stone-400 dark:text-zinc-500 normal-case">
                     Last 30 days
                   </span>
                 </div>
                 {inboxNotices.length === 0 ? (
-                  <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-xs text-stone-500 dark:text-zinc-400 text-center">
+                  <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm text-stone-500 dark:text-zinc-400 text-center">
                     You&apos;re all caught up. No platform announcements.
                   </div>
                 ) : (
@@ -1733,7 +1733,7 @@ export function LiveTab({
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider shrink-0 ${badgeClass}`}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] lg:text-xs font-bold uppercase tracking-wider shrink-0 ${badgeClass}`}
                             >
                               {isCritical || isWarning ? (
                                 <AlertTriangle className="w-3 h-3" />
@@ -1743,19 +1743,19 @@ export function LiveTab({
                               <span>{badgeLabel}</span>
                             </span>
                             {wasJustOpenedUnread && (
-                              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                              <span className="text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                                 New
                               </span>
                             )}
                           </div>
-                          <span className="text-[11px] font-mono text-stone-500 dark:text-zinc-400 shrink-0">
+                          <span className="text-[11px] lg:text-sm font-mono text-stone-500 dark:text-zinc-400 shrink-0">
                             {formatNoticeTime(notice.starts_at, notice.savedAt)}
                           </span>
                         </div>
-                        <div className="text-xs font-bold text-stone-900 dark:text-white leading-snug break-words">
+                        <div className="text-xs lg:text-sm font-bold text-stone-900 dark:text-white leading-snug break-words">
                           {notice.title}
                         </div>
-                        <div className="text-[11px] text-stone-600 dark:text-zinc-400 leading-relaxed break-words">
+                        <div className="text-[11px] lg:text-sm text-stone-600 dark:text-zinc-400 leading-relaxed break-words">
                           {notice.body}
                         </div>
                       </div>
@@ -1768,7 +1768,7 @@ export function LiveTab({
             <button
               type="button"
               onClick={() => setIsAlertsOpen(false)}
-              className="w-full min-h-[44px] py-2.5 rounded-xl font-bold text-xs bg-stone-900 text-white dark:bg-white dark:text-black transition-colors motion-reduce:transition-none cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 rounded-xl font-bold text-xs lg:text-sm bg-stone-900 text-white dark:bg-white dark:text-black transition-colors motion-reduce:transition-none cursor-pointer"
             >
               Close
             </button>

@@ -714,7 +714,7 @@ export function SettingsDrawer({
               <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-white">
                 Settings &amp; Preferences
               </h2>
-              <p className="text-[11px] text-zinc-500 font-mono">
+              <p className="text-[11px] lg:text-sm text-zinc-500 font-mono">
                 {organization.name}
               </p>
             </div>
@@ -743,7 +743,7 @@ export function SettingsDrawer({
           {/* SECTION 1: PREFERENCES                                  */}
           {/* -------------------------------------------------------- */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-4">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-4">
               Preferences
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
@@ -761,7 +761,7 @@ export function SettingsDrawer({
                         setHapticSetting(lvl);
                         triggerHaptic('tick');
                       }}
-                      className={`px-2.5 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                      className={`px-2.5 py-1 md:min-h-[44px] md:min-w-[44px] text-[10px] lg:text-xs font-bold rounded-lg uppercase transition-colors cursor-pointer ${
                         hapticSetting === lvl
                           ? 'bg-emerald-500 text-white shadow-sm'
                           : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
@@ -778,7 +778,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     Sound Effects
                   </span>
-                  <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                  <p className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400">
                     Boot chime, alerts &amp; action feedback.
                   </p>
                 </div>
@@ -798,7 +798,7 @@ export function SettingsDrawer({
                         triggerHaptic('tick');
                         if (lvl !== 'off') playSound('tap');
                       }}
-                      className={`min-h-[36px] px-2.5 py-1 text-[10px] font-bold rounded-lg uppercase transition-colors cursor-pointer ${
+                      className={`min-h-[36px] md:min-h-[44px] md:min-w-[44px] px-2.5 py-1 text-[10px] lg:text-xs font-bold rounded-lg uppercase transition-colors cursor-pointer ${
                         soundSetting === lvl
                           ? 'bg-emerald-700 text-white shadow-sm'
                           : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white'
@@ -816,7 +816,7 @@ export function SettingsDrawer({
           {/* SECTION 2: INTELLIGENT FORECASTING                       */}
           {/* -------------------------------------------------------- */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
               Intelligent Forecasting
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
@@ -825,7 +825,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     Predictive Schedule Estimation
                   </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Predicts event runtimes using live scoring speed.
                   </p>
                 </div>
@@ -846,6 +846,7 @@ export function SettingsDrawer({
                     predictiveScheduleEnabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                       predictiveScheduleEnabled ? 'translate-x-5' : 'translate-x-0'
@@ -860,7 +861,7 @@ export function SettingsDrawer({
           {/* SECTION 1.5: JURY TERMINAL RULES                         */}
           {/* -------------------------------------------------------- */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
               Jury Terminal Rules
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
@@ -871,7 +872,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     Strict Blind Judging
                   </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Hide names and schools to prevent bias.
                   </p>
                 </div>
@@ -902,6 +903,7 @@ export function SettingsDrawer({
                     organization.blind_judging_enabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                       organization.blind_judging_enabled ? 'translate-x-5' : 'translate-x-0'
@@ -916,7 +918,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     Auto-Advance Competitor
                   </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Slide to next competitor upon score lock.
                   </p>
                 </div>
@@ -948,6 +950,7 @@ export function SettingsDrawer({
                     (organization.auto_advance_enabled !== undefined ? organization.auto_advance_enabled : true) ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                       (organization.auto_advance_enabled !== undefined ? organization.auto_advance_enabled : true) ? 'translate-x-5' : 'translate-x-0'
@@ -962,7 +965,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     5-Minute Grace Period
                   </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Allow score adjustments for 5 minutes after locking.
                   </p>
                 </div>
@@ -993,6 +996,7 @@ export function SettingsDrawer({
                     organization.grace_period_enabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                       organization.grace_period_enabled ? 'translate-x-5' : 'translate-x-0'
@@ -1007,7 +1011,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     Isolated Jury Mode
                   </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Hide global progress and standings from judge.
                   </p>
                 </div>
@@ -1038,6 +1042,7 @@ export function SettingsDrawer({
                     organization.isolated_jury_enabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                       organization.isolated_jury_enabled ? 'translate-x-5' : 'translate-x-0'
@@ -1053,7 +1058,7 @@ export function SettingsDrawer({
           {/* SECTION 2: ADJUDICATION & TIE-BREAKER                    */}
           {/* -------------------------------------------------------- */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
               Adjudication &amp; Tie-Breaker
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
@@ -1062,7 +1067,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     Tie-Breaker Engine
                   </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Automated resolution applied on equal scores.
                   </p>
                 </div>
@@ -1075,6 +1080,7 @@ export function SettingsDrawer({
                     tieBreakerEnabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                       tieBreakerEnabled ? 'translate-x-5' : 'translate-x-0'
@@ -1114,7 +1120,7 @@ export function SettingsDrawer({
                           <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                             {method.title}
                           </span>
-                          <span className="text-[11px] text-zinc-500 truncate block mt-0.5">
+                          <span className="text-[11px] lg:text-sm text-zinc-500 truncate block mt-0.5">
                             {method.desc}
                           </span>
                         </div>
@@ -1135,12 +1141,12 @@ export function SettingsDrawer({
           {/* SECTION 3: CUSTOM PARTICIPANT FIELDS                     */}
           {/* -------------------------------------------------------- */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
               Custom Participant Fields
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
               {customFields.length === 0 ? (
-                <div className="p-4 text-xs text-zinc-500 text-center font-medium">
+                <div className="p-4 text-xs lg:text-sm text-zinc-500 text-center font-medium">
                   Primary participant identifier. (No custom metadata added)
                 </div>
               ) : (
@@ -1154,7 +1160,7 @@ export function SettingsDrawer({
                         <span className="text-sm font-semibold text-zinc-900 dark:text-white truncate">
                           {field.name}
                         </span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold uppercase ${
+                        <span className={`text-[9px] lg:text-xs px-1.5 py-0.5 rounded font-mono font-bold uppercase ${
                           field.required
                             ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
                             : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
@@ -1162,7 +1168,7 @@ export function SettingsDrawer({
                           {field.required ? 'Req' : 'Opt'}
                         </span>
                       </div>
-                      <span className="text-[11px] text-zinc-500 block mt-0.5 uppercase font-mono">
+                      <span className="text-[11px] lg:text-sm text-zinc-500 block mt-0.5 uppercase font-mono">
                         Type: {field.type || 'text'}
                       </span>
                     </div>
@@ -1170,7 +1176,7 @@ export function SettingsDrawer({
                     <button
                       type="button"
                       onClick={() => handleDeleteCustomField(field.id, field.name)}
-                      className="w-8 h-8 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors flex items-center justify-center cursor-pointer"
+                      className="w-8 h-8 md:w-11 md:h-11 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors flex items-center justify-center cursor-pointer"
                       title="Remove Field"
                       aria-label={`Remove field ${field.name}`}
                     >
@@ -1188,12 +1194,12 @@ export function SettingsDrawer({
                     placeholder="Field Name (e.g. Costume Code)"
                     value={newFieldName}
                     onChange={(e) => setNewFieldName(e.target.value)}
-                    className="w-full min-h-[38px] px-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
+                    className="w-full min-h-[38px] md:min-h-[44px] px-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
                   />
                   <select
                     value={newFieldType}
                     onChange={(e) => setNewFieldType(e.target.value as 'text' | 'number')}
-                    className="w-full min-h-[38px] px-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full min-h-[38px] md:min-h-[44px] px-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="text">Text (e.g. Category/Track)</option>
                     <option value="number">Numeric (e.g. Bib / Age)</option>
@@ -1201,20 +1207,20 @@ export function SettingsDrawer({
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <label className="flex items-center space-x-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                  <label className="flex items-center space-x-2 md:min-h-[44px] text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={newFieldRequired}
                       onChange={(e) => setNewFieldRequired(e.target.checked)}
                       className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-900"
                     />
-                    <span className="text-[11px] font-medium">Mandatory</span>
+                    <span className="text-[11px] lg:text-sm font-medium">Mandatory</span>
                   </label>
 
                   <button
                     type="submit"
                     disabled={!newFieldName.trim()}
-                    className="min-h-[36px] px-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl transition-transform duration-150 motion-reduce:transition-none active:scale-[0.98] shadow-sm flex items-center space-x-1.5 cursor-pointer"
+                    className="min-h-[36px] md:min-h-[44px] px-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs lg:text-sm rounded-xl transition-transform duration-150 motion-reduce:transition-none active:scale-[0.98] shadow-sm flex items-center space-x-1.5 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                     <span>Add Field</span>
@@ -1229,12 +1235,12 @@ export function SettingsDrawer({
           {/* -------------------------------------------------------- */}
           <div>
             <div className="flex items-center justify-between ml-4 mr-2 mb-2 mt-6">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+              <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500">
                 Broadcast Control Room
               </h4>
               <span
                 aria-label="Live projector screens count"
-                className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 tabular-nums"
+                className="inline-flex items-center gap-1.5 text-[10px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 tabular-nums"
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
@@ -1253,7 +1259,7 @@ export function SettingsDrawer({
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                     Score Secrecy (Blind Mode)
                   </span>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Enforced on server; hides points and reveals rankings only.
                   </p>
                 </div>
@@ -1273,6 +1279,7 @@ export function SettingsDrawer({
                     blindMode ? 'bg-amber-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-150 motion-reduce:transition-none ${
                       blindMode ? 'translate-x-5' : 'translate-x-0'
@@ -1290,7 +1297,7 @@ export function SettingsDrawer({
                       Spotlight / Focus Mode
                     </span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Auto-enlarge participant actively under jury evaluation.
                   </p>
                 </div>
@@ -1310,6 +1317,7 @@ export function SettingsDrawer({
                     spotlightMode ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                   }`}
                 >
+                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                   <span
                     className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-150 motion-reduce:transition-none ${
                       spotlightMode ? 'translate-x-5' : 'translate-x-0'
@@ -1325,11 +1333,11 @@ export function SettingsDrawer({
                     <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
                       Custom Broadcast Ticker
                     </span>
-                    <p className="text-[11px] text-zinc-500">
+                    <p className="text-[11px] lg:text-sm text-zinc-500">
                       Plain text announcement scrolling at the bottom of the screen.
                     </p>
                   </div>
-                  <span className="font-mono text-[10px] font-bold text-zinc-500 tabular-nums shrink-0">
+                  <span className="font-mono text-[10px] lg:text-xs font-bold text-zinc-500 tabular-nums shrink-0">
                     {tickerText.length}/120
                   </span>
                 </div>
@@ -1352,7 +1360,7 @@ export function SettingsDrawer({
                       if (tickerDebounceRef.current) window.clearTimeout(tickerDebounceRef.current);
                       void persistOrgBroadcastUpdate({ projector_ticker_text: tickerText });
                     }}
-                    className="flex-1 min-h-[38px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                    className="flex-1 min-h-[38px] md:min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                   />
                   {tickerText && (
                     <button
@@ -1363,7 +1371,7 @@ export function SettingsDrawer({
                         dbService.savePublicSettings(organization.org_id, { tickerText: '' });
                         void persistOrgBroadcastUpdate({ projector_ticker_text: '' });
                       }}
-                      className="text-[10px] font-mono px-2.5 py-2 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
+                      className="text-[10px] lg:text-sm font-mono px-2.5 py-2 md:min-h-[44px] md:min-w-[44px] rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
                     >
                       Clear
                     </button>
@@ -1380,7 +1388,7 @@ export function SettingsDrawer({
                       Celebration Confetti
                     </span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Blast celebratory particle shower across the broadcast screen.
                   </p>
                 </div>
@@ -1394,7 +1402,7 @@ export function SettingsDrawer({
                     window.dispatchEvent(new CustomEvent('fairjudge_confetti'));
                     showToast('Celebration confetti launched on projector!', 'success');
                   }}
-                  className="min-h-[38px] px-4 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-transform duration-150 motion-reduce:transition-none shadow-md shadow-amber-500/20 flex items-center space-x-1.5 cursor-pointer shrink-0"
+                  className="min-h-[38px] md:min-h-[44px] px-4 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-black text-xs lg:text-sm uppercase tracking-wider rounded-xl transition-transform duration-150 motion-reduce:transition-none shadow-md shadow-amber-500/20 flex items-center space-x-1.5 cursor-pointer shrink-0"
                 >
                   <Sparkles className="w-3.5 h-3.5 fill-black" />
                   <span>Fire Confetti</span>
@@ -1410,7 +1418,7 @@ export function SettingsDrawer({
                       Carousel Interval
                     </span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 truncate">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
                     Event rotation window duration.
                   </p>
                 </div>
@@ -1437,7 +1445,7 @@ export function SettingsDrawer({
                     }}
                     className="w-20 accent-emerald-500 cursor-pointer"
                   />
-                  <span className="font-mono text-xs font-bold w-12 text-right text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  <span className="font-mono text-xs lg:text-sm font-bold w-12 text-right text-emerald-600 dark:text-emerald-400 tabular-nums">
                     {paginationTimer}s
                   </span>
                 </div>
@@ -1451,10 +1459,10 @@ export function SettingsDrawer({
           {/* -------------------------------------------------------- */}
           <div>
             <div className="flex items-center justify-between ml-4 mr-2 mb-2 mt-6">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+              <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500">
                 Projector
               </h4>
-              <span className="text-[11px] font-mono font-bold text-zinc-500 tabular-nums">
+              <span className="text-[11px] lg:text-sm font-mono font-bold text-zinc-500 tabular-nums">
                 {pairings.length} {pairings.length === 1 ? 'screen' : 'screens'}
               </span>
             </div>
@@ -1463,17 +1471,17 @@ export function SettingsDrawer({
               {/* A1-A5: Clean Projector Address + Copy Button */}
               <div className="p-4 flex flex-wrap items-center justify-between gap-2.5 bg-stone-50/70 dark:bg-zinc-900/60">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-0.5">
+                  <div className="text-[10px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 mb-0.5">
                     Projector address
                   </div>
                   <span
                     ref={projectorLinkRef}
-                    className="block font-mono text-xs text-zinc-800 dark:text-zinc-200 select-all break-all"
+                    className="block font-mono text-xs lg:text-sm text-zinc-800 dark:text-zinc-200 select-all break-all"
                   >
                     {getCleanProjectorUrl()}
                   </span>
                   {copyStatus === 'fallback' && (
-                    <span className="block text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    <span className="block text-[11px] lg:text-sm text-amber-600 dark:text-amber-400 mt-1">
                       Clipboard unavailable — copy the address above.
                     </span>
                   )}
@@ -1481,7 +1489,7 @@ export function SettingsDrawer({
                 <button
                   type="button"
                   onClick={() => void handleCopyProjectorLink()}
-                  className="min-h-[38px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-xs font-bold text-zinc-900 dark:text-white inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                  className="min-h-[38px] md:min-h-[44px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-xs lg:text-sm font-bold text-zinc-900 dark:text-white inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                 >
                   {copyStatus === 'copied' ? (
                     <>
@@ -1498,11 +1506,11 @@ export function SettingsDrawer({
               </div>
 
               {isLoadingPairings && pairings.length === 0 ? (
-                <div className="p-4 text-xs text-zinc-500">
+                <div className="p-4 text-xs lg:text-sm text-zinc-500">
                   Loading paired screens...
                 </div>
               ) : pairings.length === 0 ? (
-                <div className="p-4 text-xs text-zinc-500">
+                <div className="p-4 text-xs lg:text-sm text-zinc-500">
                   No screens paired yet
                 </div>
               ) : (
@@ -1536,19 +1544,19 @@ export function SettingsDrawer({
                                 onChange={(e) => setEditingLabel(e.target.value)}
                                 autoFocus
                                 aria-label="Rename screen"
-                                className="flex-1 min-w-0 min-h-[34px] px-2.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-700 text-xs font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                                className="flex-1 min-w-0 min-h-[34px] md:min-h-[44px] px-2.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-700 text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
                               />
                               <button
                                 type="submit"
                                 disabled={isBusy}
-                                className="min-h-[34px] px-2.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                                className="min-h-[34px] md:min-h-[44px] px-2.5 rounded-lg bg-emerald-600 text-white text-[11px] lg:text-sm font-bold cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                               >
                                 Save
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingPairingId(null)}
-                                className="min-h-[34px] px-2 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] font-semibold cursor-pointer"
+                                className="min-h-[34px] md:min-h-[44px] px-2 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] lg:text-sm font-semibold cursor-pointer"
                               >
                                 Cancel
                               </button>
@@ -1573,14 +1581,14 @@ export function SettingsDrawer({
                                 }}
                                 aria-label={`Rename ${screenName}`}
                                 title="Rename screen"
-                                className="p-1 rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                                className="p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
                             </div>
                           )}
 
-                          <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1.5 flex-wrap">
+                          <div className="text-[11px] lg:text-sm text-zinc-500 font-mono flex items-center gap-1.5 flex-wrap">
                             <span>{online ? 'Online' : 'Offline'}</span>
                             <span>•</span>
                             <span>{formatLastSeen(item.last_seen_at, nowMs)}</span>
@@ -1601,7 +1609,7 @@ export function SettingsDrawer({
                               type="button"
                               disabled={isRevoking}
                               onClick={() => void handleConfirmRevoke(item.id, screenName)}
-                              className="min-h-[36px] px-3 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black cursor-pointer transition-opacity duration-150 motion-reduce:transition-none disabled:opacity-50"
+                              className="min-h-[36px] md:min-h-[44px] px-3 rounded-xl text-xs lg:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-black cursor-pointer transition-opacity duration-150 motion-reduce:transition-none disabled:opacity-50"
                             >
                               {isRevoking ? 'Revoking...' : 'Confirm'}
                             </button>
@@ -1609,7 +1617,7 @@ export function SettingsDrawer({
                               type="button"
                               disabled={isRevoking}
                               onClick={() => setConfirmRevokeId(null)}
-                              className="min-h-[36px] px-2.5 rounded-xl text-xs font-semibold bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                              className="min-h-[36px] md:min-h-[44px] px-2.5 rounded-xl text-xs lg:text-sm font-semibold bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                             >
                               Cancel
                             </button>
@@ -1618,7 +1626,7 @@ export function SettingsDrawer({
                           <button
                             type="button"
                             onClick={() => setConfirmRevokeId(item.id)}
-                            className="min-h-[36px] px-3 rounded-xl text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                            className="min-h-[36px] md:min-h-[44px] px-3 rounded-xl text-xs lg:text-sm font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                           >
                             Revoke
                           </button>
@@ -1632,7 +1640,7 @@ export function SettingsDrawer({
                           value={item.event_id || ''}
                           disabled={isBusy}
                           onChange={(e) => void handleChangeScreenEvent(item, e.target.value)}
-                          className="flex-1 min-w-0 min-h-[36px] px-2.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+                          className="flex-1 min-w-0 min-h-[36px] md:min-h-[44px] px-2.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                         >
                           <option value="">All events</option>
                           {orgEvents.map((ev) => (
@@ -1643,7 +1651,7 @@ export function SettingsDrawer({
                         </select>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+                          <span className="text-[11px] lg:text-sm font-semibold text-zinc-600 dark:text-zinc-400">
                             Blank
                           </span>
                           <button
@@ -1657,6 +1665,7 @@ export function SettingsDrawer({
                               item.is_blank ? 'bg-amber-500' : 'bg-stone-300 dark:bg-zinc-700'
                             }`}
                           >
+                            <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
                             <span
                               className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-150 motion-reduce:transition-none ${
                                 item.is_blank ? 'translate-x-5' : 'translate-x-0'
@@ -1674,7 +1683,7 @@ export function SettingsDrawer({
                 <button
                   type="button"
                   onClick={handleOpenPairSheet}
-                  className="w-full min-h-[44px] bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-transform duration-150 motion-reduce:transition-none active:scale-[0.98] cursor-pointer shadow-sm"
+                  className="w-full min-h-[44px] bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs lg:text-sm flex items-center justify-center gap-2 transition-transform duration-150 motion-reduce:transition-none active:scale-[0.98] cursor-pointer shadow-sm"
                 >
                   <Monitor className="w-4 h-4" />
                   <span>Pair a screen</span>
@@ -1683,7 +1692,7 @@ export function SettingsDrawer({
                 {pairings.length > 0 && (
                   confirmRevokeAll ? (
                     <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      <span className="text-xs lg:text-sm font-semibold text-amber-700 dark:text-amber-300">
                         Revoke all {pairings.length} {pairings.length === 1 ? 'screen' : 'screens'}?
                       </span>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -1691,7 +1700,7 @@ export function SettingsDrawer({
                           type="button"
                           disabled={isRevokingAll}
                           onClick={() => void handleConfirmRevokeAll()}
-                          className="min-h-[34px] px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold cursor-pointer transition-opacity duration-150 motion-reduce:transition-none disabled:opacity-50"
+                          className="min-h-[34px] md:min-h-[44px] px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold cursor-pointer transition-opacity duration-150 motion-reduce:transition-none disabled:opacity-50"
                         >
                           {isRevokingAll ? 'Revoking...' : 'Confirm'}
                         </button>
@@ -1699,7 +1708,7 @@ export function SettingsDrawer({
                           type="button"
                           disabled={isRevokingAll}
                           onClick={() => setConfirmRevokeAll(false)}
-                          className="min-h-[34px] px-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-semibold cursor-pointer"
+                          className="min-h-[34px] md:min-h-[44px] px-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-semibold cursor-pointer"
                         >
                           Cancel
                         </button>
@@ -1712,7 +1721,7 @@ export function SettingsDrawer({
                         setConfirmRevokeId(null);
                         setConfirmRevokeAll(true);
                       }}
-                      className="w-full min-h-[40px] rounded-xl text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                      className="w-full min-h-[40px] md:min-h-[44px] rounded-xl text-xs lg:text-sm font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                     >
                       Revoke all
                     </button>
@@ -1758,7 +1767,7 @@ export function SettingsDrawer({
               <button
                 type="button"
                 onClick={() => !isPairingSubmitting && setIsPairSheetOpen(false)}
-                className="w-9 h-9 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center cursor-pointer transition-colors duration-150 motion-reduce:transition-none"
+                className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center cursor-pointer transition-colors duration-150 motion-reduce:transition-none"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -1774,14 +1783,14 @@ export function SettingsDrawer({
                   <div className="text-base font-bold text-zinc-900 dark:text-white">
                     Paired
                   </div>
-                  <p className="text-xs text-zinc-500 font-mono">
+                  <p className="text-xs lg:text-sm text-zinc-500 font-mono">
                     {pairedSuccessName}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsPairSheetOpen(false)}
-                  className="w-full min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                  className="w-full min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                 >
                   Done
                 </button>
@@ -1791,7 +1800,7 @@ export function SettingsDrawer({
                 <div className="space-y-1.5">
                   <label
                     htmlFor="fj-pair-code"
-                    className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500"
+                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
                   >
                     6-Digit Code
                   </label>
@@ -1815,7 +1824,7 @@ export function SettingsDrawer({
                 <div className="space-y-1.5">
                   <label
                     htmlFor="fj-pair-event"
-                    className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500"
+                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
                   >
                     Event Scope (Optional)
                   </label>
@@ -1823,7 +1832,7 @@ export function SettingsDrawer({
                     id="fj-pair-event"
                     value={pairEventId}
                     onChange={(e) => setPairEventId(e.target.value)}
-                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="">All events</option>
                     {orgEvents.map((ev) => (
@@ -1837,7 +1846,7 @@ export function SettingsDrawer({
                 <div className="space-y-1.5">
                   <label
                     htmlFor="fj-pair-label"
-                    className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500"
+                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
                   >
                     Screen Name (Optional)
                   </label>
@@ -1848,12 +1857,12 @@ export function SettingsDrawer({
                     placeholder="e.g. Main Hall"
                     value={pairLabel}
                     onChange={(e) => setPairLabel(e.target.value)}
-                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
+                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
                 {pairError && (
-                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  <p className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400">
                     {pairError}
                   </p>
                 )}
@@ -1861,7 +1870,7 @@ export function SettingsDrawer({
                 <button
                   type="submit"
                   disabled={isPairingSubmitting || pairCode.length !== 6}
-                  className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                  className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
                 >
                   {isPairingSubmitting ? 'Pairing...' : 'Pair screen'}
                 </button>

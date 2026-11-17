@@ -416,7 +416,7 @@ export function RestoreSheet({
               <h3 id="restore-title" className="text-sm font-bold text-zinc-900 dark:text-white">
                 Restore Competition
               </h3>
-              <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+              <p className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400">
                 Checksum-verified restore with preview &amp; undo protection
               </p>
             </div>
@@ -453,10 +453,10 @@ export function RestoreSheet({
                   <Upload className="w-6 h-6" />
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 block">
+                  <span className="text-xs lg:text-sm font-bold text-zinc-800 dark:text-zinc-200 block">
                     Choose Backup File (.json)
                   </span>
-                  <span className="text-[11px] text-zinc-600 dark:text-zinc-400 block mt-0.5">
+                  <span className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 block mt-0.5">
                     Supports Backup v1.0 &amp; v2.0 files
                   </span>
                 </div>
@@ -465,7 +465,7 @@ export function RestoreSheet({
               {fileError && (
                 <div
                   role="alert"
-                  className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs text-red-700 dark:text-red-400 font-medium flex items-start gap-2"
+                  className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs lg:text-sm text-red-700 dark:text-red-400 font-medium flex items-start gap-2"
                 >
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{fileError}</span>
@@ -475,10 +475,10 @@ export function RestoreSheet({
               {canUndo && (
                 <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3">
                   <div className="space-y-0.5 min-w-0">
-                    <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 block">
+                    <span className="text-xs lg:text-sm font-semibold text-zinc-800 dark:text-zinc-200 block">
                       Encrypted Safety Snapshot Available
                     </span>
-                    <span className="text-[11px] text-zinc-600 dark:text-zinc-400 block truncate">
+                    <span className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 block truncate">
                       {snapshotTimestamp
                         ? `Saved ${new Date(snapshotTimestamp).toLocaleString()}`
                         : 'Revert last reset or restore'}
@@ -487,7 +487,7 @@ export function RestoreSheet({
                   <button
                     type="button"
                     onClick={() => setShowUndoPrompt(true)}
-                    className="min-h-[44px] px-3.5 py-2 rounded-xl border border-stone-200 dark:border-zinc-700 text-xs font-bold text-zinc-800 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0"
+                    className="min-h-[44px] px-3.5 py-2 rounded-xl border border-stone-200 dark:border-zinc-700 text-xs lg:text-sm font-bold text-zinc-800 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0"
                   >
                     <Undo2 className="w-3.5 h-3.5" />
                     <span>Undo Restore</span>
@@ -500,7 +500,7 @@ export function RestoreSheet({
           {/* Undo Master Password Prompt */}
           {showUndoPrompt && (
             <form onSubmit={handleExecuteUndo} className="space-y-4 animate-in fade-in duration-150">
-              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-900 dark:text-amber-200 flex items-start space-x-2.5">
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs lg:text-sm text-amber-900 dark:text-amber-200 flex items-start space-x-2.5">
                 <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
                 <span>
                   Enter your organiser master password to unlock the encrypted safety snapshot and revert to the previous competition state.
@@ -508,7 +508,7 @@ export function RestoreSheet({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
+                <label className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
                   Master Password
                 </label>
                 <input
@@ -520,10 +520,10 @@ export function RestoreSheet({
                     setUndoPassword(e.target.value);
                     setUndoError('');
                   }}
-                  className="w-full min-h-[44px] px-3.5 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
+                  className="w-full min-h-[44px] px-3.5 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
                 />
                 {undoError && (
-                  <p className="text-[11px] text-red-700 dark:text-red-400 font-medium">{undoError}</p>
+                  <p className="text-[11px] lg:text-sm text-red-700 dark:text-red-400 font-medium">{undoError}</p>
                 )}
               </div>
 
@@ -535,14 +535,14 @@ export function RestoreSheet({
                     setUndoPassword('');
                     setUndoError('');
                   }}
-                  className="min-h-[44px] px-4 py-2 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isUndoing}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs font-bold transition-colors shadow-sm cursor-pointer flex items-center space-x-1.5"
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs lg:text-sm font-bold transition-colors shadow-sm cursor-pointer flex items-center space-x-1.5"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isUndoing ? 'animate-spin' : ''}`} />
                   <span>{isUndoing ? 'Reverting...' : 'Confirm Revert'}</span>
@@ -554,7 +554,7 @@ export function RestoreSheet({
           {/* Step 2: PIN Entry for Encrypted Backup */}
           {step === 'pin' && (
             <form onSubmit={handleDecryptWithPin} className="space-y-4 animate-in fade-in duration-150">
-              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-900 dark:text-amber-200 flex items-start space-x-2.5">
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs lg:text-sm text-amber-900 dark:text-amber-200 flex items-start space-x-2.5">
                 <Lock className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
                 <span>
                   This backup is protected with AES-256 encryption. Enter the security PIN used when exporting it.
@@ -562,7 +562,7 @@ export function RestoreSheet({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
+                <label className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
                   Security PIN
                 </label>
                 <input
@@ -575,10 +575,10 @@ export function RestoreSheet({
                     setPin(e.target.value);
                     setPinError('');
                   }}
-                  className="w-full min-h-[44px] px-3.5 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
+                  className="w-full min-h-[44px] px-3.5 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
                 />
                 {pinError && (
-                  <p className="text-[11px] text-red-700 dark:text-red-400 font-medium">{pinError}</p>
+                  <p className="text-[11px] lg:text-sm text-red-700 dark:text-red-400 font-medium">{pinError}</p>
                 )}
               </div>
 
@@ -590,13 +590,13 @@ export function RestoreSheet({
                     setPinError('');
                     setStep('upload');
                   }}
-                  className="min-h-[44px] px-4 py-2 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
                 >
                   Back
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs lg:text-sm font-bold transition-colors shadow-sm cursor-pointer"
                 >
                   Unlock &amp; Verify
                 </button>
@@ -611,12 +611,12 @@ export function RestoreSheet({
               <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 flex items-center justify-between gap-3">
                 <div className="space-y-0.5 min-w-0">
                   <div className="flex items-center space-x-1.5">
-                    <span className="text-xs font-bold text-zinc-900 dark:text-white truncate">
+                    <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white truncate">
                       {parsedBackup.manifest.org_name} ({parsedBackup.manifest.org_id})
                     </span>
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   </div>
-                  <span className="text-[11px] text-zinc-600 dark:text-zinc-400 block">
+                  <span className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 block">
                     Exported {new Date(parsedBackup.manifest.exported_at).toLocaleDateString()} •{' '}
                     {parsedBackup.migratedFromSchema
                       ? `Migrated v${parsedBackup.migratedFromSchema} → v2`
@@ -624,10 +624,10 @@ export function RestoreSheet({
                   </span>
                 </div>
                 <div className="text-right shrink-0">
-                  <span className="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-400 block">
+                  <span className="text-xs lg:text-sm font-mono font-bold text-emerald-700 dark:text-emerald-400 block">
                     {parsedBackup.manifest.counts.events} Events
                   </span>
-                  <span className="text-[10px] text-zinc-600 dark:text-zinc-400 block">
+                  <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 block">
                     {parsedBackup.manifest.counts.scores} Scores
                   </span>
                 </div>
@@ -635,7 +635,7 @@ export function RestoreSheet({
 
               {/* Restore Mode Switcher */}
               <div className="space-y-2">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
+                <label className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
                   Restoration Strategy
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -648,8 +648,8 @@ export function RestoreSheet({
                         : 'border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900'
                     }`}
                   >
-                    <span className="text-xs font-bold block">Merge</span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 block mt-0.5">
+                    <span className="text-xs lg:text-sm font-bold block">Merge</span>
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 block mt-0.5">
                       Update, keep locked
                     </span>
                   </button>
@@ -663,8 +663,8 @@ export function RestoreSheet({
                         : 'border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900'
                     }`}
                   >
-                    <span className="text-xs font-bold block">Add Only</span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 block mt-0.5">
+                    <span className="text-xs lg:text-sm font-bold block">Add Only</span>
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 block mt-0.5">
                       Skip existing
                     </span>
                   </button>
@@ -678,8 +678,8 @@ export function RestoreSheet({
                         : 'border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900'
                     }`}
                   >
-                    <span className="text-xs font-bold block">Replace</span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 block mt-0.5">
+                    <span className="text-xs lg:text-sm font-bold block">Replace</span>
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 block mt-0.5">
                       Wipe all first
                     </span>
                   </button>
@@ -688,7 +688,7 @@ export function RestoreSheet({
 
               {/* Dry-Run Preview Counts */}
               <div className="p-4 rounded-2xl border border-stone-200 dark:border-zinc-800 space-y-3">
-                <span className="text-xs font-bold text-zinc-900 dark:text-white block">
+                <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block">
                   Dry-Run Impact Preview
                 </span>
 
@@ -697,7 +697,7 @@ export function RestoreSheet({
                     <span className="text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                       {localPreview.eventsCreated + localPreview.eventsUpdated}
                     </span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 uppercase block">
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 uppercase block">
                       Events
                     </span>
                   </div>
@@ -706,7 +706,7 @@ export function RestoreSheet({
                     <span className="text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                       {localPreview.judgesCreated + localPreview.judgesUpdated}
                     </span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 uppercase block">
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 uppercase block">
                       Judges
                     </span>
                   </div>
@@ -715,7 +715,7 @@ export function RestoreSheet({
                     <span className="text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                       {localPreview.participantsCreated + localPreview.participantsUpdated}
                     </span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 uppercase block">
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 uppercase block">
                       Roster
                     </span>
                   </div>
@@ -724,7 +724,7 @@ export function RestoreSheet({
                     <span className="text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                       {localPreview.scoresCreated + localPreview.scoresUpdated}
                     </span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 uppercase block">
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 uppercase block">
                       Scores
                     </span>
                   </div>
@@ -732,7 +732,7 @@ export function RestoreSheet({
 
                 {/* Locked-Event Behaviour */}
                 {mode === 'replace' ? (
-                  <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/25 text-[11px] text-red-800 dark:text-red-300 flex items-start space-x-2">
+                  <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/25 text-[11px] lg:text-sm text-red-800 dark:text-red-300 flex items-start space-x-2">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>
                       Replace mode wipes all current competition data
@@ -743,7 +743,7 @@ export function RestoreSheet({
                     </span>
                   </div>
                 ) : (
-                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-start space-x-2">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-[11px] lg:text-sm text-emerald-800 dark:text-emerald-300 flex items-start space-x-2">
                     <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>
                       {localPreview.eventsProtected > 0
@@ -754,7 +754,7 @@ export function RestoreSheet({
                 )}
 
                 {/* Settings Changes */}
-                <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 text-[11px] text-zinc-700 dark:text-zinc-300 flex items-start space-x-2">
+                <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 text-[11px] lg:text-sm text-zinc-700 dark:text-zinc-300 flex items-start space-x-2">
                   <Settings2 className="w-4 h-4 text-zinc-600 dark:text-zinc-400 shrink-0 mt-0.5" />
                   <div>
                     {!parsedBackup.settingsInBackup ? (
@@ -780,7 +780,7 @@ export function RestoreSheet({
 
                 {/* Ignored Unknown Fields */}
                 {parsedBackup.ignoredFields.length > 0 && (
-                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-900 dark:text-amber-200">
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] lg:text-sm text-amber-900 dark:text-amber-200">
                     <strong className="block mb-0.5">Ignored fields (not imported):</strong>
                     <span className="font-mono break-all">
                       {parsedBackup.ignoredFields.join(', ')}
@@ -798,18 +798,18 @@ export function RestoreSheet({
               onSubmit={handleExecuteRestore}
               className="space-y-4 animate-in fade-in duration-150"
             >
-              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 text-xs text-zinc-700 dark:text-zinc-300">
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm text-zinc-700 dark:text-zinc-300">
                 Ready to apply <strong className="capitalize text-zinc-900 dark:text-white">{mode}</strong> restore for{' '}
                 <strong className="text-zinc-900 dark:text-white">{organization.name}</strong>. An encrypted safety snapshot will be saved automatically before applying.
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 flex items-center space-x-1.5">
+                  <label className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 flex items-center space-x-1.5">
                     <KeyRound className="w-3.5 h-3.5 text-zinc-600 dark:text-zinc-400" />
                     <span>Organiser Master Password</span>
                   </label>
-                  <span className="text-[10px] text-zinc-600 dark:text-zinc-400">In memory only</span>
+                  <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400">In memory only</span>
                 </div>
 
                 <div className="relative">
@@ -822,21 +822,21 @@ export function RestoreSheet({
                       setMasterPassword(e.target.value);
                       setPasswordError('');
                     }}
-                    className="w-full min-h-[44px] pl-3.5 pr-11 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
+                    className="w-full min-h-[44px] pl-3.5 pr-11 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     tabIndex={-1}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 cursor-pointer"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 md:w-11 md:h-11 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
 
                 {passwordError && (
-                  <p className="text-[11px] text-red-700 dark:text-red-400 font-medium">
+                  <p className="text-[11px] lg:text-sm text-red-700 dark:text-red-400 font-medium">
                     {passwordError}
                   </p>
                 )}
@@ -853,7 +853,7 @@ export function RestoreSheet({
               <h4 className="text-base font-bold text-zinc-900 dark:text-white">
                 Restoration Complete
               </h4>
-              <p className="text-xs text-zinc-600 dark:text-zinc-300 max-w-xs mx-auto leading-relaxed">
+              <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-300 max-w-xs mx-auto leading-relaxed">
                 All competition records{summary?.settings_in_backup ? ' and organisation settings' : ''} are synced live across all tabs. An encrypted safety snapshot is saved on this device if you need to undo.
               </p>
             </div>
@@ -866,7 +866,7 @@ export function RestoreSheet({
             <button
               type="button"
               onClick={handleClose}
-              className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm cursor-pointer"
+              className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs lg:text-sm font-bold transition-colors shadow-sm cursor-pointer"
             >
               Done
             </button>
@@ -876,7 +876,7 @@ export function RestoreSheet({
                 type="button"
                 onClick={handleClose}
                 disabled={isApplying}
-                className="min-h-[44px] px-4 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+                className="min-h-[44px] px-4 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -886,14 +886,14 @@ export function RestoreSheet({
                   <button
                     type="button"
                     onClick={() => setStep('upload')}
-                    className="min-h-[44px] px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+                    className="min-h-[44px] px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
                   >
                     Other File
                   </button>
                   <button
                     type="button"
                     onClick={() => setStep('auth')}
-                    className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-sm cursor-pointer"
+                    className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs lg:text-sm font-bold transition-colors shadow-sm cursor-pointer"
                   >
                     Continue
                   </button>
@@ -909,7 +909,7 @@ export function RestoreSheet({
                       setStep('preview');
                     }}
                     disabled={isApplying}
-                    className="min-h-[44px] px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+                    className="min-h-[44px] px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
                   >
                     Back
                   </button>
@@ -917,7 +917,7 @@ export function RestoreSheet({
                     type="submit"
                     form="restore-auth-form"
                     disabled={isApplying || !masterPassword.trim()}
-                    className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition-colors shadow-sm flex items-center space-x-2 cursor-pointer active:scale-95 motion-reduce:transition-none"
+                    className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs lg:text-sm font-bold transition-colors shadow-sm flex items-center space-x-2 cursor-pointer active:scale-95 motion-reduce:transition-none"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isApplying ? 'animate-spin' : ''}`} />
                     <span>{isApplying ? 'Restoring...' : 'Apply Restoration'}</span>

@@ -1531,7 +1531,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 dark:hover:text-zinc-200 cursor-pointer md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center md:right-0.5"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1548,7 +1548,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   handleOpenAddJudge();
                 }
               }}
-              className={`hidden md:flex items-center gap-2 h-11 px-4 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`hidden md:flex items-center gap-2 h-11 px-4 text-white rounded-xl text-xs lg:text-sm font-bold uppercase tracking-wider shadow-md active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform cursor-pointer whitespace-nowrap shrink-0 ${
                 activeSubTab === 'participants'
                   ? 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20'
                   : 'bg-amber-600 hover:bg-amber-500 shadow-amber-900/20'
@@ -1567,7 +1567,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 setActiveSubTab('participants');
                 setSearchQuery('');
               }}
-              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform ${
+              className={`flex-1 min-h-[38px] md:min-h-[44px] px-3 rounded-lg text-xs lg:text-sm font-bold flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform ${
                 activeSubTab === 'participants'
                   ? 'bg-white dark:bg-zinc-950 text-stone-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
                   : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1583,7 +1583,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 setActiveSubTab('judges');
                 setSearchQuery('');
               }}
-              className={`flex-1 min-h-[38px] px-3 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform ${
+              className={`flex-1 min-h-[38px] md:min-h-[44px] px-3 rounded-lg text-xs lg:text-sm font-bold flex items-center justify-center space-x-1.5 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform ${
                 activeSubTab === 'judges'
                   ? 'bg-white dark:bg-zinc-950 text-stone-900 dark:text-white shadow-sm border border-stone-200/60 dark:border-zinc-800'
                   : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1612,7 +1612,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               <button
                 type="button"
                 onClick={handleDownloadTemplate}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-stone-600 dark:text-zinc-400 bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
+                className="inline-flex items-center gap-1.5 px-3 py-1 md:min-h-[44px] rounded-full text-xs lg:text-sm font-semibold text-stone-600 dark:text-zinc-400 bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform"
               >
                 <Download className="w-3.5 h-3.5 text-indigo-500" />
                 <span>Download Template</span>
@@ -1624,13 +1624,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               <button
                 type="button"
                 onClick={handleExportParticipantsExcel}
-                className="min-h-[42px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer"
+                className="min-h-[42px] md:min-h-[44px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Export Excel</span>
               </button>
 
-              <label className="min-h-[42px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer">
+              <label className="min-h-[42px] md:min-h-[44px] px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-1.5 cursor-pointer">
                 <Upload className="w-4 h-4 stroke-[2.2]" />
                 <span>Import Excel</span>
                 <input
@@ -1647,7 +1647,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <button
               type="button"
               onClick={handleTriggerPrint}
-              className="w-full min-h-[42px] px-4 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs rounded-xl shadow-sm shadow-orange-500/25 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full min-h-[42px] md:min-h-[44px] px-4 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-orange-500/25 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer"
             >
               <Printer className="w-4 h-4 stroke-[2.2]" />
               <span>Export Judge Badges (PDF)</span>
@@ -1662,10 +1662,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               <div className="flex items-center space-x-3">
                 <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                 <div>
-                  <h4 className="text-xs font-bold text-zinc-900 dark:text-white">
+                  <h4 className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white">
                     Setup Participant Categorization
                   </h4>
-                  <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                  <p className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400">
                     How are competitors grouped for your events?
                   </p>
                 </div>
@@ -1674,14 +1674,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 <button
                   type="button"
                   onClick={() => handleSelectCategoryPreference('Class/Grade')}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
+                  className="px-3 py-1.5 md:min-h-[44px] bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs lg:text-sm font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
                 >
                   By Class / Grade
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSelectCategoryPreference('Age Group')}
-                  className="px-3 py-1.5 bg-stone-200 dark:bg-zinc-800 hover:bg-stone-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
+                  className="px-3 py-1.5 md:min-h-[44px] bg-stone-200 dark:bg-zinc-800 hover:bg-stone-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs lg:text-sm font-bold active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer"
                 >
                   By Age Group
                 </button>
@@ -1692,7 +1692,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           {/* Upload notice message */}
           {uploadNotice && (
             <div
-              className={`p-3.5 rounded-2xl flex items-center space-x-2.5 text-xs font-semibold ${
+              className={`p-3.5 rounded-2xl flex items-center space-x-2.5 text-xs lg:text-sm font-semibold ${
                 uploadNotice.type === 'success'
                   ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
                   : 'bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/20'
@@ -1717,12 +1717,12 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 <button
                   type="button"
                   onClick={() => setShowColumnsConfig(!showColumnsConfig)}
-                  className="w-full min-h-[42px] px-3.5 py-2 flex items-center justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/50 transition-colors motion-reduce:transition-none cursor-pointer"
+                  className="w-full min-h-[42px] md:min-h-[44px] px-3.5 py-2 flex items-center justify-between text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/50 transition-colors motion-reduce:transition-none cursor-pointer"
                 >
                   <div className="flex items-center space-x-2">
                     <Sliders className="w-3.5 h-3.5 text-indigo-500" />
                     <span>Columns & Categorization</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 text-zinc-500 font-semibold">
+                    <span className="text-[10px] lg:text-xs font-mono px-1.5 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 text-zinc-500 font-semibold">
                       {3 + customFields.length} Active
                     </span>
                   </div>
@@ -1735,7 +1735,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
                 {showColumnsConfig && (
                   <div className="p-3.5 border-t border-stone-200 dark:border-zinc-800 bg-stone-50/50 dark:bg-zinc-900/30 space-y-3 animate-in fade-in">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2 text-xs lg:text-sm">
                       <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 font-semibold text-zinc-700 dark:text-zinc-300">
                         Full Name
                       </span>
@@ -1749,7 +1749,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         <button
                           type="button"
                           onClick={() => setIsEditingCategoryLabel(!isEditingCategoryLabel)}
-                          className="p-0.5 hover:text-emerald-900 dark:hover:text-white cursor-pointer"
+                          className="p-0.5 md:min-w-[44px] md:min-h-[44px] md:inline-flex md:items-center md:justify-center hover:text-emerald-900 dark:hover:text-white cursor-pointer"
                           title="Change category format"
                         >
                           <Settings className="w-3 h-3" />
@@ -1770,7 +1770,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                           <button
                             type="button"
                             onClick={() => handleDeleteCustomField(cf.id, cf.name)}
-                            className="p-0.5 hover:text-red-500 cursor-pointer"
+                            className="p-0.5 md:min-w-[44px] md:min-h-[44px] md:inline-flex md:items-center md:justify-center hover:text-red-500 cursor-pointer"
                             title="Delete custom header"
                           >
                             <X className="w-3 h-3" />
@@ -1782,14 +1782,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     {/* Categorization Format Switcher Popover */}
                     {isEditingCategoryLabel && (
                       <div className="p-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl space-y-2">
-                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 block">
+                        <span className="text-xs lg:text-sm font-bold text-zinc-700 dark:text-zinc-300 block">
                           Choose Categorization Format:
                         </span>
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
                             onClick={() => handleSelectCategoryPreference('Class/Grade')}
-                            className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors motion-reduce:transition-none ${
+                            className={`px-3 py-1 md:min-h-[44px] rounded-lg text-xs lg:text-sm font-bold cursor-pointer transition-colors motion-reduce:transition-none ${
                               categoryLabel === 'Class/Grade'
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-stone-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
@@ -1800,7 +1800,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                           <button
                             type="button"
                             onClick={() => handleSelectCategoryPreference('Age Group')}
-                            className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors motion-reduce:transition-none ${
+                            className={`px-3 py-1 md:min-h-[44px] rounded-lg text-xs lg:text-sm font-bold cursor-pointer transition-colors motion-reduce:transition-none ${
                               categoryLabel === 'Age Group'
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-stone-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
@@ -1814,7 +1814,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                               placeholder="Custom label..."
                               value={customCategoryInput}
                               onChange={(e) => setCustomCategoryInput(e.target.value)}
-                              className="px-2 py-1 text-xs rounded-lg bg-stone-50 dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 text-zinc-900 dark:text-white"
+                              className="px-2 py-1 md:min-h-[44px] text-xs lg:text-sm rounded-lg bg-stone-50 dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 text-zinc-900 dark:text-white"
                             />
                             {customCategoryInput && (
                               <button
@@ -1823,7 +1823,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                                   handleSelectCategoryPreference(customCategoryInput.trim());
                                   setCustomCategoryInput('');
                                 }}
-                                className="px-2 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer"
+                                className="px-2 py-1 md:min-h-[44px] md:min-w-[44px] bg-emerald-600 text-white rounded-lg text-xs lg:text-sm font-bold cursor-pointer"
                               >
                                 Apply
                               </button>
@@ -1838,13 +1838,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
               {/* Participants List */}
               {filteredParticipants.length === 0 ? (
-                <div className="p-8 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 text-zinc-500 text-xs">
+                <div className="p-8 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 text-zinc-500 text-xs lg:text-sm">
                   {searchQuery
                     ? 'No participants match your search.'
                     : 'No participants found. Add manually or import via Excel above.'}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {filteredParticipants.map((p) => (
                     <div
                       key={p.id}
@@ -1857,22 +1857,22 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                             <h4 className="text-sm font-bold text-zinc-900 dark:text-white truncate">
                               {p.name}
                             </h4>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] lg:text-xs font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
                               {p.identity_id || `P-${p.sl_no || '0000'}`}
                             </span>
                           </div>
-                          <div className="flex items-center space-x-1.5 text-xs text-zinc-500 truncate mt-0.5">
+                          <div className="flex items-center space-x-1.5 text-xs lg:text-sm text-zinc-500 truncate mt-0.5">
                             <Building className="w-3 h-3 text-zinc-400 shrink-0" />
                             <span className="truncate">{p.school}</span>
                           </div>
                           {p.class_or_age && (
-                            <div className="flex items-center space-x-1.5 text-[11px] text-zinc-400 truncate mt-0.5 font-mono">
+                            <div className="flex items-center space-x-1.5 text-[11px] lg:text-sm text-zinc-400 truncate mt-0.5 font-mono">
                               <GraduationCap className="w-3 h-3 text-zinc-400 shrink-0" />
                               <span>{categoryLabel}: {p.class_or_age}</span>
                             </div>
                           )}
                           {p.mobile_number && (
-                            <div className="flex items-center space-x-1.5 text-[11px] text-zinc-400 truncate mt-0.5 font-mono">
+                            <div className="flex items-center space-x-1.5 text-[11px] lg:text-sm text-zinc-400 truncate mt-0.5 font-mono">
                               <Phone className="w-3 h-3 text-zinc-400 shrink-0" />
                               <span>{p.mobile_number}</span>
                             </div>
@@ -1884,7 +1884,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         <button
                           type="button"
                           onClick={() => handleOpenEditParticipant(p)}
-                          className="p-2 rounded-xl text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
+                          className="p-2 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded-xl text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                           title="Edit"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1892,7 +1892,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         <button
                           type="button"
                           onClick={() => promptDeleteParticipant(p.id, p.name)}
-                          className="p-2 rounded-xl text-zinc-400 hover:text-red-600 hover:bg-red-500/10 cursor-pointer"
+                          className="p-2 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded-xl text-zinc-400 hover:text-red-600 hover:bg-red-500/10 cursor-pointer"
                           title="Delete"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1911,13 +1911,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           {activeSubTab === 'judges' && (
             <div className="space-y-4">
               {filteredJudges.length === 0 ? (
-                <div className="p-8 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 text-zinc-500 text-xs">
+                <div className="p-8 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 text-zinc-500 text-xs lg:text-sm">
                   {searchQuery
                     ? 'No judges match your search.'
                     : 'No judges found. Click "Add Judge" to create judge profiles.'}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {filteredJudges.map((j) => {
                     const qrPayload = getJudgeQrPayload(j);
                     return (
@@ -1932,10 +1932,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                               {j.name}
                             </h4>
                             <div className="flex items-center space-x-2 mt-1">
-                              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-bold">
+                              <span className="text-[11px] lg:text-xs font-mono px-2 py-0.5 rounded-md bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-bold">
                                 ID: {j.judge_id || j.id.slice(0, 6)}
                               </span>
-                              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
+                              <span className="text-[11px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
                                 PIN: {j.pin}
                               </span>
                             </div>
@@ -1971,7 +1971,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                                 showToast('Clipboard unavailable.', 'warning');
                               }
                             }}
-                            className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center space-x-1 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
+                            className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400 flex items-center space-x-1 md:min-h-[44px] cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
                           >
                             {copiedJudgePin === j.id ? (
                               <>
@@ -1994,7 +1994,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                                 setSelectedJudgeForDetails(j);
                                 setShowJudgeDetailsModal(true);
                               }}
-                              className="p-1.5 text-zinc-400 hover:text-amber-500 dark:hover:text-amber-400 cursor-pointer rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors"
+                              className="p-1.5 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center text-zinc-400 hover:text-amber-500 dark:hover:text-amber-400 cursor-pointer rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors"
                               title="View Judge Details"
                             >
                               <Eye className="w-4 h-4" />
@@ -2002,7 +2002,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                             <button
                               type="button"
                               onClick={() => handleOpenEditJudge(j)}
-                              className="p-1.5 text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors"
+                              className="p-1.5 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors"
                               title="Edit"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -2010,7 +2010,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                             <button
                               type="button"
                               onClick={() => promptDeleteJudge(j.id, j.name)}
-                              className="p-1.5 text-zinc-400 hover:text-red-600 cursor-pointer rounded-lg hover:bg-red-500/10 transition-colors"
+                              className="p-1.5 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center text-zinc-400 hover:text-red-600 cursor-pointer rounded-lg hover:bg-red-500/10 transition-colors"
                               title="Delete"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -2053,7 +2053,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* ======================================================== */}
       {showStagingModal && (
         <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-3 sm:p-4 pointer-events-auto animate-in fade-in motion-reduce:animate-none">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 motion-reduce:animate-none">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-2xl lg:max-w-4xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 motion-reduce:animate-none">
             {/* Sleek Sticky Rounded Header */}
             <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 p-4 sm:p-5 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
               <div>
@@ -2061,7 +2061,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
                   <span>Review Excel Import</span>
                 </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">
+                <p className="text-xs lg:text-sm text-zinc-500 mt-0.5">
                   {stagedRows.filter((r) => r.isValid && !r.isConflict).length} new ·{' '}
                   {stagedRows.filter((r) => r.isConflict).length} partial conflicts ·{' '}
                   {skippedExactMatches} exact duplicates merged
@@ -2074,7 +2074,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   setStagedRows([]);
                   setActiveConflictRow(null);
                 }}
-                className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+                className="p-2 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2082,17 +2082,17 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
             {/* Staging Body Table */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              <div className="text-xs text-zinc-500 mb-2 flex items-center justify-between">
+              <div className="text-xs lg:text-sm text-zinc-500 mb-2 flex items-center justify-between">
                 <span>Review imported participants before committing to the database.</span>
                 {skippedExactMatches > 0 && (
-                  <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                  <span className="text-[11px] lg:text-sm font-mono text-emerald-600 dark:text-emerald-400">
                     {skippedExactMatches} duplicates silently skipped
                   </span>
                 )}
               </div>
 
-              <div className="border border-stone-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
-                <table className="w-full text-left text-xs">
+              <div className="border border-stone-200 dark:border-zinc-800 rounded-2xl overflow-x-auto">
+                <table className="w-full text-left text-xs lg:text-sm">
                   <thead className="bg-stone-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-bold border-b border-stone-200 dark:border-zinc-800">
                     <tr>
                       <th className="p-3">Status</th>
@@ -2121,24 +2121,24 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                               <button
                                 type="button"
                                 onClick={() => setActiveConflictRow(row)}
-                                className="relative flex items-center justify-center cursor-pointer group"
+                                className="relative flex items-center justify-center cursor-pointer group md:min-w-[44px] md:min-h-[44px]"
                                 title="Partial conflict: Click to view comparison"
                               >
-                                <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] font-black text-black shadow-xs shadow-amber-500/50 animate-pulse motion-reduce:animate-none">
+                                <span className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-[10px] lg:text-xs font-black text-black shadow-xs shadow-amber-500/50 animate-pulse motion-reduce:animate-none">
                                   ?
                                 </span>
                               </button>
-                              <span className="text-[10px] font-bold text-amber-500">
+                              <span className="text-[10px] lg:text-xs font-bold text-amber-500">
                                 {row.conflictResolution === 'update_db' ? 'Update DB' : 'Keep DB'}
                               </span>
                             </div>
                           ) : row.isValid ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <span className="inline-flex items-center gap-1 text-[11px] lg:text-sm font-bold text-emerald-600 dark:text-emerald-400">
                               <Check className="w-3.5 h-3.5" />
                               <span>Valid</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 dark:text-red-400">
+                            <span className="inline-flex items-center gap-1 text-[11px] lg:text-sm font-bold text-red-600 dark:text-red-400">
                               <AlertCircle className="w-3.5 h-3.5" />
                               <span>{row.validationError}</span>
                             </span>
@@ -2161,7 +2161,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                           <button
                             type="button"
                             onClick={() => handleRemoveStagedRow(row.id)}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer transition-colors"
+                            className="p-1.5 md:min-w-[44px] md:min-h-[44px] md:inline-flex md:items-center md:justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer transition-colors"
                             title="Remove from batch"
                           >
                             <MinusCircle className="w-4 h-4" />
@@ -2183,7 +2183,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   setStagedRows([]);
                   setActiveConflictRow(null);
                 }}
-                className="min-h-[44px] px-5 rounded-2xl border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-transform motion-reduce:transition-none active:scale-[0.98] cursor-pointer"
+                className="min-h-[44px] px-5 rounded-2xl border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-bold text-zinc-600 dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-transform motion-reduce:transition-none active:scale-[0.98] cursor-pointer"
               >
                 Cancel
               </button>
@@ -2191,7 +2191,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 type="button"
                 disabled={isImporting || stagedRows.filter((r) => r.isValid).length === 0}
                 onClick={handleConfirmImport}
-                className="min-h-[44px] px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-wider shadow-md shadow-emerald-500/25 active:scale-[0.98] transition-transform motion-reduce:transition-none disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                className="min-h-[44px] px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs lg:text-sm uppercase tracking-wider shadow-md shadow-emerald-500/25 active:scale-[0.98] transition-transform motion-reduce:transition-none disabled:opacity-50 cursor-pointer flex items-center gap-2"
               >
                 {isImporting ? (
                   <span>Processing Batch...</span>
@@ -2222,7 +2222,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
                     Data Conflict Detected
                   </h4>
-                  <p className="text-[11px] text-zinc-500 font-mono">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 font-mono">
                     {activeConflictRow.name} • {activeConflictRow.school}
                   </p>
                 </div>
@@ -2230,24 +2230,24 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               <button
                 type="button"
                 onClick={() => setActiveConflictRow(null)}
-                className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl cursor-pointer"
+                className="p-1.5 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
               The 3 core fields (Name, Class/Age, Institution) match an existing record, but optional fields differ. Choose how to resolve:
             </p>
 
             <div className="rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden divide-y divide-stone-100 dark:divide-zinc-800/80">
-              <div className="grid grid-cols-3 p-2.5 bg-stone-100/60 dark:bg-zinc-900 font-bold text-[11px] text-zinc-500 uppercase tracking-wider">
+              <div className="grid grid-cols-3 p-2.5 bg-stone-100/60 dark:bg-zinc-900 font-bold text-[11px] lg:text-sm text-zinc-500 uppercase tracking-wider">
                 <div>Field</div>
                 <div className="text-emerald-600 dark:text-emerald-400">Excel Data</div>
                 <div className="text-zinc-500">DB Data</div>
               </div>
               {(activeConflictRow.differingFields || []).map((diff, idx) => (
-                <div key={idx} className="grid grid-cols-3 p-2.5 text-xs items-center">
+                <div key={idx} className="grid grid-cols-3 p-2.5 text-xs lg:text-sm items-center">
                   <span className="font-semibold text-zinc-700 dark:text-zinc-300">{diff.field}</span>
                   <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold break-words pr-1">{diff.excelVal}</span>
                   <span className="font-mono text-zinc-500 break-words line-through decoration-zinc-400">{diff.dbVal}</span>
@@ -2268,7 +2268,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   );
                   setActiveConflictRow(null);
                 }}
-                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold border transition-colors motion-reduce:transition-none cursor-pointer ${
+                className={`min-h-[42px] md:min-h-[44px] px-4 rounded-xl text-xs lg:text-sm font-bold border transition-colors motion-reduce:transition-none cursor-pointer ${
                   activeConflictRow.conflictResolution === 'keep_existing'
                     ? 'bg-zinc-800 text-white border-zinc-700'
                     : 'border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900'
@@ -2288,7 +2288,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   );
                   setActiveConflictRow(null);
                 }}
-                className={`min-h-[42px] px-4 rounded-xl text-xs font-bold transition-colors motion-reduce:transition-none cursor-pointer shadow-md ${
+                className={`min-h-[42px] md:min-h-[44px] px-4 rounded-xl text-xs lg:text-sm font-bold transition-colors motion-reduce:transition-none cursor-pointer shadow-md ${
                   activeConflictRow.conflictResolution === 'update_db'
                     ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/20'
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -2312,17 +2312,17 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <button
               type="button"
               onClick={() => setShowParticipantModal(false)}
-              className="text-xs font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+              className="text-xs lg:text-sm font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 md:min-h-[44px] rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
             >
               Cancel
             </button>
-            <span className="text-[11px] font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
+            <span className="text-[11px] lg:text-sm font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
               {editingParticipant ? 'EDIT COMPETITOR' : 'NEW COMPETITOR'}
             </span>
             <button
               type="button"
               onClick={handleSaveParticipant}
-              className="min-h-[36px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
+              className="min-h-[36px] md:min-h-[44px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold shadow-md shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Save</span>
@@ -2333,7 +2333,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6 md:min-h-0 md:overflow-y-auto">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 tracking-wider uppercase block">
+              <label className="text-[11px] lg:text-sm font-bold text-indigo-600 dark:text-indigo-400 tracking-wider uppercase block">
                 Full Name <span className="text-indigo-500">*</span>
               </label>
               <input
@@ -2350,7 +2350,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
               {/* Field: School / Institution (Mandatory) */}
               <div>
-                <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                   School / Institution <span className="text-indigo-500">*</span>
                 </label>
                 <input
@@ -2365,7 +2365,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               {/* Dynamic Categorization & Mobile */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     {categoryLabel}
                   </label>
                   <input
@@ -2378,7 +2378,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 </div>
 
                 <div>
-                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     Mobile Number (Optional)
                   </label>
                   <input
@@ -2394,7 +2394,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               {/* Dynamic custom fields configured in organization */}
               {customFields.map((cf) => (
                 <div key={cf.id}>
-                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     {cf.name} {cf.required && <span className="text-indigo-500">*</span>}
                   </label>
                   <input
@@ -2430,17 +2430,17 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <button
               type="button"
               onClick={() => setShowJudgeModal(false)}
-              className="text-xs font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+              className="text-xs lg:text-sm font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 md:min-h-[44px] rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
             >
               Cancel
             </button>
-            <span className="text-[11px] font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
+            <span className="text-[11px] lg:text-sm font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
               {editingJudge ? 'EDIT JUDGE PROFILE' : 'NEW JUDGE PROFILE'}
             </span>
             <button
               type="button"
               onClick={handleSaveJudge}
-              className="min-h-[36px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black shadow-md shadow-amber-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
+              className="min-h-[36px] md:min-h-[44px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-black shadow-md shadow-amber-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Save</span>
@@ -2451,7 +2451,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6 md:min-h-0 md:overflow-y-auto">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase block">
+              <label className="text-[11px] lg:text-sm font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase block">
                 Judge Full Name <span className="text-amber-500">*</span>
               </label>
               <input
@@ -2468,7 +2468,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
               {/* Field 1: Organisation ID (READ-ONLY) */}
               <div>
-                <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                   Organisation ID (Read-Only)
                 </label>
                 <input
@@ -2482,7 +2482,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               {/* Field 2 & 3: Auto-Generated Judge ID & 4-Digit PIN */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     Judge ID Code
                   </label>
                   <input
@@ -2493,7 +2493,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
+                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
                     4-Digit PIN
                   </label>
                   <input
@@ -2530,7 +2530,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   setShowQrModal(false);
                   setSelectedJudgeForQr(null);
                 }}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+                className="w-8 h-8 md:w-11 md:h-11 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2552,11 +2552,11 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 <div className="w-4 h-4 rounded bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
                   <Scale className="w-2.5 h-2.5" />
                 </div>
-                <span className="font-extrabold text-xs text-zinc-900 dark:text-white tracking-tight">
+                <span className="font-extrabold text-xs lg:text-sm text-zinc-900 dark:text-white tracking-tight">
                   Fair Judge
                 </span>
               </div>
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
+              <p className="text-[10px] lg:text-xs text-zinc-400 dark:text-zinc-500 font-mono">
                 Engineered with Intent <span className="text-emerald-500">&lt;/&gt;</span> <span className="bg-gradient-to-r from-zinc-500 via-zinc-200 to-zinc-500 dark:from-zinc-400 dark:via-white dark:to-zinc-400 bg-clip-text text-transparent animate-shimmer font-semibold">Sahil Kumar Rout</span>
               </p>
             </div>
@@ -2568,7 +2568,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 setShowQrModal(false);
                 setSelectedJudgeForQr(null);
               }}
-              className="w-full min-h-[40px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-bold transition-transform motion-reduce:transition-none active:scale-95 cursor-pointer shadow-sm"
+              className="w-full min-h-[40px] md:min-h-[44px] px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs lg:text-sm font-bold transition-transform motion-reduce:transition-none active:scale-95 cursor-pointer shadow-sm"
             >
               Done
             </button>
@@ -2592,7 +2592,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                     Judge Dossier
                   </h3>
-                  <p className="text-xs text-zinc-500 font-mono">
+                  <p className="text-xs lg:text-sm text-zinc-500 font-mono">
                     Evaluator Profile &amp; Access
                   </p>
                 </div>
@@ -2603,7 +2603,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   setShowJudgeDetailsModal(false);
                   setSelectedJudgeForDetails(null);
                 }}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+                className="w-8 h-8 md:w-11 md:h-11 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2613,7 +2613,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <div className="space-y-3">
               {/* Name */}
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                <span className="text-[10px] lg:text-sm font-bold uppercase tracking-wider text-zinc-400 block">
                   Judge Name
                 </span>
                 <p className="text-sm font-bold text-zinc-900 dark:text-white mt-0.5">
@@ -2622,15 +2622,15 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               </div>
 
               {/* Credentials Grid */}
-              <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-stone-100 dark:bg-zinc-900 p-3 rounded-2xl border border-stone-200 dark:border-zinc-800">
+              <div className="grid grid-cols-2 gap-2 text-xs lg:text-sm font-mono bg-stone-100 dark:bg-zinc-900 p-3 rounded-2xl border border-stone-200 dark:border-zinc-800">
                 <div>
-                  <span className="text-[10px] text-zinc-400 block uppercase font-bold">Judge ID</span>
+                  <span className="text-[10px] lg:text-sm text-zinc-400 block uppercase font-bold">Judge ID</span>
                   <span className="font-bold text-zinc-900 dark:text-white text-sm">
                     {selectedJudgeForDetails.judge_id || selectedJudgeForDetails.id.slice(0, 6)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-zinc-400 block uppercase font-bold">4-Digit PIN</span>
+                  <span className="text-[10px] lg:text-sm text-zinc-400 block uppercase font-bold">4-Digit PIN</span>
                   <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
                     {selectedJudgeForDetails.pin}
                   </span>
@@ -2639,17 +2639,17 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
               {/* Organization */}
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                <span className="text-[10px] lg:text-sm font-bold uppercase tracking-wider text-zinc-400 block">
                   Host Organization
                 </span>
-                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mt-0.5">
+                <p className="text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 mt-0.5">
                   {organization.name} <span className="font-mono text-zinc-400">({organization.org_id})</span>
                 </p>
               </div>
 
               {/* Assigned Events */}
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">
+                <span className="text-[10px] lg:text-sm font-bold uppercase tracking-wider text-zinc-400 block mb-1">
                   Assigned Stages &amp; Events
                 </span>
                 {(() => {
@@ -2659,7 +2659,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   );
                   if (judgeEvents.length === 0) {
                     return (
-                      <p className="text-xs text-zinc-400 italic">No specific events assigned yet.</p>
+                      <p className="text-xs lg:text-sm text-zinc-400 italic">No specific events assigned yet.</p>
                     );
                   }
                   return (
@@ -2667,12 +2667,12 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                       {judgeEvents.map((ev) => (
                         <div
                           key={ev.id}
-                          className="p-2 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 text-xs flex items-center justify-between"
+                          className="p-2 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800 text-xs lg:text-sm flex items-center justify-between"
                         >
                           <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate">
                             {ev.name}
                           </span>
-                          <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded font-bold bg-stone-200/60 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                          <span className="text-[10px] lg:text-xs uppercase font-mono px-1.5 py-0.5 rounded font-bold bg-stone-200/60 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
                             {ev.status || 'draft'}
                           </span>
                         </div>
@@ -2698,7 +2698,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     showToast('Clipboard unavailable.', 'warning');
                   }
                 }}
-                className="flex-1 min-h-[42px] px-3 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-stone-700 dark:text-zinc-200 text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors motion-reduce:transition-none cursor-pointer"
+                className="flex-1 min-h-[42px] md:min-h-[44px] px-3 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-stone-700 dark:text-zinc-200 text-xs lg:text-sm font-bold flex items-center justify-center space-x-1.5 transition-colors motion-reduce:transition-none cursor-pointer"
               >
                 {copiedJudgePin === selectedJudgeForDetails.id ? (
                   <>
@@ -2718,7 +2718,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   setShowJudgeDetailsModal(false);
                   setSelectedJudgeForDetails(null);
                 }}
-                className="min-h-[42px] px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-bold transition-colors motion-reduce:transition-none cursor-pointer shadow-sm"
+                className="min-h-[42px] md:min-h-[44px] px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs lg:text-sm font-bold transition-colors motion-reduce:transition-none cursor-pointer shadow-sm"
               >
                 Close
               </button>
@@ -2743,13 +2743,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       Active Roster Warning
                     </h3>
-                    <p className="text-xs text-amber-500 font-mono">
+                    <p className="text-xs lg:text-sm text-amber-500 font-mono">
                       Enrolled in Ongoing Events
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
                   This participant is currently enrolled in active events: <strong className="text-zinc-900 dark:text-white">{deleteModalState.eventNames?.join(', ')}</strong>. Deleting them will pull them from all active rosters. Proceed?
                 </p>
 
@@ -2757,14 +2757,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   <button
                     type="button"
                     onClick={() => setDeleteModalState(null)}
-                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer"
+                    className="min-h-[42px] md:min-h-[44px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmDelete}
-                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="min-h-[42px] md:min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs lg:text-sm font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Proceed &amp; Remove</span>
@@ -2785,13 +2785,13 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         ? 'Remove Participant?'
                         : 'Remove Judge?'}
                     </h3>
-                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                    <p className="text-xs lg:text-sm text-red-600 dark:text-red-400 font-mono">
                       Permanent removal
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
                   {deleteModalState.type === 'custom_field' ? (
                     <>
                       Remove custom field <strong className="text-zinc-900 dark:text-white">{deleteModalState.name}</strong> from participants?
@@ -2807,14 +2807,14 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                   <button
                     type="button"
                     onClick={() => setDeleteModalState(null)}
-                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer"
+                    className="min-h-[42px] md:min-h-[44px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmDelete}
-                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="min-h-[42px] md:min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs lg:text-sm font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>

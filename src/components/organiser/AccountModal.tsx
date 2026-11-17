@@ -661,7 +661,7 @@ export function AccountModal({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-zinc-600 dark:text-zinc-400 font-mono truncate">
+              <p className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 font-mono truncate">
                 {organization.name}
               </p>
             </div>
@@ -690,7 +690,7 @@ export function AccountModal({
                 triggerHaptic('tick');
                 setShowLogoutConfirm(true);
               }}
-              className="w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white shadow-sm group"
+              className="w-full min-h-[44px] px-4 rounded-xl text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white shadow-sm group"
             >
               <LogOut className="w-3.5 h-3.5 text-white transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
               <span>Sign out</span>
@@ -702,11 +702,11 @@ export function AccountModal({
           {/* ======================================================== */}
           <div>
             <div className="flex items-center justify-between px-4 mb-2 mt-6">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+              <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
                 Active sessions
               </h4>
               {!isLoadingSessions && !sessionsError && (
-                <span className="text-[11px] font-mono font-semibold text-zinc-600 dark:text-zinc-400 tabular-nums">
+                <span className="text-[11px] lg:text-sm font-mono font-semibold text-zinc-600 dark:text-zinc-400 tabular-nums">
                   {activeSessions.length} of 3
                 </span>
               )}
@@ -731,20 +731,20 @@ export function AccountModal({
                 </div>
               ) : sessionsError ? (
                 <div className="p-4 flex items-center justify-between gap-3">
-                  <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                  <p className="text-xs lg:text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
                     {sessionsError}
                   </p>
                   <button
                     type="button"
                     onClick={() => void loadActiveSessions()}
-                    className="min-h-[44px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-xs font-bold text-zinc-800 dark:text-zinc-200 transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
+                    className="min-h-[44px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-bold text-zinc-800 dark:text-zinc-200 transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>Retry</span>
                   </button>
                 </div>
               ) : activeSessions.length === 0 ? (
-                <div className="p-4 text-xs text-zinc-600 dark:text-zinc-400">
+                <div className="p-4 text-xs lg:text-sm text-zinc-600 dark:text-zinc-400">
                   No active sessions returned for this account.
                 </div>
               ) : (
@@ -766,12 +766,12 @@ export function AccountModal({
                                 {sess.device_label || 'Unknown device'}
                               </span>
                               {isCurrent && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-800 dark:text-emerald-300 whitespace-nowrap shrink-0">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] lg:text-xs font-bold text-emerald-800 dark:text-emerald-300 whitespace-nowrap shrink-0">
                                   This device
                                 </span>
                               )}
                             </div>
-                            <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 tabular-nums">
+                            <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 tabular-nums">
                               <span title={new Date(sess.created_at).toLocaleString()}>
                                 Signed in {formatSessionTimestamp(sess.created_at)}
                               </span>
@@ -790,7 +790,7 @@ export function AccountModal({
                               triggerHaptic('tick');
                               setConfirmTerminateTarget({ mode: 'one', session: sess });
                             }}
-                            className="min-h-[44px] px-3.5 rounded-xl bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+                            className="min-h-[44px] px-3.5 rounded-xl bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs lg:text-sm font-bold transition-colors cursor-pointer shrink-0 whitespace-nowrap"
                           >
                             Terminate
                           </button>
@@ -808,7 +808,7 @@ export function AccountModal({
                           const otherCount = activeSessions.filter((s) => !s.is_current).length;
                           setConfirmTerminateTarget({ mode: 'others', count: otherCount });
                         }}
-                        className="w-full min-h-[44px] px-4 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-rose-700 dark:text-rose-400 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-2"
+                        className="w-full min-h-[44px] px-4 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-rose-700 dark:text-rose-400 text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center gap-2"
                       >
                         <LogOut className="w-3.5 h-3.5" />
                         <span>Terminate all others</span>
@@ -824,7 +824,7 @@ export function AccountModal({
           {/* CARD 1C: ORGANIZATION IDENTITY                           */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
               Organization Identity
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
@@ -833,7 +833,7 @@ export function AccountModal({
             <div className="p-4 space-y-2">
               {!isEditingName ? (
                 <div className="space-y-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
+                  <span className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 block">
                     Organization Name
                   </span>
                   <div className="flex items-center justify-between gap-2.5">
@@ -857,7 +857,7 @@ export function AccountModal({
               ) : (
                 <form onSubmit={handleSaveName} className="space-y-3 pt-1 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                    <span className="text-[11px] lg:text-sm font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
                       Edit Organization Name
                     </span>
                   </div>
@@ -880,14 +880,14 @@ export function AccountModal({
                         setIsEditingName(false);
                       }}
                       disabled={isSavingName}
-                      className="min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                      className="min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-semibold rounded-xl transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={isSavingName || !editName.trim()}
-                      className="min-h-[44px] px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                      className="min-h-[44px] px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs lg:text-sm font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
                     >
                       {isSavingName ? <span>Saving...</span> : <span>Save Name</span>}
                     </button>
@@ -902,7 +902,7 @@ export function AccountModal({
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+                      <span className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
                         Email
                       </span>
                       {verificationStatus === 'verified' && (
@@ -947,7 +947,7 @@ export function AccountModal({
 
                   {/* Pending Verification Info Note */}
                   {verificationStatus === 'pending' && (
-                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed flex items-start space-x-2 mt-2">
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] lg:text-sm text-amber-700 dark:text-amber-300 leading-relaxed flex items-start space-x-2 mt-2">
                       <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                       <span>
                         Your organization and email are currently under manual review by the Security Team. Unverified or invalid accounts may be removed if rejected.
@@ -958,7 +958,7 @@ export function AccountModal({
                   {/* Rejected Verification Alert with Developer Contact & Telegram */}
                   {verificationStatus === 'rejected' && (
                     <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 space-y-2.5 mt-2">
-                      <div className="flex items-start space-x-2 text-xs text-red-600 dark:text-red-400 font-semibold leading-relaxed">
+                      <div className="flex items-start space-x-2 text-xs lg:text-sm text-red-600 dark:text-red-400 font-semibold leading-relaxed">
                         <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
                         <span>
                           {organization.rejection_reason
@@ -969,7 +969,7 @@ export function AccountModal({
                       <div className="flex flex-wrap items-center gap-2 pt-0.5">
                         <a
                           href="mailto:spesium.code@proton.me"
-                          className="inline-flex items-center space-x-1.5 min-h-[44px] px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-red-500/30 text-[11px] font-mono font-bold text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
+                          className="inline-flex items-center space-x-1.5 min-h-[44px] px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-red-500/30 text-[11px] lg:text-sm font-mono font-bold text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
                         >
                           <Mail className="w-3.5 h-3.5" />
                           <span>spesium.code@proton.me</span>
@@ -978,7 +978,7 @@ export function AccountModal({
                           href="https://t.me/+ljTOKLi5dQs1MTM9"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center space-x-1.5 min-h-[44px] px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-500/25 transition-colors"
+                          className="inline-flex items-center space-x-1.5 min-h-[44px] px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 text-[11px] lg:text-sm font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-500/25 transition-colors"
                         >
                           <Send className="w-3.5 h-3.5" />
                           <span>Join Telegram Support</span>
@@ -990,7 +990,7 @@ export function AccountModal({
               ) : (
                 <form onSubmit={handleSaveEmail} className="space-y-3 pt-1 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                    <span className="text-[11px] lg:text-sm font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
                       Update Email
                     </span>
                   </div>
@@ -1013,14 +1013,14 @@ export function AccountModal({
                         setIsEditingEmail(false);
                       }}
                       disabled={isSavingEmail}
-                      className="min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                      className="min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-semibold rounded-xl transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={isSavingEmail || !editEmail.trim()}
-                      className="min-h-[44px] px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
+                      className="min-h-[44px] px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs lg:text-sm font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer"
                     >
                       {isSavingEmail ? <span>Saving...</span> : <span>Save Email</span>}
                     </button>
@@ -1031,7 +1031,7 @@ export function AccountModal({
 
             {/* Row 3: Organization Code — one line, code on right, NO "Jury Login Key" (C5) */}
             <div className="p-4 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 shrink-0">
+              <span className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 shrink-0">
                 Organization Code
               </span>
 
@@ -1061,14 +1061,14 @@ export function AccountModal({
           {/* CARD 2: SECURITY — BLUE "Change password" BTN (C6)       */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
               Password
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm p-4">
               <button
                 type="button"
                 onClick={() => setIsUpdatingPassword(!isUpdatingPassword)}
-                className={`w-full min-h-[44px] px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
+                className={`w-full min-h-[44px] px-4 rounded-xl text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
                   isUpdatingPassword
                     ? 'bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-stone-200 dark:border-zinc-800'
                     : 'bg-blue-700 hover:bg-blue-800 dark:bg-blue-700/90 dark:hover:bg-blue-700 text-white shadow-sm'
@@ -1082,19 +1082,19 @@ export function AccountModal({
               {isUpdatingPassword && (
                 <form onSubmit={handleSavePassword} className="mt-3 pt-3 border-t border-stone-100 dark:border-zinc-800/60 space-y-2.5 animate-in fade-in duration-150">
                   {mustChangePassword && (
-                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] font-medium text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] lg:text-sm font-medium text-amber-700 dark:text-amber-300 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                       <span>Temporary password active — please set a new master password now.</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
+                    <span className="text-[11px] lg:text-sm font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
                       New Password
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="min-h-[44px] px-2 text-[11px] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 flex items-center space-x-1 cursor-pointer"
+                      className="min-h-[44px] px-2 text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 flex items-center space-x-1 cursor-pointer"
                     >
                       {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       <span>{showPassword ? 'Hide' : 'Show'}</span>
@@ -1107,7 +1107,7 @@ export function AccountModal({
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     required
-                    className="w-full min-h-[44px] px-3.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500"
+                    className="w-full min-h-[44px] px-3.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500"
                   />
 
                   <input
@@ -1116,7 +1116,7 @@ export function AccountModal({
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    className="w-full min-h-[44px] px-3.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500"
+                    className="w-full min-h-[44px] px-3.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500"
                   />
 
                   <input
@@ -1125,13 +1125,13 @@ export function AccountModal({
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    className="w-full min-h-[44px] px-3.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500"
+                    className="w-full min-h-[44px] px-3.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-amber-500"
                   />
 
                   <button
                     type="submit"
                     disabled={isSavingPassword || !currentPassword || !newPassword || newPassword !== confirmPassword}
-                    className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors active:scale-[0.98] motion-reduce:transition-none cursor-pointer shadow-sm flex items-center justify-center space-x-1.5"
+                    className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs lg:text-sm font-bold rounded-xl transition-colors active:scale-[0.98] motion-reduce:transition-none cursor-pointer shadow-sm flex items-center justify-center space-x-1.5"
                   >
                     <Lock className="w-3.5 h-3.5" />
                     <span>{isSavingPassword ? 'Saving Password...' : 'Save New Password'}</span>
@@ -1145,7 +1145,7 @@ export function AccountModal({
           {/* CARD 3: BACKUP & RESTORE — SIDE BY SIDE, NO HINTS (C7)   */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
               Backup &amp; Restore
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm p-3.5">
@@ -1153,7 +1153,7 @@ export function AccountModal({
                 <button
                   type="button"
                   onClick={() => setShowBackupSheet(true)}
-                  className="min-h-[44px] px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  className="min-h-[44px] px-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                 >
                   <Download className="w-4 h-4" />
                   <span>Backup</span>
@@ -1162,7 +1162,7 @@ export function AccountModal({
                 <button
                   type="button"
                   onClick={() => setShowRestoreSheet(true)}
-                  className="min-h-[44px] px-3.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  className="min-h-[44px] px-3.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                 >
                   <Upload className="w-4 h-4" />
                   <span>Restore</span>
@@ -1175,7 +1175,7 @@ export function AccountModal({
           {/* CARD 4: ABOUT & SUPPORT                                  */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 ml-4 mb-2 mt-6">
               About &amp; Support
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
@@ -1187,7 +1187,7 @@ export function AccountModal({
                     <span className="text-sm font-bold text-zinc-900 dark:text-white block font-sans">
                       Fair Judge
                     </span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400 uppercase tracking-widest font-mono">
+                    <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400 uppercase tracking-widest font-mono">
                       Audited Scoring Terminal
                     </span>
                   </div>
@@ -1206,10 +1206,10 @@ export function AccountModal({
                     <MessageCircle className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-zinc-900 dark:text-white block group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors">
+                    <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors">
                       Join our Telegram Community
                     </span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400">
+                    <span className="text-[10px] lg:text-sm text-zinc-600 dark:text-zinc-400">
                       Product updates, live support &amp; feedback
                     </span>
                   </div>
@@ -1229,10 +1229,10 @@ export function AccountModal({
                     <Coffee className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-zinc-900 dark:text-white block group-hover:text-amber-500 dark:group-hover:text-amber-400 transition-colors">
+                    <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block group-hover:text-amber-500 dark:group-hover:text-amber-400 transition-colors">
                       Support the Developer
                     </span>
-                    <span className="text-[10px] text-zinc-600 dark:text-zinc-400">
+                    <span className="text-[10px] lg:text-sm text-zinc-600 dark:text-zinc-400">
                       Fuel development via Ko-fi
                     </span>
                   </div>
@@ -1246,7 +1246,7 @@ export function AccountModal({
           {/* CARD 5: DANGER ZONE WITH TAP-TO-OPEN SHUTTER (C8)        */}
           {/* ======================================================== */}
           <div>
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-red-600/80 dark:text-red-400/80 ml-4 mb-2 mt-6">
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-red-600/80 dark:text-red-400/80 ml-4 mb-2 mt-6">
               Danger Zone
             </h4>
             <div className="relative bg-white dark:bg-zinc-950 rounded-2xl border border-red-200 dark:border-red-950 overflow-hidden shadow-sm">
@@ -1263,7 +1263,7 @@ export function AccountModal({
                 className="relative z-20 w-full min-h-[44px] px-4 flex flex-col items-center justify-center gap-1 bg-stone-50 dark:bg-zinc-900 border-b border-red-100 dark:border-red-950/60 hover:bg-stone-100 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
               >
                 <span className="w-9 h-1 rounded-full bg-red-400/70 dark:bg-red-500/60" />
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
+                <span className="inline-flex items-center gap-1 text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
                   <ShieldAlert className="w-3 h-3" />
                   <span>{isDangerShutterOpen ? 'Tap to lock Danger Zone' : 'Tap to unlock Danger Zone'}</span>
                   <ChevronDown
@@ -1287,7 +1287,7 @@ export function AccountModal({
                     disabled={!isDangerShutterOpen}
                     tabIndex={isDangerShutterOpen ? 0 : -1}
                     onClick={handleOpenMasterReset}
-                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:pointer-events-none text-white text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Reset Data</span>
@@ -1303,7 +1303,7 @@ export function AccountModal({
                         setUndoResetError('');
                         setShowUndoResetPrompt(true);
                       }}
-                      className="w-full min-h-[44px] px-4 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                      className="w-full min-h-[44px] px-4 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:pointer-events-none text-white text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                     >
                       <Undo2 className="w-3.5 h-3.5" />
                       <span>Undo Last Reset</span>
@@ -1315,7 +1315,7 @@ export function AccountModal({
                     disabled={!isDangerShutterOpen}
                     tabIndex={isDangerShutterOpen ? 0 : -1}
                     onClick={() => setShowDeleteConfirm(true)}
-                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:pointer-events-none text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                    className="w-full min-h-[44px] px-4 rounded-xl bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:pointer-events-none text-white text-xs lg:text-sm font-bold transition-colors cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete Organization</span>
@@ -1330,7 +1330,7 @@ export function AccountModal({
                     isDangerShutterOpen ? 'pointer-events-none' : 'pointer-events-auto'
                   }`}
                 >
-                  <div className="px-3 py-1.5 rounded-xl bg-white dark:bg-zinc-950 border border-red-200 dark:border-red-900/60 shadow-sm flex items-center gap-1.5 text-[11px] font-mono font-bold text-red-600 dark:text-red-400">
+                  <div className="px-3 py-1.5 rounded-xl bg-white dark:bg-zinc-950 border border-red-200 dark:border-red-900/60 shadow-sm flex items-center gap-1.5 text-[11px] lg:text-xs font-mono font-bold text-red-600 dark:text-red-400">
                     <Lock className="w-3.5 h-3.5" />
                     <span>Protected</span>
                   </div>
@@ -1340,7 +1340,7 @@ export function AccountModal({
           </div>
 
           {/* Static Developer Signature Footer (zero infinite animations) */}
-          <div className="text-[10px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 text-center pb-4 pt-6 select-none">
+          <div className="text-[10px] lg:text-xs uppercase tracking-widest text-zinc-600 dark:text-zinc-400 text-center pb-4 pt-6 select-none">
             Engineered with Intent{' '}
             <span className="text-emerald-600 dark:text-emerald-400 font-mono font-bold mx-1">
               &lt;/&gt;
@@ -1376,13 +1376,13 @@ export function AccountModal({
                 >
                   Sign out?
                 </h3>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 font-mono">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 font-mono">
                   {organization.name}
                 </p>
               </div>
             </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
               Sign out of this organisation account on this device? Any unsynced changes remain queued locally.
             </p>
 
@@ -1390,7 +1390,7 @@ export function AccountModal({
               <button
                 type="button"
                 onClick={() => setShowLogoutConfirm(false)}
-                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer"
+                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -1401,7 +1401,7 @@ export function AccountModal({
                   handleCloseModal();
                   onLogout();
                 }}
-                className="min-h-[44px] bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Sign out</span>
@@ -1439,7 +1439,7 @@ export function AccountModal({
                     ? 'Terminate session?'
                     : 'Terminate all other sessions?'}
                 </h3>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 truncate">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 truncate">
                   {confirmTerminateTarget.mode === 'one'
                     ? confirmTerminateTarget.session.device_label || 'Unknown device'
                     : `${confirmTerminateTarget.count} other device${confirmTerminateTarget.count === 1 ? '' : 's'} signed in`}
@@ -1447,7 +1447,7 @@ export function AccountModal({
               </div>
             </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
               {confirmTerminateTarget.mode === 'one'
                 ? 'That device will be signed out automatically within about 60 seconds. This device stays signed in.'
                 : 'Every other signed-in device will be signed out automatically within about 60 seconds. This device stays signed in.'}
@@ -1458,7 +1458,7 @@ export function AccountModal({
                 type="button"
                 disabled={isTerminatingSession}
                 onClick={() => setConfirmTerminateTarget(null)}
-                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
+                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1466,7 +1466,7 @@ export function AccountModal({
                 type="button"
                 disabled={isTerminatingSession}
                 onClick={() => void handleConfirmTerminateSession()}
-                className="min-h-[44px] bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-rose-700 hover:bg-rose-800 dark:bg-rose-700/90 dark:hover:bg-rose-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-1.5"
               >
                 <LogOut className="w-4 h-4" />
                 <span>
@@ -1504,13 +1504,13 @@ export function AccountModal({
                     >
                       Master Reset Complete
                     </h3>
-                    <p className="text-xs text-emerald-700 dark:text-emerald-400 font-mono">
+                    <p className="text-xs lg:text-sm text-emerald-700 dark:text-emerald-400 font-mono">
                       {organization.org_id}
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
                   All competition data{resetWipedSummary ? ` (${resetWipedSummary.events} events, ${resetWipedSummary.judges} judges, ${resetWipedSummary.participants} participants, ${resetWipedSummary.scores} scores)` : ''} has been wiped. Your organisation account and settings remain intact, and an encrypted safety snapshot was saved on this device.
                 </p>
 
@@ -1524,7 +1524,7 @@ export function AccountModal({
                         setUndoResetError('');
                         setShowUndoResetPrompt(true);
                       }}
-                      className="w-full min-h-[44px] bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                      className="w-full min-h-[44px] bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
                     >
                       <Undo2 className="w-4 h-4" />
                       <span>Undo Reset</span>
@@ -1540,7 +1540,7 @@ export function AccountModal({
                       setResetInput('');
                       setResetPassword('');
                     }}
-                    className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+                    className="w-full min-h-[44px] bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
                   >
                     Done
                   </button>
@@ -1559,14 +1559,14 @@ export function AccountModal({
                     >
                       Master Reset
                     </h3>
-                    <p className="text-xs text-red-700 dark:text-red-400 font-mono">
+                    <p className="text-xs lg:text-sm text-red-700 dark:text-red-400 font-mono">
                       Wipes all competition data
                     </p>
                   </div>
                 </div>
 
                 <div className="p-3 rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-2">
-                  <p className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-200 leading-relaxed">
+                  <p className="text-[11px] lg:text-sm font-semibold text-zinc-800 dark:text-zinc-200 leading-relaxed">
                     Deletes everything for <strong className="text-zinc-950 dark:text-white">{organization.name}</strong>, including{' '}
                     {resetCountsPreview.lockedEvents > 0
                       ? `${resetCountsPreview.lockedEvents} locked event(s)`
@@ -1575,28 +1575,28 @@ export function AccountModal({
                   </p>
                   <div className="grid grid-cols-4 gap-1.5 text-center pt-1">
                     <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
-                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                      <span className="text-xs lg:text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                         {resetCountsPreview.events}
                       </span>
-                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Events</span>
+                      <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400">Events</span>
                     </div>
                     <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
-                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                      <span className="text-xs lg:text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                         {resetCountsPreview.judges}
                       </span>
-                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Judges</span>
+                      <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400">Judges</span>
                     </div>
                     <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
-                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                      <span className="text-xs lg:text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                         {resetCountsPreview.participants}
                       </span>
-                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Roster</span>
+                      <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400">Roster</span>
                     </div>
                     <div className="p-1.5 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800">
-                      <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white block">
+                      <span className="text-xs lg:text-sm font-mono font-bold text-zinc-900 dark:text-white block">
                         {resetCountsPreview.scores}
                       </span>
-                      <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Scores</span>
+                      <span className="text-[10px] lg:text-xs text-zinc-600 dark:text-zinc-400">Scores</span>
                     </div>
                   </div>
                 </div>
@@ -1609,14 +1609,14 @@ export function AccountModal({
                     onChange={(e) => setDownloadBackupFirst(e.target.checked)}
                     className="mt-0.5 w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600 shrink-0"
                   />
-                  <span className="text-[11px] text-zinc-700 dark:text-zinc-300 leading-snug">
+                  <span className="text-[11px] lg:text-sm text-zinc-700 dark:text-zinc-300 leading-snug">
                     <strong className="text-zinc-900 dark:text-white block">Download backup file first</strong>
                     Saves a full v2.0 archive (.json) plus an encrypted Undo snapshot on this device.
                   </span>
                 </label>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
+                  <label className="text-[11px] lg:text-sm font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
                     Type <span className="font-mono font-black text-red-700 dark:text-red-400">RESET</span> to confirm
                   </label>
                   <input
@@ -1633,7 +1633,7 @@ export function AccountModal({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <label className="text-[11px] lg:text-sm font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                     <KeyRound className="w-3.5 h-3.5" />
                     <span>Master Password</span>
                   </label>
@@ -1646,14 +1646,14 @@ export function AccountModal({
                         setResetPassword(e.target.value);
                         setResetError('');
                       }}
-                      className="w-full min-h-[44px] pl-3.5 pr-10 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-red-500"
+                      className="w-full min-h-[44px] pl-3.5 pr-10 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-red-500"
                     />
                     <button
                       type="button"
                       tabIndex={-1}
                       onClick={() => setShowResetPassword((v) => !v)}
                       aria-label={showResetPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 cursor-pointer"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 md:w-11 md:h-11 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 cursor-pointer"
                     >
                       {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -1661,7 +1661,7 @@ export function AccountModal({
                 </div>
 
                 {resetError && (
-                  <p role="alert" className="text-[11px] text-red-700 dark:text-red-400 font-semibold">
+                  <p role="alert" className="text-[11px] lg:text-sm text-red-700 dark:text-red-400 font-semibold">
                     {resetError}
                   </p>
                 )}
@@ -1677,7 +1677,7 @@ export function AccountModal({
                       setResetError('');
                     }}
                     disabled={isProcessingDanger}
-                    className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                    className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -1689,7 +1689,7 @@ export function AccountModal({
                       !resetPassword.trim() ||
                       isProcessingDanger
                     }
-                    className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                    className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:opacity-40 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
                   >
                     {isProcessingDanger ? <span>Wiping...</span> : <span>Confirm Reset</span>}
                   </button>
@@ -1723,18 +1723,18 @@ export function AccountModal({
                 >
                   Undo Reset
                 </h3>
-                <p className="text-xs text-amber-700 dark:text-amber-400 font-mono">
+                <p className="text-xs lg:text-sm text-amber-700 dark:text-amber-400 font-mono">
                   Restore encrypted safety snapshot
                 </p>
               </div>
             </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+            <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
               Enter your master password to decrypt the local safety snapshot and restore all competition data and settings.
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
+              <label className="text-[11px] lg:text-sm font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
                 Master Password
               </label>
               <input
@@ -1746,10 +1746,10 @@ export function AccountModal({
                   setUndoResetPassword(e.target.value);
                   setUndoResetError('');
                 }}
-                className="w-full min-h-[44px] px-3.5 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-amber-600"
+                className="w-full min-h-[44px] px-3.5 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-amber-600"
               />
               {undoResetError && (
-                <p role="alert" className="text-[11px] text-red-700 dark:text-red-400 font-semibold">
+                <p role="alert" className="text-[11px] lg:text-sm text-red-700 dark:text-red-400 font-semibold">
                   {undoResetError}
                 </p>
               )}
@@ -1764,14 +1764,14 @@ export function AccountModal({
                   setUndoResetError('');
                 }}
                 disabled={isUndoingReset}
-                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isUndoingReset || !undoResetPassword.trim()}
-                className="min-h-[44px] bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 disabled:opacity-40 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isUndoingReset ? 'animate-spin' : ''}`} />
                 <span>{isUndoingReset ? 'Restoring...' : 'Restore Snapshot'}</span>
@@ -1801,19 +1801,19 @@ export function AccountModal({
                 >
                   Delete Organization
                 </h3>
-                <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                <p className="text-xs lg:text-sm text-red-600 dark:text-red-400 font-mono">
                   Irreversible deletion
                 </p>
               </div>
             </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+            <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
               Completely delete{' '}
               <strong className="text-zinc-900 dark:text-white">{organization.name}</strong> along with all events, rosters, and ballots. This cannot be undone.
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
+              <label className="text-[11px] lg:text-sm font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider block">
                 Type <span className="font-mono font-black text-red-600 dark:text-red-400">DELETE</span> to confirm:
               </label>
               <input
@@ -1833,7 +1833,7 @@ export function AccountModal({
                   setShowDeleteConfirm(false);
                   setDeleteInput('');
                 }}
-                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -1841,7 +1841,7 @@ export function AccountModal({
                 type="button"
                 onClick={handleExecuteDelete}
                 disabled={deleteInput.trim().toUpperCase() !== 'DELETE' || isProcessingDanger}
-                className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 disabled:opacity-40 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 {isProcessingDanger ? <span>Deleting...</span> : <span>Confirm Delete</span>}
               </button>

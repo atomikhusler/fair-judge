@@ -113,7 +113,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
               <h3 id="backup-title" className="text-sm font-bold text-zinc-900 dark:text-white">
                 Create Backup (v2.0)
               </h3>
-              <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+              <p className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400">
                 Export events, roster, judges, scores &amp; settings
               </p>
             </div>
@@ -130,7 +130,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-5 space-y-4">
-          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed space-y-1">
+          <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed space-y-1">
             <div className="flex items-center gap-1.5 font-semibold text-zinc-900 dark:text-white">
               <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Complete Archive with Integrity Checksum</span>
@@ -144,27 +144,32 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
           <div className="p-4 rounded-2xl border border-stone-200 dark:border-zinc-800 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="space-y-0.5">
-                <span className="text-xs font-bold text-zinc-900 dark:text-white block">
+                <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block">
                   PIN Encryption (Recommended)
                 </span>
-                <span className="text-[11px] text-zinc-600 dark:text-zinc-400 block">
+                <span className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 block">
                   Locks judge PINs &amp; phone numbers with AES-256 GCM
                 </span>
               </div>
-              <input
-                type="checkbox"
-                checked={isEncrypted}
-                onChange={(e) => setIsEncrypted(e.target.checked)}
-                className="w-5 h-5 rounded text-emerald-700 focus:ring-emerald-600 cursor-pointer shrink-0"
-                id="encrypt-toggle"
-              />
+              <label
+                htmlFor="encrypt-toggle"
+                className="md:inline-flex md:items-center md:justify-center md:min-h-[44px] md:min-w-[44px] md:cursor-pointer md:shrink-0"
+              >
+                <input
+                  type="checkbox"
+                  checked={isEncrypted}
+                  onChange={(e) => setIsEncrypted(e.target.checked)}
+                  className="w-5 h-5 rounded text-emerald-700 focus:ring-emerald-600 cursor-pointer shrink-0"
+                  id="encrypt-toggle"
+                />
+              </label>
             </div>
 
             {isEncrypted ? (
               <div className="pt-2 animate-in fade-in duration-150 space-y-2">
                 <label
                   htmlFor="backup-pin-input"
-                  className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 block"
+                  className="text-[11px] lg:text-sm font-semibold text-zinc-600 dark:text-zinc-400 block"
                 >
                   Set Security PIN (minimum 4 digits)
                 </label>
@@ -178,14 +183,14 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
                     placeholder="Enter 4 to 16 digits"
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
-                    className="w-full min-h-[44px] pl-9 pr-3.5 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
+                    className="w-full min-h-[44px] pl-9 pr-3.5 py-2.5 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-600"
                   />
                 </div>
               </div>
             ) : (
               <div
                 role="alert"
-                className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 text-[11px] text-amber-900 dark:text-amber-200 flex items-start space-x-2 leading-relaxed"
+                className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 text-[11px] lg:text-sm text-amber-900 dark:text-amber-200 flex items-start space-x-2 leading-relaxed"
               >
                 <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
                 <span>
@@ -210,7 +215,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
             type="button"
             onClick={onClose}
             disabled={isExporting}
-            className="min-h-[44px] px-4 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
+            className="min-h-[44px] px-4 py-2.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -219,7 +224,7 @@ export function BackupSheet({ isOpen, onClose, organization }: BackupSheetProps)
             type="button"
             onClick={handleDownload}
             disabled={isExporting || (isEncrypted && pin.trim().length < 4)}
-            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition-colors shadow-sm flex items-center space-x-2 cursor-pointer active:scale-95 motion-reduce:transition-none"
+            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-700/90 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs lg:text-sm font-bold transition-colors shadow-sm flex items-center space-x-2 cursor-pointer active:scale-95 motion-reduce:transition-none"
           >
             {downloadSuccess ? (
               <>

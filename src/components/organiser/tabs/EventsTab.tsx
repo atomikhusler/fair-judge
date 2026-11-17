@@ -1198,7 +1198,7 @@ export function EventsTab({
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-zinc-300 p-1 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-zinc-300 p-1 cursor-pointer md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center md:right-0.5"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1209,7 +1209,7 @@ export function EventsTab({
             <button
               type="button"
               onClick={handleOpenCreateWizard}
-              className="hidden md:flex items-center gap-2 h-11 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-md shadow-emerald-900/20 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer whitespace-nowrap shrink-0"
+              className="hidden md:flex items-center gap-2 h-11 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs lg:text-sm font-bold uppercase tracking-wider shadow-md shadow-emerald-900/20 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer whitespace-nowrap shrink-0"
               title="Create Event"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -1235,7 +1235,7 @@ export function EventsTab({
                   key={tab.id}
                   type="button"
                   onClick={() => setFilterStatus(tab.id)}
-                  className={`text-xs sm:text-sm font-medium px-3 py-1.5 rounded-lg transition-[transform,colors] duration-100 motion-reduce:transition-none flex items-center gap-1.5 whitespace-nowrap active:scale-[0.98] cursor-pointer ${
+                  className={`text-xs sm:text-sm font-medium px-3 py-1.5 md:min-h-[44px] rounded-lg transition-[transform,colors] duration-100 motion-reduce:transition-none flex items-center gap-1.5 whitespace-nowrap active:scale-[0.98] cursor-pointer ${
                     isSelected
                       ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm font-semibold'
                       : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
@@ -1243,7 +1243,7 @@ export function EventsTab({
                 >
                   <span>{tab.label}</span>
                   <span
-                    className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold ${
+                    className={`text-[11px] lg:text-xs px-1.5 py-0.2 rounded-full font-bold ${
                       isSelected
                         ? 'bg-stone-100 dark:bg-zinc-700 text-zinc-900 dark:text-white'
                         : 'bg-stone-200/60 dark:bg-zinc-800 text-zinc-500'
@@ -1345,21 +1345,21 @@ export function EventsTab({
                     {/* ROW 1: [CATEGORY] pill & Status + Cyan Archived Badge (Left). On Right: [Eye] [Cyan Archive] [Edit] [Delete] */}
                     <div className="flex items-center justify-between gap-2 mb-2.5">
                       <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-800/50 truncate max-w-[130px]">
+                        <span className="text-xs lg:text-sm font-semibold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-300 border border-stone-200/50 dark:border-zinc-800/50 truncate max-w-[130px]">
                           {evt.category || 'General'}
                         </span>
-                        <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 ${badgeClasses}`}>
+                        <span className={`text-[10px] lg:text-xs font-black px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 ${badgeClasses}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${badgeDotClasses}`} />
                           {badgeText}
                         </span>
                         {evt.is_locked && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] lg:text-xs font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
                             <Lock className="w-2.5 h-2.5" />
                             Locked
                           </span>
                         )}
                         {evt.is_archived && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] lg:text-xs font-black uppercase tracking-wider bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/25">
                             <Archive className="w-2.5 h-2.5" />
                             Archived
                           </span>
@@ -1371,7 +1371,7 @@ export function EventsTab({
                         <button
                           type="button"
                           onClick={() => setDossierEventId(evt.id)}
-                          className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-800 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                          className="w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-800 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                           title="View all event details & roster"
                         >
                           <Eye className="w-4 h-4" />
@@ -1382,7 +1382,7 @@ export function EventsTab({
                           type="button"
                           onClick={(e) => handleToggleArchive(e, evt)}
                           title={evt.is_archived ? 'Restore from Archive' : 'Archive Event (Inbox Zero)'}
-                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-[transform,colors] duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer ${
+                          className={`w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg transition-[transform,colors] duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer ${
                             evt.is_archived
                               ? 'text-cyan-400 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30'
                               : 'text-stone-400 hover:text-cyan-400 hover:bg-cyan-500/10'
@@ -1406,7 +1406,7 @@ export function EventsTab({
                               ? 'Prohibited: Event has ended'
                               : 'Edit Event'
                           }
-                          className={`w-8 h-8 flex items-center justify-center rounded-lg active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer ${
+                          className={`w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer ${
                             status === 'active' || status === 'ended' || status === 'archived'
                               ? 'text-zinc-300 dark:text-zinc-700 cursor-not-allowed'
                               : 'text-stone-600 hover:text-stone-900 dark:text-zinc-300 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-zinc-800'
@@ -1426,7 +1426,7 @@ export function EventsTab({
                               ? 'Delete Ended Event (Master Password Required)'
                               : 'Delete Event'
                           }
-                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-[transform,colors] duration-100 motion-reduce:transition-none ${
+                          className={`w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg transition-[transform,colors] duration-100 motion-reduce:transition-none ${
                             status === 'active'
                               ? 'opacity-50 cursor-not-allowed text-stone-400 dark:text-zinc-400 hover:bg-transparent'
                               : 'text-stone-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 cursor-pointer'
@@ -1454,7 +1454,7 @@ export function EventsTab({
                           setParticipantSearch('');
                           setIsEnrollDrawerOpen(true);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold border border-indigo-600 flex items-center gap-1.5 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold border border-indigo-600 flex items-center gap-1.5 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
                         <span>Add Participants</span>
@@ -1467,7 +1467,7 @@ export function EventsTab({
                           setParticipantSearch('');
                           setIsEnrollDrawerOpen(false);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs lg:text-sm font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Users className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                         <span>Participants {String(participantCount).padStart(2, '0')}</span>
@@ -1483,7 +1483,7 @@ export function EventsTab({
                           setJudgeSearch('');
                           setIsAssignJudgeDrawerOpen(true);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold border border-amber-500 flex items-center gap-1.5 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold border border-amber-500 flex items-center gap-1.5 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Add Judges</span>
@@ -1496,7 +1496,7 @@ export function EventsTab({
                           setJudgeSearch('');
                           setIsAssignJudgeDrawerOpen(false);
                         }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
+                        className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs lg:text-sm font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Gavel className="w-3.5 h-3.5 text-amber-500" />
                         <span>Judges {String(judgeCount).padStart(2, '0')}</span>
@@ -1522,12 +1522,12 @@ export function EventsTab({
             <button
               type="button"
               onClick={handleCloseWizard}
-              className="min-h-[38px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-xs sm:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+              className="min-h-[38px] md:min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-xs sm:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
             >
               Cancel
             </button>
 
-            <span className="text-[11px] font-mono uppercase tracking-wider font-bold text-zinc-400">
+            <span className="text-[11px] lg:text-sm font-mono uppercase tracking-wider font-bold text-zinc-400">
               {editingEventId ? 'Edit Event' : 'New Event'}
             </span>
 
@@ -1536,7 +1536,7 @@ export function EventsTab({
               type="button"
               disabled={!isFormValid || isSubmitting}
               onClick={handleSaveEvent}
-              className="min-h-[38px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none disabled:opacity-40 shadow-xs cursor-pointer"
+              className="min-h-[38px] md:min-h-[44px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none disabled:opacity-40 shadow-xs cursor-pointer"
             >
               {isSubmitting ? 'Saving...' : 'Save'}
             </button>
@@ -1557,14 +1557,14 @@ export function EventsTab({
                   <button
                     type="button"
                     onClick={handleResumeDraft}
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+                    className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs lg:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
                   >
                     Resume Draft
                   </button>
                   <button
                     type="button"
                     onClick={handleDiscardDraft}
-                    className="px-2.5 py-1 bg-stone-200/80 dark:bg-zinc-800 hover:bg-stone-300 text-stone-700 dark:text-zinc-300 rounded-lg text-xs font-semibold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+                    className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-stone-200/80 dark:bg-zinc-800 hover:bg-stone-300 text-stone-700 dark:text-zinc-300 rounded-lg text-xs lg:text-sm font-semibold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
                   >
                     Start Fresh
                   </button>
@@ -1589,7 +1589,7 @@ export function EventsTab({
 
               {/* Category: A simple text input below the title */}
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
+                <label className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
                   Category
                 </label>
                 <input
@@ -1608,10 +1608,10 @@ export function EventsTab({
             {/* PART 2: THE REIMAGINED RUBRIC ENGINE */}
             <div className="space-y-4 pt-4 border-t border-stone-200/80 dark:border-zinc-800/80">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                <h3 className="text-xs lg:text-sm font-bold uppercase tracking-wider text-zinc-400">
                   Rubric Criteria
                 </h3>
-                <span className="text-[11px] font-mono text-zinc-400">
+                <span className="text-[11px] lg:text-sm font-mono text-zinc-400">
                   {rubricCriteria.length} {rubricCriteria.length === 1 ? 'criterion' : 'criteria'}
                 </span>
               </div>
@@ -1642,7 +1642,7 @@ export function EventsTab({
                         <button
                           type="button"
                           onClick={() => handleRemoveCriterion(item.id)}
-                          className="w-7 h-7 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 flex items-center justify-center font-bold text-base active:scale-90 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
+                          className="w-7 h-7 md:w-11 md:h-11 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 flex items-center justify-center font-bold text-base active:scale-90 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
                           title="Delete criterion"
                           aria-label={`Delete criterion ${index + 1}`}
                         >
@@ -1653,7 +1653,7 @@ export function EventsTab({
 
                     {/* Bottom Line: Left-aligned under the name: Max Marks input */}
                     <div className="pl-7 flex items-center gap-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                      <span className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-400">
                         Max Marks:
                       </span>
                       <div className="flex items-center gap-1.5">
@@ -1666,9 +1666,9 @@ export function EventsTab({
                           onChange={(e) =>
                             handleUpdateCriterion(item.id, 'maxMarks', parseInt(e.target.value, 10) || 1)
                           }
-                          className="w-16 min-h-[34px] text-center font-mono font-bold bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg text-xs sm:text-sm text-stone-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
+                          className="w-16 min-h-[34px] md:min-h-[44px] text-center font-mono font-bold bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg text-xs sm:text-sm text-stone-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
                         />
-                        <span className="text-xs font-semibold text-zinc-400 font-mono">pts</span>
+                        <span className="text-xs lg:text-sm font-semibold text-zinc-400 font-mono">pts</span>
                       </div>
                     </div>
                   </div>
@@ -1711,14 +1711,14 @@ export function EventsTab({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
+                <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
               </div>
             </div>
             <div className="space-y-2 pt-1">
               <button
                 type="button"
                 onClick={handleForceDiscardAndExit}
-                className="w-full min-h-[42px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
+                className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Discard &amp; Exit</span>
@@ -1726,7 +1726,7 @@ export function EventsTab({
               <button
                 type="button"
                 onClick={() => setIsUnsavedExitModalOpen(false)}
-                className="w-full min-h-[38px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs font-semibold cursor-pointer"
+                className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
               >
                 Keep Editing
               </button>
@@ -1747,7 +1747,7 @@ export function EventsTab({
               <button
                 type="button"
                 onClick={handleCloseParticipantsModal}
-                className="w-9 h-9 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
+                className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
@@ -1756,11 +1756,11 @@ export function EventsTab({
                   <h2 className="text-base font-bold text-zinc-900 dark:text-white leading-tight truncate">
                     {activeParticipantsModalEvent.name}
                   </h2>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                  <span className="text-[10px] lg:text-xs font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
                     {(activeParticipantsModalEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).length} Enrolled
                   </span>
                 </div>
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <p className="text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400">
                   Participant roster &amp; appearance sequence
                 </p>
               </div>
@@ -1773,7 +1773,7 @@ export function EventsTab({
                 <button
                   type="button"
                   onClick={() => setIsEnrollDrawerOpen(!isEnrollDrawerOpen)}
-                  className="min-h-[38px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors motion-reduce:transition-none shadow-xs cursor-pointer shrink-0"
+                  className="min-h-[38px] md:min-h-[44px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold flex items-center gap-1.5 transition-colors motion-reduce:transition-none shadow-xs cursor-pointer shrink-0"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>Enroll</span>
@@ -1785,21 +1785,21 @@ export function EventsTab({
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4 md:min-h-0 md:overflow-y-auto md:pb-6">
             {/* Event Locked / Live / Sealed Banner */}
             {activeParticipantsModalEvent.is_locked ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
                 <Lock className="w-4 h-4 text-amber-500 shrink-0" />
                 <span>
                   Roster Locked: This event&apos;s roster is frozen. Participants and performance order cannot be changed.
                 </span>
               </div>
             ) : activeParticipantsModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs font-medium flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs lg:text-sm font-medium flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
                 <span>
                   Event is Live: You can add new participants while the competition continues. Participant removals are locked.
                 </span>
               </div>
             ) : activeParticipantsModalEvent.status === 'ended' || activeParticipantsModalEvent.status === 'archived' ? (
-              <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-medium flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs lg:text-sm font-medium flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-zinc-500 shrink-0" />
                 <span>
                   Event is Ended: Roster is permanently sealed. No participants can be added or removed.
@@ -1815,7 +1815,7 @@ export function EventsTab({
                 placeholder="Filter enrolled participants by name or school..."
                 value={participantSearch}
                 onChange={(e) => setParticipantSearch(e.target.value)}
-                className="w-full min-h-[42px] pl-9 pr-3 text-xs bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="w-full min-h-[42px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
             </div>
 
@@ -1823,13 +1823,13 @@ export function EventsTab({
             {isEnrollDrawerOpen && (
               <div className="p-4 rounded-2xl bg-white dark:bg-zinc-950 border border-emerald-500/40 shadow-md space-y-3 animate-in fade-in">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                  <span className="text-xs lg:text-sm font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                     Enroll from Organization Roster
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsEnrollDrawerOpen(false)}
-                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 cursor-pointer"
+                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -1838,7 +1838,7 @@ export function EventsTab({
                 {participants.filter(
                   (p) => p.is_active !== false && !(activeParticipantsModalEvent.assigned_participants || []).includes(p.id)
                 ).length === 0 ? (
-                  <p className="text-xs text-zinc-500 text-center py-2">
+                  <p className="text-xs lg:text-sm text-zinc-500 text-center py-2">
                     All registered participants in your organization are already enrolled.
                   </p>
                 ) : (
@@ -1853,10 +1853,10 @@ export function EventsTab({
                           className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800"
                         >
                           <div className="min-w-0 pr-2">
-                            <span className="text-xs font-bold text-zinc-900 dark:text-white block truncate">
+                            <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block truncate">
                               {p.name}
                             </span>
-                            <span className="text-[10px] text-zinc-500 truncate block">
+                            <span className="text-[10px] lg:text-sm text-zinc-500 truncate block">
                               {p.school || 'General Institution'} {p.class_or_age ? `• ${p.class_or_age}` : ''}
                             </span>
                           </div>
@@ -1864,7 +1864,7 @@ export function EventsTab({
                           <button
                             type="button"
                             onClick={() => handleEnrollParticipantToEvent(p.id)}
-                            className="min-h-[30px] px-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold rounded-lg transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shrink-0"
+                            className="min-h-[30px] md:min-h-[44px] md:min-w-[44px] px-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] lg:text-sm font-bold rounded-lg transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shrink-0"
                           >
                             + Add
                           </button>
@@ -1907,7 +1907,7 @@ export function EventsTab({
                     <div className="p-8 text-center bg-white dark:bg-zinc-900 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl shadow-sm">
                       <Users className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700 mb-2" />
                       <h4 className="text-sm font-bold text-zinc-800 dark:text-white">No Participants Enrolled</h4>
-                      <p className="text-xs text-zinc-500 mt-1">
+                      <p className="text-xs lg:text-sm text-zinc-500 mt-1">
                         Click &quot;Enroll&quot; above to add competitors to this event.
                       </p>
                     </div>
@@ -1916,7 +1916,7 @@ export function EventsTab({
 
                 if (filtered.length === 0) {
                   return (
-                    <div className="p-6 text-center text-xs text-zinc-500">
+                    <div className="p-6 text-center text-xs lg:text-sm text-zinc-500">
                       No enrolled participants match your search.
                     </div>
                   );
@@ -1926,12 +1926,12 @@ export function EventsTab({
                   <>
                     {/* Active Lockout Notice */}
                     {isLiveLocked ? (
-                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs lg:text-sm font-semibold">
                         <Lock className="w-4 h-4 shrink-0" />
                         <span>Performance Lineup Locked — Order cannot be changed while event is live.</span>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between px-1 text-[11px] font-medium text-zinc-400 dark:text-zinc-500">
+                      <div className="flex items-center justify-between px-1 text-[11px] lg:text-sm font-medium text-zinc-400 dark:text-zinc-500">
                         <span>Drag grab handle <span className="font-mono">⋮⋮</span> to reorder performance sequence</span>
                         <span>{enrolledList.length} Competitors</span>
                       </div>
@@ -2004,7 +2004,7 @@ export function EventsTab({
                             )}
 
                             {/* Performance Order Serial Circle */}
-                            <div className="w-9 h-9 rounded-xl bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700/80 flex items-center justify-center font-mono font-bold text-xs text-zinc-800 dark:text-zinc-200 shrink-0">
+                            <div className="w-9 h-9 rounded-xl bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700/80 flex items-center justify-center font-mono font-bold text-xs lg:text-sm text-zinc-800 dark:text-zinc-200 shrink-0">
                               #{orderSerial}
                             </div>
 
@@ -2014,11 +2014,11 @@ export function EventsTab({
                                   {p.name}
                                 </span>
                                 {/* Global Identity ID badge */}
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] lg:text-xs font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
                                   {p.identity_id || `P-${p.sl_no || '0000'}`}
                                 </span>
                               </div>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
                                 <span>{p.school || 'General Institution'}</span>
                                 {p.class_or_age && <span>• Class/Age: {p.class_or_age}</span>}
                               </div>
@@ -2034,7 +2034,7 @@ export function EventsTab({
                                   disabled={originalIdx === 0}
                                   onClick={() => handleReorderParticipant(originalIdx, originalIdx - 1)}
                                   title="Move earlier in lineup"
-                                  className="p-1 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                  className="p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
                                 >
                                   <ChevronUp className="w-3.5 h-3.5" />
                                 </button>
@@ -2043,7 +2043,7 @@ export function EventsTab({
                                   disabled={originalIdx === enrolledList.length - 1}
                                   onClick={() => handleReorderParticipant(originalIdx, originalIdx + 1)}
                                   title="Move later in lineup"
-                                  className="p-1 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                                  className="p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
                                 >
                                   <ChevronDown className="w-3.5 h-3.5" />
                                 </button>
@@ -2056,7 +2056,7 @@ export function EventsTab({
                                 type="button"
                                 onClick={() => handleRemoveParticipantFromEvent(p.id)}
                                 title="Remove from this event"
-                                className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
+                                className="w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -2086,7 +2086,7 @@ export function EventsTab({
               <button
                 type="button"
                 onClick={handleCloseJudgesModal}
-                className="w-9 h-9 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
+                className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
@@ -2095,11 +2095,11 @@ export function EventsTab({
                   <h2 className="text-base font-bold text-zinc-900 dark:text-white leading-tight truncate">
                     {activeJudgesModalEvent.name}
                   </h2>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                  <span className="text-[10px] lg:text-xs font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
                     {(activeJudgesModalEvent.assigned_judges || []).filter((id) => activeJudgeIdSet.has(id)).length} Judges
                   </span>
                 </div>
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <p className="text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400">
                   Jury credentials &amp; scoring authorization
                 </p>
               </div>
@@ -2113,7 +2113,7 @@ export function EventsTab({
                 <button
                   type="button"
                   onClick={() => setIsAssignJudgeDrawerOpen(!isAssignJudgeDrawerOpen)}
-                  className="min-h-[38px] px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold border border-amber-500 flex items-center gap-1.5 transition-colors motion-reduce:transition-none shadow-xs cursor-pointer shrink-0"
+                  className="min-h-[38px] md:min-h-[44px] px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold border border-amber-500 flex items-center gap-1.5 transition-colors motion-reduce:transition-none shadow-xs cursor-pointer shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Assign</span>
@@ -2125,21 +2125,21 @@ export function EventsTab({
           <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4 md:min-h-0 md:overflow-y-auto md:pb-6">
             {/* Event Locked / Live / Sealed Warning */}
             {activeJudgesModalEvent.is_locked ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
                 <Lock className="w-4 h-4 text-amber-500 shrink-0" />
                 <span>
                   Roster Locked: Jury assignments are frozen in read-only mode. Judges cannot be assigned or unassigned.
                 </span>
               </div>
             ) : activeJudgesModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
                 <span>
                   Event is Live: Jury assignments are locked to ensure score ballot integrity.
                 </span>
               </div>
             ) : activeJudgesModalEvent.status === 'ended' || activeJudgesModalEvent.status === 'archived' ? (
-              <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-medium flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs lg:text-sm font-medium flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-zinc-500 shrink-0" />
                 <span>
                   Event is Ended: Jury records are sealed. No judges can be modified.
@@ -2155,7 +2155,7 @@ export function EventsTab({
                 placeholder="Filter judges by name or Judge ID..."
                 value={judgeSearch}
                 onChange={(e) => setJudgeSearch(e.target.value)}
-                className="w-full min-h-[42px] pl-9 pr-3 text-xs bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full min-h-[42px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
 
@@ -2163,13 +2163,13 @@ export function EventsTab({
             {isAssignJudgeDrawerOpen && (
               <div className="p-4 rounded-2xl bg-white dark:bg-zinc-950 border border-amber-500/40 shadow-md space-y-3 animate-in fade-in motion-reduce:animate-none">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                  <span className="text-xs lg:text-sm font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
                     Assign Registered Judges
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsAssignJudgeDrawerOpen(false)}
-                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 cursor-pointer"
+                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -2178,7 +2178,7 @@ export function EventsTab({
                 {judges.filter(
                   (j) => j.is_active !== false && !(activeJudgesModalEvent.assigned_judges || []).includes(j.id)
                 ).length === 0 ? (
-                  <p className="text-xs text-zinc-500 text-center py-2">
+                  <p className="text-xs lg:text-sm text-zinc-500 text-center py-2">
                     All registered judges are already assigned to this event.
                   </p>
                 ) : (
@@ -2193,10 +2193,10 @@ export function EventsTab({
                           className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800"
                         >
                           <div className="min-w-0 pr-2">
-                            <span className="text-xs font-bold text-zinc-900 dark:text-white block truncate">
+                            <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block truncate">
                               {j.name}
                             </span>
-                            <span className="text-[10px] text-zinc-500 font-mono block">
+                            <span className="text-[10px] lg:text-sm text-zinc-500 font-mono block">
                               ID: {j.judge_id || j.id.slice(0, 8)}
                             </span>
                           </div>
@@ -2204,7 +2204,7 @@ export function EventsTab({
                           <button
                             type="button"
                             onClick={() => handleToggleJudgeInEvent(j.id)}
-                            className="min-h-[30px] px-2.5 bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold rounded-lg transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shrink-0"
+                            className="min-h-[30px] md:min-h-[44px] md:min-w-[44px] px-2.5 bg-amber-600 hover:bg-amber-500 text-white text-[11px] lg:text-sm font-bold rounded-lg transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shrink-0"
                           >
                             Assign
                           </button>
@@ -2234,7 +2234,7 @@ export function EventsTab({
                     <div className="p-8 text-center bg-white dark:bg-zinc-950 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl">
                       <Gavel className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700 mb-2" />
                       <h4 className="text-sm font-bold text-zinc-800 dark:text-white">No Judges Assigned</h4>
-                      <p className="text-xs text-zinc-500 mt-1">
+                      <p className="text-xs lg:text-sm text-zinc-500 mt-1">
                         Click &quot;Assign&quot; above to select judges for this event.
                       </p>
                     </div>
@@ -2243,7 +2243,7 @@ export function EventsTab({
 
                 if (filtered.length === 0) {
                   return (
-                    <div className="p-6 text-center text-xs text-zinc-500">
+                    <div className="p-6 text-center text-xs lg:text-sm text-zinc-500">
                       No assigned judges match your search.
                     </div>
                   );
@@ -2255,7 +2255,7 @@ export function EventsTab({
                     className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-xs"
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center font-bold text-xs shrink-0">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center font-bold text-xs lg:text-sm shrink-0">
                         ⚖️
                       </div>
 
@@ -2263,7 +2263,7 @@ export function EventsTab({
                         <span className="text-sm font-bold text-zinc-900 dark:text-white block truncate">
                           {j.name}
                         </span>
-                        <div className="flex items-center gap-2 text-[11px] text-zinc-500 font-mono mt-0.5">
+                        <div className="flex items-center gap-2 text-[11px] lg:text-sm text-zinc-500 font-mono mt-0.5">
                           <span>ID: {j.judge_id || j.id.slice(0, 8)}</span>
                           <span>•</span>
                           <span>PIN: {j.pin || '****'}</span>
@@ -2277,7 +2277,7 @@ export function EventsTab({
                         type="button"
                         onClick={() => handleToggleJudgeInEvent(j.id)}
                         title="Remove judge from event"
-                        className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
+                        className="w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -2307,7 +2307,7 @@ export function EventsTab({
                   <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                     {dossierEvent.name}
                   </h3>
-                  <p className="text-[11px] text-zinc-500 font-mono">
+                  <p className="text-[11px] lg:text-sm text-zinc-500 font-mono">
                     {dossierEvent.category || 'General'} • Status: {dossierEvent.status?.toUpperCase()}
                   </p>
                 </div>
@@ -2316,18 +2316,18 @@ export function EventsTab({
               <button
                 type="button"
                 onClick={() => setDossierEventId(null)}
-                className="w-8 h-8 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-white transition-colors cursor-pointer"
+                className="w-8 h-8 md:w-11 md:h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-white transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Scrollable Dossier Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs">
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 text-xs lg:text-sm">
               {/* Section 1: Rubric Schema */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px]">
+                  <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px] lg:text-sm">
                     Rubric Criteria Schema
                   </span>
                   <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
@@ -2355,7 +2355,7 @@ export function EventsTab({
 
               {/* Section 2: Assigned Judges */}
               <div className="space-y-2">
-                <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px] block">
+                <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px] lg:text-sm block">
                   Jury Panel ({(dossierEvent.assigned_judges || []).filter((id) => activeJudgeIdSet.has(id)).length})
                 </span>
 
@@ -2375,7 +2375,7 @@ export function EventsTab({
                           <span className="font-bold text-zinc-900 dark:text-white truncate">
                             ⚖️ {jObj?.name || jId.slice(0, 8)}
                           </span>
-                          <span className="text-[10px] font-mono text-zinc-400">
+                          <span className="text-[10px] lg:text-xs font-mono text-zinc-400">
                             {jObj?.judge_id || 'J-ID'}
                           </span>
                         </div>
@@ -2387,7 +2387,7 @@ export function EventsTab({
 
               {/* Section 3: Assigned Participants */}
               <div className="space-y-2">
-                <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px] block">
+                <span className="font-bold uppercase tracking-wider text-zinc-500 text-[10px] lg:text-sm block">
                   Enrolled Competitors ({(dossierEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).length})
                 </span>
 
@@ -2409,14 +2409,14 @@ export function EventsTab({
                           className="p-2 rounded-xl border border-stone-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center justify-between"
                         >
                           <div className="flex items-center gap-2 truncate">
-                            <span className="font-mono font-bold text-zinc-400 text-[11px]">
+                            <span className="font-mono font-bold text-zinc-400 text-[11px] lg:text-sm">
                               #{serial}
                             </span>
                             <span className="font-bold text-zinc-900 dark:text-white truncate">
                               {pObj?.name || 'Unknown Competitor'}
                             </span>
                           </div>
-                          <span className="text-[10px] text-zinc-500 truncate max-w-[120px]">
+                          <span className="text-[10px] lg:text-sm text-zinc-500 truncate max-w-[120px]">
                             {pObj?.school || 'General'}
                           </span>
                         </div>
@@ -2432,7 +2432,7 @@ export function EventsTab({
               <button
                 type="button"
                 onClick={() => setDossierEventId(null)}
-                className="min-h-[38px] px-5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-black text-xs font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+                className="min-h-[38px] md:min-h-[44px] px-5 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-black text-xs lg:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
               >
                 Close Dossier
               </button>
@@ -2457,18 +2457,18 @@ export function EventsTab({
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       Delete Event?
                     </h3>
-                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                    <p className="text-xs lg:text-sm text-red-600 dark:text-red-400 font-mono">
                       Double-confirmation required
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
                   Permanently delete <strong className="text-zinc-900 dark:text-white">{eventModalState.eventName}</strong>? This action cannot be undone.
                 </p>
 
                 <div className="space-y-1.5 pt-1">
-                  <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                  <label className="text-[11px] lg:text-sm font-semibold text-zinc-500 dark:text-zinc-400">
                     Type <span className="font-mono font-bold text-red-500">DELETE</span> or the event name:
                   </label>
                   <input
@@ -2477,7 +2477,7 @@ export function EventsTab({
                     placeholder={`Type "DELETE" or "${eventModalState.eventName}"`}
                     value={deleteConfirmText}
                     onChange={(e) => setDeleteConfirmText(e.target.value)}
-                    className="w-full min-h-[42px] px-3.5 text-xs bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                    className="w-full min-h-[42px] md:min-h-[44px] px-3.5 text-xs lg:text-sm bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
                   />
                 </div>
 
@@ -2488,7 +2488,7 @@ export function EventsTab({
                       setEventModalState(null);
                       setDeleteConfirmText('');
                     }}
-                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
+                    className="min-h-[42px] md:min-h-[44px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -2499,7 +2499,7 @@ export function EventsTab({
                       deleteConfirmText.trim() !== eventModalState.eventName.trim()
                     }
                     onClick={handleConfirmModalAction}
-                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="min-h-[42px] md:min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs lg:text-sm font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Delete Event</span>
@@ -2516,18 +2516,18 @@ export function EventsTab({
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       Delete Ended Event
                     </h3>
-                    <p className="text-xs text-amber-500 font-mono">
+                    <p className="text-xs lg:text-sm text-amber-500 font-mono">
                       Master Password Required
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
                   <strong className="text-zinc-900 dark:text-white">{eventModalState.eventName}</strong> has completed. To protect ledger integrity, verify your <strong className="text-zinc-900 dark:text-white">Organization Master Password</strong> to authorize permanent deletion (works 100% offline).
                 </p>
 
                 <div className="space-y-1.5 pt-1">
-                  <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                  <label className="text-[11px] lg:text-sm font-semibold text-zinc-500 dark:text-zinc-400">
                     Master Password:
                   </label>
                   <input
@@ -2544,10 +2544,10 @@ export function EventsTab({
                         handleConfirmModalAction();
                       }
                     }}
-                    className="w-full min-h-[42px] px-3.5 text-xs bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                    className="w-full min-h-[42px] md:min-h-[44px] px-3.5 text-xs lg:text-sm bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
                   />
                   {passwordError && (
-                    <p className="text-[11px] text-red-500 font-medium animate-in fade-in motion-reduce:animate-none">
+                    <p className="text-[11px] lg:text-sm text-red-500 font-medium animate-in fade-in motion-reduce:animate-none">
                       {passwordError}
                     </p>
                   )}
@@ -2561,7 +2561,7 @@ export function EventsTab({
                       setMasterPasswordInput('');
                       setPasswordError(null);
                     }}
-                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
+                    className="min-h-[42px] md:min-h-[44px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -2569,7 +2569,7 @@ export function EventsTab({
                     type="button"
                     disabled={!masterPasswordInput.trim()}
                     onClick={handleConfirmModalAction}
-                    className="min-h-[42px] bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="min-h-[42px] md:min-h-[44px] bg-red-600 hover:bg-red-500 text-white text-xs lg:text-sm font-bold rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <KeyRound className="w-4 h-4" />
                     <span>Verify &amp; Delete</span>
@@ -2586,13 +2586,13 @@ export function EventsTab({
                     <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-tight">
                       Duplicate as Draft?
                     </h3>
-                    <p className="text-xs text-zinc-500 font-mono">
+                    <p className="text-xs lg:text-sm text-zinc-500 font-mono">
                       Create template copy
                     </p>
                   </div>
                 </div>
 
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
                   Create an independent draft copy of <strong className="text-zinc-900 dark:text-white">{eventModalState.eventName}</strong> with all rubric criteria and roster configurations.
                 </p>
 
@@ -2600,14 +2600,14 @@ export function EventsTab({
                   <button
                     type="button"
                     onClick={() => setEventModalState(null)}
-                    className="min-h-[42px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
+                    className="min-h-[42px] md:min-h-[44px] bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmModalAction}
-                    className="min-h-[42px] bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                    className="min-h-[42px] md:min-h-[44px] bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-black text-xs lg:text-sm font-bold rounded-xl active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
                   >
                     <Copy className="w-4 h-4" />
                     <span>Duplicate as Draft</span>

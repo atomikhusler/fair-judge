@@ -1117,7 +1117,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
           <button
             type="button"
             onClick={() => setActivePillar('results')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] md:min-h-[44px] px-2 rounded-lg text-xs lg:text-sm font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'results'
                 ? 'bg-white dark:bg-zinc-950 text-cyan-600 dark:text-cyan-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1131,7 +1131,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
           <button
             type="button"
             onClick={() => setActivePillar('stats')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] md:min-h-[44px] px-2 rounded-lg text-xs lg:text-sm font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'stats'
                 ? 'bg-white dark:bg-zinc-950 text-rose-600 dark:text-rose-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1145,7 +1145,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
           <button
             type="button"
             onClick={() => setActivePillar('analytics')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] md:min-h-[44px] px-2 rounded-lg text-xs lg:text-sm font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'analytics'
                 ? 'bg-white dark:bg-zinc-950 text-amber-600 dark:text-amber-400 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1159,7 +1159,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
           <button
             type="button"
             onClick={() => setActivePillar('logs')}
-            className={`flex-1 min-h-[38px] px-2 rounded-lg text-xs font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
+            className={`flex-1 min-h-[38px] md:min-h-[44px] px-2 rounded-lg text-xs lg:text-sm font-bold transition-colors motion-reduce:transition-none flex items-center justify-center space-x-1.5 cursor-pointer ${
               activePillar === 'logs'
                 ? 'bg-white dark:bg-zinc-950 text-slate-700 dark:text-slate-300 shadow-sm border border-stone-200/60 dark:border-zinc-800'
                 : 'text-stone-500 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white'
@@ -1190,7 +1190,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportResultsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-cyan-500 dark:text-cyan-600" />
                 <span>Export PDF (Results)</span>
@@ -1199,7 +1199,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportResultsExcel}
-                className="min-h-[44px] px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-cyan-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-cyan-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Results)</span>
@@ -1208,7 +1208,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
             {/* Event List with Metallic Accented Podiums */}
             {eventStandings.filter((es) => es.event.status === 'ended' || es.event.status === 'archived').length === 0 ? (
-              <div className="p-8 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 text-stone-500 text-xs">
+              <div className="p-8 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 text-stone-500 text-xs lg:text-sm">
                 No events have concluded yet. Results and podium standings will be securely generated here once a live session ends.
               </div>
             ) : (
@@ -1225,21 +1225,21 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       {/* Event Title + Category Header */}
                       <div className="flex items-start justify-between gap-2 border-b border-cyan-500/10 dark:border-cyan-500/20 pb-2.5">
                         <div>
-                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
+                          <span className="text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
                             {(event as any).category || 'General Division'}
                           </span>
                           <h3 className="text-base font-black text-stone-900 dark:text-white">
                             {event.name}
                           </h3>
                         </div>
-                        <span className="text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
+                        <span className="text-[10px] lg:text-xs font-mono uppercase font-bold px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
                           Concluded
                         </span>
                       </div>
 
                       {/* Podium Cards (1st, 2nd, 3rd) */}
                       {podiumWinners.length === 0 ? (
-                        <div className="p-3 text-center text-xs text-stone-400 dark:text-zinc-500 italic">
+                        <div className="p-3 text-center text-xs lg:text-sm text-stone-400 dark:text-zinc-500 italic">
                           No official scores committed yet for this lineup.
                         </div>
                       ) : (
@@ -1263,7 +1263,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                                 <div>
                                   <div className="flex items-center justify-between">
                                     <span
-                                      className={`text-xs font-black uppercase tracking-wider flex items-center gap-1 ${
+                                      className={`text-xs lg:text-sm font-black uppercase tracking-wider flex items-center gap-1 ${
                                         isGold
                                           ? 'text-yellow-600 dark:text-yellow-400'
                                           : isSilver
@@ -1273,12 +1273,12 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                                     >
                                       {isGold ? '1st Place 🥇' : isSilver ? '2nd Place 🥈' : '3rd Place 🥉'}
                                       {winner.isTied && (
-                                        <span className="text-[10px] font-mono font-bold px-1 rounded bg-stone-200 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300">
+                                        <span className="text-[10px] lg:text-xs font-mono font-bold px-1 rounded bg-stone-200 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300">
                                           TIED
                                         </span>
                                       )}
                                     </span>
-                                    <span className="text-[11px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/80 dark:bg-black/50 border border-stone-200 dark:border-zinc-800 text-stone-700 dark:text-zinc-300">
+                                    <span className="text-[11px] lg:text-xs font-mono font-bold px-1.5 py-0.5 rounded bg-white/80 dark:bg-black/50 border border-stone-200 dark:border-zinc-800 text-stone-700 dark:text-zinc-300">
                                       [ID: {winner.participant.identity_id || `P-${winner.participant.sl_no || '0000'}`}]
                                     </span>
                                   </div>
@@ -1286,18 +1286,18 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                                   <h4 className="text-sm font-black text-stone-900 dark:text-white mt-1.5 truncate">
                                     {winner.participant.name}
                                   </h4>
-                                  <p className="text-xs text-stone-500 dark:text-zinc-400 truncate mt-0.5">
+                                  <p className="text-xs lg:text-sm text-stone-500 dark:text-zinc-400 truncate mt-0.5">
                                     {winner.participant.school}
                                   </p>
                                   {winner.participant.class_or_age && (
-                                    <span className="text-[10px] font-mono text-stone-400 dark:text-zinc-500 block mt-0.5">
+                                    <span className="text-[10px] lg:text-sm font-mono text-stone-400 dark:text-zinc-500 block mt-0.5">
                                       {winner.participant.class_or_age}
                                     </span>
                                   )}
                                 </div>
 
-                                <div className="pt-2 border-t border-stone-200/50 dark:border-zinc-800 flex justify-between items-center text-xs">
-                                  <span className="text-[10px] font-mono text-stone-400 dark:text-zinc-500">
+                                <div className="pt-2 border-t border-stone-200/50 dark:border-zinc-800 flex justify-between items-center text-xs lg:text-sm">
+                                  <span className="text-[10px] lg:text-sm font-mono text-stone-400 dark:text-zinc-500">
                                     {winner.ballotCount} Ballots
                                   </span>
                                   <span className="font-mono font-black text-cyan-600 dark:text-cyan-400 tabular-nums whitespace-nowrap">
@@ -1326,7 +1326,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportStatsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-rose-500 dark:text-rose-400" />
                 <span>Export PDF (Stats)</span>
@@ -1335,7 +1335,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportStatsExcel}
-                className="min-h-[44px] px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-rose-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-rose-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Stats)</span>
@@ -1366,7 +1366,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-stone-50 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer"
                     >
                       <div>
-                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                        <span className="text-[10px] lg:text-xs font-mono font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
                           {(event as any).category || 'General Division'}
                         </span>
                         <h4 className="text-sm font-bold text-stone-900 dark:text-white">
@@ -1375,7 +1375,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-400 font-bold border border-stone-200 dark:border-zinc-800">
+                        <span className="text-[10px] lg:text-xs font-mono px-2 py-0.5 rounded bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-400 font-bold border border-stone-200 dark:border-zinc-800">
                           {standings.length} Evaluated
                         </span>
                         {isExpanded ? (
@@ -1391,23 +1391,23 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       <div className="p-4 border-t border-stone-100 dark:border-zinc-800/80 space-y-4 bg-stone-50/40 dark:bg-zinc-900/20 animate-in fade-in">
                         {/* Top: Active Judges who scored this event */}
                         <div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 block mb-1.5">
+                          <span className="text-[10px] lg:text-sm font-bold uppercase tracking-wider text-stone-400 dark:text-zinc-500 block mb-1.5">
                             Evaluating Judges Panel ({evJudges.length})
                           </span>
                           {evJudges.length === 0 ? (
-                            <span className="text-xs text-stone-400 italic">No judge submissions yet</span>
+                            <span className="text-xs lg:text-sm text-stone-400 italic">No judge submissions yet</span>
                           ) : (
                             <div className="flex flex-wrap gap-2">
                               {evJudges.map((j, idx) => (
                                 <span
                                   key={j.id}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-stone-800 dark:text-zinc-200 shadow-2xs"
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-stone-800 dark:text-zinc-200 shadow-2xs"
                                 >
-                                  <span className="font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded text-[10px]">
+                                  <span className="font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded text-[10px] lg:text-xs">
                                     J{idx + 1}
                                   </span>
                                   <span>{j.name}</span>
-                                  <span className="font-mono text-[10px] text-stone-400">
+                                  <span className="font-mono text-[10px] lg:text-xs text-stone-400">
                                     ({j.judge_id || j.id.slice(0, 5)})
                                   </span>
                                 </span>
@@ -1418,15 +1418,15 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
                         {/* Bottom: Horizontal-Scrolling Master Score Table */}
                         <div className="border border-stone-200 dark:border-zinc-800 rounded-xl overflow-x-auto bg-white dark:bg-zinc-950">
-                          <table className="w-full text-left text-xs min-w-[550px]">
-                            <thead className="bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 font-bold border-b border-stone-200 dark:border-zinc-800 text-[11px]">
+                          <table className="w-full text-left text-xs lg:text-sm min-w-[550px] lg:min-w-0">
+                            <thead className="bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 font-bold border-b border-stone-200 dark:border-zinc-800 text-[11px] lg:text-sm">
                               <tr>
                                 <th className="p-2.5 w-16 text-center">Rank</th>
                                 <th className="p-2.5 w-24">ID</th>
                                 <th className="p-2.5">Participant</th>
                                 <th className="p-2.5">Institution</th>
                                 {evJudges.map((_, idx) => (
-                                  <th key={idx} className="p-2.5 text-center font-mono w-14">
+                                  <th key={idx} className="p-2.5 text-center font-mono w-14 lg:w-auto">
                                     J{idx + 1}
                                   </th>
                                 ))}
@@ -1447,12 +1447,12 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                                     <td className="p-2.5 font-bold font-mono text-center">
                                       #{s.rank}
                                       {s.isTied && (
-                                        <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-stone-200 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300">
+                                        <span className="ml-1 text-[9px] lg:text-xs px-1 py-0.5 rounded bg-stone-200 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300">
                                           TIE
                                         </span>
                                       )}
                                     </td>
-                                    <td className="p-2.5 font-mono text-[11px] text-stone-500 dark:text-zinc-400">
+                                    <td className="p-2.5 font-mono text-[11px] lg:text-sm text-stone-500 dark:text-zinc-400">
                                       {s.participant.identity_id || `P-${s.participant.sl_no || ''}`}
                                     </td>
                                     <td className="p-2.5 font-bold text-stone-900 dark:text-white">
@@ -1508,7 +1508,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportAnalyticsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-amber-500 dark:text-amber-600" />
                 <span>Export PDF (Analytics)</span>
@@ -1517,7 +1517,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportAnalyticsExcel}
-                className="min-h-[44px] px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-xl shadow-sm shadow-amber-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-amber-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Analytics)</span>
@@ -1533,13 +1533,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                     Absentee Competitor Tracker
                   </h3>
                 </div>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                <span className="text-[10px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                   {absenteesList.length} Flagged
                 </span>
               </div>
 
               {absenteesList.length === 0 ? (
-                <div className="p-4 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+                <div className="p-4 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs lg:text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span>Zero absentees recorded. All scheduled participants were evaluated.</span>
                 </div>
@@ -1551,17 +1551,17 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-rose-500/30 space-y-1"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-stone-900 dark:text-white truncate">
+                        <span className="text-xs lg:text-sm font-bold text-stone-900 dark:text-white truncate">
                           {a.participant.name}
                         </span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold">
+                        <span className="text-[10px] lg:text-xs font-mono px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold">
                           [ID: {a.participant.identity_id || `P-${a.participant.sl_no}`}]
                         </span>
                       </div>
-                      <p className="text-[11px] text-stone-500 dark:text-zinc-400 truncate">
+                      <p className="text-[11px] lg:text-sm text-stone-500 dark:text-zinc-400 truncate">
                         {a.event.name} • {a.participant.school}
                       </p>
-                      <p className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-medium">
+                      <p className="text-[10px] lg:text-xs font-mono text-rose-600 dark:text-rose-400 font-medium">
                         {a.reason}
                       </p>
                     </div>
@@ -1579,13 +1579,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                     Jury Calibration &amp; Bias Meter
                   </h3>
                 </div>
-                <span className="text-xs font-mono text-stone-500 dark:text-zinc-400">
+                <span className="text-xs lg:text-sm font-mono text-stone-500 dark:text-zinc-400">
                   Jury Mean: <strong className="text-stone-900 dark:text-white">{globalMean.toFixed(1)} pts</strong>
                 </span>
               </div>
 
               {judgeBiasMetrics.length === 0 ? (
-                <div className="p-4 text-center text-xs text-stone-400">
+                <div className="p-4 text-center text-xs lg:text-sm text-stone-400">
                   Not enough scoring data to calibrate jury tendencies.
                 </div>
               ) : (
@@ -1601,17 +1601,17 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                         key={bm.judge.id}
                         className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-2"
                       >
-                        <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center justify-between text-xs lg:text-sm">
                           <div>
                             <span className="font-bold text-stone-900 dark:text-white mr-2">
                               {bm.judge.name}
                             </span>
-                            <span className="text-[10px] font-mono text-stone-400">
+                            <span className="text-[10px] lg:text-xs font-mono text-stone-400">
                               [ID: {bm.judge.judge_id || bm.judge.id.slice(0, 6)}]
                             </span>
                           </div>
                           <span
-                            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md ${
+                            className={`text-[10px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md ${
                               bm.classification === 'Lenient'
                                 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
                                 : bm.classification === 'Strict'
@@ -1643,7 +1643,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                           />
                         </div>
 
-                        <div className="flex justify-between text-[10px] font-mono text-stone-400 dark:text-zinc-500">
+                        <div className="flex justify-between text-[10px] lg:text-xs font-mono text-stone-400 dark:text-zinc-500">
                           <span>-30% Strict</span>
                           <span>Balanced Consensus</span>
                           <span>+30% Lenient</span>
@@ -1664,13 +1664,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                     Consensus Scoring Anomalies
                   </h3>
                 </div>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                <span className="text-[10px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
                   {consensusAnomalies.length} Flagged
                 </span>
               </div>
 
               {consensusAnomalies.length === 0 ? (
-                <div className="p-4 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+                <div className="p-4 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs lg:text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span>Jury consensus is high across all stages with zero severe score discrepancies.</span>
                 </div>
@@ -1681,25 +1681,25 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       key={anom.id}
                       className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-orange-500/30 space-y-1.5"
                     >
-                      <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center justify-between text-xs lg:text-sm">
                         <span className="font-bold text-stone-900 dark:text-white truncate">
                           {anom.participant.name}{' '}
-                          <span className="font-mono text-[10px] font-normal text-stone-400">
+                          <span className="font-mono text-[10px] lg:text-xs font-normal text-stone-400">
                             [ID: {anom.participant.identity_id || `P-${anom.participant.sl_no}`}]
                           </span>
                         </span>
-                        <span className="text-xs font-mono font-black text-orange-600 dark:text-orange-400 tabular-nums whitespace-nowrap">
+                        <span className="text-xs lg:text-sm font-mono font-black text-orange-600 dark:text-orange-400 tabular-nums whitespace-nowrap">
                           Δ {anom.delta.toFixed(1)} pts Discrepancy
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-stone-500 dark:text-zinc-400">
+                      <p className="text-[11px] lg:text-sm text-stone-500 dark:text-zinc-400">
                         {anom.event.name}
                       </p>
 
-                      <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                      <div className="grid grid-cols-2 gap-2 text-xs lg:text-sm pt-1">
                         <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                          <span className="text-[10px] text-emerald-700 dark:text-emerald-400 uppercase font-bold block">
+                          <span className="text-[10px] lg:text-xs text-emerald-700 dark:text-emerald-400 uppercase font-bold block">
                             High Ballot
                           </span>
                           <span className="font-bold text-stone-900 dark:text-white">
@@ -1711,7 +1711,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                         </div>
 
                         <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20">
-                          <span className="text-[10px] text-rose-700 dark:text-rose-400 uppercase font-bold block">
+                          <span className="text-[10px] lg:text-xs text-rose-700 dark:text-rose-400 uppercase font-bold block">
                             Low Ballot
                           </span>
                           <span className="font-bold text-stone-900 dark:text-white">
@@ -1740,7 +1740,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportLogsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Printer className="w-4 h-4 stroke-[2.2] text-stone-400 dark:text-stone-600" />
                 <span>Export PDF (Logs)</span>
@@ -1749,7 +1749,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <button
                 type="button"
                 onClick={handleExportLogsExcel}
-                className="min-h-[44px] px-3 bg-stone-700 hover:bg-stone-600 text-white font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                className="min-h-[44px] px-3 bg-stone-700 hover:bg-stone-600 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
                 <span>Download Excel (Logs)</span>
@@ -1767,7 +1767,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       setIsEventDropdownOpen((prev) => !prev);
                       setIsJudgeDropdownOpen(false);
                     }}
-                    className="min-h-[36px] px-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-stone-800 dark:text-zinc-200 flex items-center gap-2 cursor-pointer"
+                    className="min-h-[36px] md:min-h-[44px] px-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-stone-800 dark:text-zinc-200 flex items-center gap-2 cursor-pointer"
                   >
                     <Trophy className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                     <span className="truncate max-w-[130px]">
@@ -1788,7 +1788,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             setSelectedEventFilter('all');
                             setIsEventDropdownOpen(false);
                           }}
-                          className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
+                          className="w-full px-3 py-2 md:min-h-[44px] text-left text-xs lg:text-sm font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                         >
                           <span>All Events</span>
                           {selectedEventFilter === 'all' && <Check className="w-3.5 h-3.5 text-slate-500" />}
@@ -1801,7 +1801,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                               setSelectedEventFilter(e.id);
                               setIsEventDropdownOpen(false);
                             }}
-                            className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
+                            className="w-full px-3 py-2 md:min-h-[44px] text-left text-xs lg:text-sm font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                           >
                             <span className="truncate pr-2">{e.name}</span>
                             {selectedEventFilter === e.id && <Check className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
@@ -1820,7 +1820,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                       setIsJudgeDropdownOpen((prev) => !prev);
                       setIsEventDropdownOpen(false);
                     }}
-                    className="min-h-[36px] px-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-semibold text-stone-800 dark:text-zinc-200 flex items-center gap-2 cursor-pointer"
+                    className="min-h-[36px] md:min-h-[44px] px-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-stone-800 dark:text-zinc-200 flex items-center gap-2 cursor-pointer"
                   >
                     <Gavel className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                     <span className="truncate max-w-[130px]">
@@ -1841,7 +1841,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             setSelectedJudgeFilter('all');
                             setIsJudgeDropdownOpen(false);
                           }}
-                          className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
+                          className="w-full px-3 py-2 md:min-h-[44px] text-left text-xs lg:text-sm font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                         >
                           <span>All Judges</span>
                           {selectedJudgeFilter === 'all' && <Check className="w-3.5 h-3.5 text-slate-500" />}
@@ -1854,7 +1854,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                               setSelectedJudgeFilter(j.id);
                               setIsJudgeDropdownOpen(false);
                             }}
-                            className="w-full px-3 py-2 text-left text-xs font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
+                            className="w-full px-3 py-2 md:min-h-[44px] text-left text-xs lg:text-sm font-medium flex items-center justify-between hover:bg-stone-100 dark:hover:bg-zinc-900 cursor-pointer"
                           >
                             <span className="truncate pr-2">{j.name}</span>
                             {selectedJudgeFilter === j.id && <Check className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
@@ -1874,13 +1874,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                   value={searchAudit}
                   onChange={(e) => setSearchAudit(e.target.value)}
                   placeholder="Filter timeline by competitor, judge, or event..."
-                  className="w-full min-h-[38px] pl-8 pr-8 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs font-medium text-stone-900 dark:text-white placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-slate-500/50"
+                  className="w-full min-h-[38px] md:min-h-[44px] pl-8 pr-8 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-medium text-stone-900 dark:text-white placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-slate-500/50"
                 />
                 {searchAudit && (
                   <button
                     type="button"
                     onClick={() => setSearchAudit('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center md:right-0.5"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -1890,7 +1890,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
             {/* Retained Rod & Dot Timeline UI */}
             {filteredScores.length === 0 ? (
-              <div className="text-xs text-stone-500 py-6 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800">
+              <div className="text-xs lg:text-sm text-stone-500 py-6 text-center bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800">
                 No cryptographic ballot commits match your current filters.
               </div>
             ) : (
@@ -1912,13 +1912,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                         {/* Dot on rod */}
                         <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-stone-300 dark:bg-zinc-700 group-hover:bg-slate-400 border-2 border-white dark:border-zinc-950 transition-colors" />
 
-                        <div className="text-[11px] text-stone-400 dark:text-zinc-500 font-mono flex flex-wrap items-center gap-2 mb-1">
+                        <div className="text-[11px] lg:text-sm text-stone-400 dark:text-zinc-500 font-mono flex flex-wrap items-center gap-2 mb-1">
                           <span className="flex items-center gap-1 text-stone-500 dark:text-zinc-400">
                             <Clock className="w-3 h-3 text-stone-400" />
                             {time}
                           </span>
                           <span>•</span>
-                          <span className="text-[10px] text-slate-600 dark:text-slate-400 font-semibold font-mono">
+                          <span className="text-[10px] lg:text-xs text-slate-600 dark:text-slate-400 font-semibold font-mono">
                             #{score.id.slice(0, 6).toUpperCase()}
                           </span>
                           {e && (
@@ -1931,7 +1931,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                           )}
                         </div>
 
-                        <div className="text-xs text-stone-700 dark:text-zinc-300 leading-relaxed">
+                        <div className="text-xs lg:text-sm text-stone-700 dark:text-zinc-300 leading-relaxed">
                           <strong className="text-stone-900 dark:text-white font-semibold">
                             {j?.name || 'Judge'}
                           </strong>{' '}
@@ -1944,7 +1944,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             {p?.name || 'Participant'}
                           </strong>
                           {p?.identity_id && (
-                            <span className="ml-1.5 font-mono text-[10px] px-1.5 py-0.5 rounded bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-400 border border-stone-200 dark:border-zinc-800">
+                            <span className="ml-1.5 font-mono text-[10px] lg:text-xs px-1.5 py-0.5 rounded bg-stone-100 dark:bg-zinc-900 text-stone-600 dark:text-zinc-400 border border-stone-200 dark:border-zinc-800">
                               [ID: {p.identity_id}]
                             </span>
                           )}
@@ -1955,7 +1955,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             {Object.entries(breakdown).map(([critId, mark]) => (
                               <span
                                 key={critId}
-                                className="px-2 py-0.5 rounded-md bg-stone-50 dark:bg-zinc-900 border border-stone-200/80 dark:border-zinc-800/80 text-[10px] font-mono text-stone-600 dark:text-zinc-400"
+                                className="px-2 py-0.5 rounded-md bg-stone-50 dark:bg-zinc-900 border border-stone-200/80 dark:border-zinc-800/80 text-[10px] lg:text-xs font-mono text-stone-600 dark:text-zinc-400"
                               >
                                 {critId.replace('crit_', '').replace(/_/g, ' ')}:{' '}
                                 <strong className="text-stone-900 dark:text-white">{String(mark)}</strong>

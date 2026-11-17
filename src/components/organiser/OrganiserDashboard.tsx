@@ -379,13 +379,13 @@ export function OrganiserDashboard({
         >
           <div className="flex items-center space-x-2.5 min-w-0">
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-            <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-200 leading-snug">
+            <p className="text-[11px] lg:text-sm font-semibold text-amber-800 dark:text-amber-200 leading-snug">
               <span className="font-bold uppercase tracking-wider mr-1">Account Under Verification:</span>
               Your account &amp; email ({organization.email || 'no email set'}) are being reviewed. Unverified accounts may be deleted if rejected by the Security Team.
             </p>
           </div>
           <div className="flex items-center space-x-1.5 shrink-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-300">
+            <span className="text-[10px] lg:text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-300 md:min-h-[44px] md:inline-flex md:items-center">
               Details
             </span>
             <button
@@ -394,7 +394,7 @@ export function OrganiserDashboard({
                 e.stopPropagation(); // Prevent opening the modal
                 setIsBannerDismissed(true);
               }}
-              className="p-1 rounded-full text-amber-600/60 hover:text-amber-600 hover:bg-amber-500/20 dark:text-amber-400/60 dark:hover:text-amber-400 transition-colors cursor-pointer"
+              className="p-1 rounded-full text-amber-600/60 hover:text-amber-600 hover:bg-amber-500/20 dark:text-amber-400/60 dark:hover:text-amber-400 transition-colors cursor-pointer md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center"
               aria-label="Dismiss banner"
             >
               <X className="w-4 h-4" />
@@ -407,7 +407,7 @@ export function OrganiserDashboard({
         <div className="shrink-0 bg-red-500/15 dark:bg-red-950/60 border-b border-red-500/40 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 z-20 animate-in slide-in-from-top-2 duration-300">
           <div className="flex items-start sm:items-center space-x-2.5 min-w-0 pr-6 relative">
             <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5 sm:mt-0" />
-            <p className="text-[11px] font-bold text-red-700 dark:text-red-300 leading-snug pr-2">
+            <p className="text-[11px] lg:text-sm font-bold text-red-700 dark:text-red-300 leading-snug pr-2">
               {organization.rejection_reason
                 ? `Verification rejected: ${organization.rejection_reason}`
                 : 'Email verification failed! Your organization is scheduled for deletion. Contact Developer immediately:'}
@@ -416,7 +416,7 @@ export function OrganiserDashboard({
             <button
               type="button"
               onClick={() => setIsBannerDismissed(true)}
-              className="absolute top-0 right-0 sm:hidden p-1 -mr-2 -mt-1 rounded-full text-red-600/60 hover:text-red-600 hover:bg-red-500/20 transition-colors cursor-pointer"
+              className="absolute top-0 right-0 sm:hidden p-1 -mr-2 -mt-1 rounded-full text-red-600/60 hover:text-red-600 hover:bg-red-500/20 transition-colors cursor-pointer md:min-w-[44px] md:min-h-[44px]"
               aria-label="Dismiss banner"
             >
               <X className="w-4 h-4" />
@@ -426,7 +426,7 @@ export function OrganiserDashboard({
           <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
             <a
               href="mailto:spesium.code@proton.me"
-              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-red-500/40 text-[10px] font-mono font-bold text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
+              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-red-500/40 text-[10px] lg:text-xs font-mono font-bold text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors md:min-h-[44px]"
             >
               <Mail className="w-3 h-3" />
               <span>spesium.code@proton.me</span>
@@ -435,7 +435,7 @@ export function OrganiserDashboard({
               href="https://t.me/+ljTOKLi5dQs1MTM9"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-[10px] font-bold hover:bg-blue-500 transition-colors"
+              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-[10px] lg:text-xs font-bold hover:bg-blue-500 transition-colors md:min-h-[44px]"
             >
               <Send className="w-3 h-3" />
               <span>Telegram Group</span>
@@ -445,7 +445,7 @@ export function OrganiserDashboard({
             <button
               type="button"
               onClick={() => setIsBannerDismissed(true)}
-              className="hidden sm:flex p-1 ml-1 rounded-full text-red-600/60 hover:text-red-600 hover:bg-red-500/20 dark:text-red-400/60 dark:hover:text-red-400 transition-colors cursor-pointer"
+              className="hidden sm:flex p-1 ml-1 rounded-full text-red-600/60 hover:text-red-600 hover:bg-red-500/20 dark:text-red-400/60 dark:hover:text-red-400 transition-colors cursor-pointer md:min-w-[44px] md:min-h-[44px] md:items-center md:justify-center"
               aria-label="Dismiss banner"
             >
               <X className="w-4 h-4" />
@@ -556,7 +556,7 @@ export function OrganiserDashboard({
             </span>
           </div>
           <div className="lg:flex lg:items-center lg:gap-1.5 lg:min-w-0">
-            <span className="lg:text-xs lg:font-bold lg:text-zinc-700 lg:dark:text-zinc-300 lg:tracking-wide lg:uppercase lg:truncate">
+            <span className="lg:text-sm lg:font-bold lg:text-zinc-700 lg:dark:text-zinc-300 lg:tracking-wide lg:uppercase lg:truncate">
               {organization.name}
             </span>
             {verificationStatus === 'verified' && (
