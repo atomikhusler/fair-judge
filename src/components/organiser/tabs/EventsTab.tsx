@@ -168,11 +168,44 @@ export function EventsTab({
   // Basic Details: Only Title & Category (Date removed as requested)
   const [eventName, setEventName] = useState('');
   const [eventCategory, setEventCategory] = useState('');
+  const [categorySuggested, setCategorySuggested] = useState(false);
+  const [eventTitleTouched, setEventTitleTouched] = useState(false);
+  const [rubricTouched, setRubricTouched] = useState(false);
   const [rubricCriteria, setRubricCriteria] = useState<RubricItem[]>([
     { id: generateUUID(), name: 'Concept & Originality', maxMarks: 10 },
     { id: generateUUID(), name: 'Execution & Technique', maxMarks: 10 },
     { id: generateUUID(), name: 'Defense & Q&A', maxMarks: 5 },
   ]);
+
+  const eventTitleInputRef = useRef<HTMLInputElement>(null);
+  const eventCategoryInputRef = useRef<HTMLInputElement>(null);
+  const criterionNameRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const criterionMarksRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Org-derived Event Category suggestions, falling back to Senior/Junior/Classical when none exist
+  const { categoryChips, defaultSuggestedCategory } = useMemo(() => {
+    const counts = new Map<string, { label: string; count: number }>();
+    events.forEach((evt) => {
+      const raw = (evt.category || '').trim();
+      if (!raw || raw.toLowerCase() === 'general') return;
+      const key = raw.toLowerCase();
+      const existing = counts.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        counts.set(key, { label: raw, count: 1 });
+      }
+    });
+    const sortedOrgCategories = Array.from(counts.values())
+      .sort((a, b) => b.count - a.count)
+      .map((item) => item.label)
+      .slice(0, 8);
+    const chips = sortedOrgCategories.length > 0 ? sortedOrgCategories : ['Senior', 'Junior', 'Classical'];
+    return {
+      categoryChips: chips,
+      defaultSuggestedCategory: chips[0] || 'Senior',
+    };
+  }, [events]);
 
   // ========================================================
   // 3. EVENT PARTICIPANTS & JUDGES FULL-SCREEN / DOSSIER MODALS
@@ -527,6 +560,8 @@ export function EventsTab({
   const handleOpenCreateWizard = () => {
     setEditingEventId(null);
     setHasExistingScores(false);
+    setEventTitleTouched(false);
+    setRubricTouched(false);
 
     const draft = checkForDraft();
     if (draft) {
@@ -538,7 +573,8 @@ export function EventsTab({
     }
 
     setEventName('');
-    setEventCategory('');
+    setEventCategory(defaultSuggestedCategory);
+    setCategorySuggested(Boolean(defaultSuggestedCategory));
     setRubricCriteria([
       { id: generateUUID(), name: 'Concept & Originality', maxMarks: 10 },
       { id: generateUUID(), name: 'Execution & Technique', maxMarks: 10 },
@@ -553,6 +589,9 @@ export function EventsTab({
     if (!cachedDraft) return;
     setEventName(cachedDraft.name || '');
     setEventCategory(cachedDraft.category || '');
+    setCategorySuggested(false);
+    setEventTitleTouched(false);
+    setRubricTouched(false);
     setRubricCriteria(cachedDraft.rubricCriteria || []);
     setShowDraftBanner(false);
     setIsDirty(true);
@@ -562,7 +601,10 @@ export function EventsTab({
   const handleDiscardDraft = () => {
     clearDraft();
     setEventName('');
-    setEventCategory('');
+    setEventCategory(defaultSuggestedCategory);
+    setCategorySuggested(Boolean(defaultSuggestedCategory));
+    setEventTitleTouched(false);
+    setRubricTouched(false);
     setRubricCriteria([
       { id: generateUUID(), name: 'Concept & Originality', maxMarks: 10 },
       { id: generateUUID(), name: 'Execution & Technique', maxMarks: 10 },
@@ -619,9 +661,12 @@ export function EventsTab({
       setEditingEventId(evt.id);
       setHasExistingScores(scores.length > 0);
       setShowDraftBanner(false);
+      setEventTitleTouched(false);
+      setRubricTouched(false);
 
       setEventName(evt.name || '');
       setEventCategory(evt.category || '');
+      setCategorySuggested(false);
 
       const criteria = (evt.rubric_schema || evt.rubric || []).map((c) => ({
         id: c.id || generateUUID(),
@@ -858,12 +903,29 @@ export function EventsTab({
     setRubricCriteria((prev) => prev.filter((c) => c.id !== id));
   };
 
+  const handleMoveCriterion = (index: number, direction: -1 | 1) => {
+    if (hasExistingScores) {
+      showToast('Rubric schema is locked to preserve ledger integrity.');
+      return;
+    }
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= rubricCriteria.length) return;
+    setIsDirty(true);
+    setRubricCriteria((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
+  };
+
   const handleApplyPreset = (preset: typeof RUBRIC_PRESETS[0]) => {
     if (hasExistingScores) {
       showToast('Rubric schema is locked for this event.');
       return;
     }
     setIsDirty(true);
+    setRubricTouched(false);
     setRubricCriteria(
       preset.criteria.map((c) => ({
         id: generateUUID(),
@@ -876,10 +938,19 @@ export function EventsTab({
   // ========================================================
   // 8. SAVE NEW / EDITED EVENT
   // ========================================================
-  const isFormValid = Boolean(eventName.trim());
+  const hasValidCriterion = rubricCriteria.some((c) => c.name.trim().length > 0);
+  const isFormValid = Boolean(eventName.trim()) && hasValidCriterion;
+  const eventMissingReason = !eventName.trim()
+    ? 'Add an event title to continue'
+    : !hasValidCriterion
+    ? 'Add at least one criterion name to continue'
+    : null;
 
   const handleSaveEvent = async () => {
-    if (!isFormValid) {
+    setEventTitleTouched(true);
+    setRubricTouched(true);
+
+    if (!eventName.trim()) {
       showToast('Please provide an Event Title.');
       return;
     }
@@ -1676,11 +1747,18 @@ export function EventsTab({
         hasNestedOverlay={Boolean(isUnsavedExitModalOpen || isEventActionModalOpen)}
         maxWidthClass="md:max-w-2xl"
         footer={
-          <div className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-zinc-300 flex items-center gap-1.5">
-            <span>Total Marks:</span>
-            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base tabular-nums whitespace-nowrap">
-              {totalRubricMarks} pts
-            </span>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <div className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <span>Total Marks:</span>
+              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base tabular-nums whitespace-nowrap">
+                {totalRubricMarks} pts
+              </span>
+            </div>
+            {eventMissingReason && (
+              <p className="text-[11px] lg:text-xs font-medium text-amber-600 dark:text-amber-400 truncate">
+                {eventMissingReason}
+              </p>
+            )}
           </div>
         }
         secondaryAction={{
@@ -1697,149 +1775,321 @@ export function EventsTab({
           variant: 'emerald',
         }}
       >
-        <div className="max-w-2xl w-full mx-auto space-y-8">
-            {/* Draft Recovery Banner */}
-            {showDraftBanner && cachedDraft && !editingEventId && (
-              <div className="p-3.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-2xl text-xs sm:text-sm font-medium flex flex-wrap items-center justify-between gap-2 animate-in fade-in motion-reduce:animate-none">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span>
-                    Unsaved draft found for &quot;<strong>{cachedDraft.name || 'Untitled Event'}</strong>&quot;.
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleResumeDraft}
-                    className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs lg:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
-                  >
-                    Resume Draft
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDiscardDraft}
-                    className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-stone-200/80 dark:bg-zinc-800 hover:bg-stone-300 text-stone-700 dark:text-zinc-300 rounded-lg text-xs lg:text-sm font-semibold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
-                  >
-                    Start Fresh
-                  </button>
-                </div>
+        <div className="max-w-2xl w-full mx-auto space-y-6">
+          {/* Draft Recovery Banner */}
+          {showDraftBanner && cachedDraft && !editingEventId && (
+            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-2xl text-xs sm:text-sm font-medium flex flex-wrap items-center justify-between gap-2 animate-in fade-in motion-reduce:animate-none">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>
+                  Unsaved draft found for &quot;<strong>{cachedDraft.name || 'Untitled Event'}</strong>&quot;.
+                </span>
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleResumeDraft}
+                  className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs lg:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+                >
+                  Resume Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscardDraft}
+                  className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-stone-200/80 dark:bg-zinc-800 hover:bg-stone-300 text-stone-700 dark:text-zinc-300 rounded-lg text-xs lg:text-sm font-semibold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+                >
+                  Start Fresh
+                </button>
+              </div>
+            </div>
+          )}
 
-            {/* PART 1: EVENT IDENTITY SECTION */}
-            <div className="space-y-4">
-              {/* Title: A massive, borderless text input (text-3xl font-black) */}
+          {/* PART 1: EVENT DETAILS */}
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
+            {/* Event Title (Normal labelled field) */}
+            <div>
+              <label
+                htmlFor="event-title-input"
+                className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+              >
+                Event Title <span className="text-emerald-600 dark:text-emerald-400">*</span>
+              </label>
               <input
+                id="event-title-input"
+                ref={eventTitleInputRef}
                 type="text"
-                placeholder="Event Title..."
+                placeholder="e.g. Classical Solo Dance"
                 value={eventName}
-                autoFocus
+                enterKeyHint="next"
                 onChange={(e) => {
                   setIsDirty(true);
                   setEventName(e.target.value);
                 }}
-                className="w-full bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-3xl sm:text-4xl font-black text-stone-900 dark:text-white placeholder:text-stone-300 dark:placeholder:text-zinc-700 tracking-tight leading-tight p-0"
+                onBlur={() => setEventTitleTouched(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    eventCategoryInputRef.current?.focus();
+                  }
+                }}
+                className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm sm:text-base font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
+                  eventTitleTouched && !eventName.trim()
+                    ? 'border-rose-500 focus:ring-rose-500/30'
+                    : 'border-stone-200 dark:border-zinc-800 focus:ring-emerald-500/40'
+                }`}
               />
-
-              {/* Category: A simple text input below the title */}
-              <div>
-                <label className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                  Category
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Senior, Junior, Classical"
-                  value={eventCategory}
-                  onChange={(e) => {
-                    setIsDirty(true);
-                    setEventCategory(e.target.value);
-                  }}
-                  className="w-full bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-stone-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 placeholder:text-stone-400 dark:placeholder:text-zinc-400 font-medium transition-colors motion-reduce:transition-none"
-                />
-              </div>
+              {eventTitleTouched && !eventName.trim() && (
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                  Event Title is required.
+                </p>
+              )}
             </div>
 
-            {/* PART 2: THE REIMAGINED RUBRIC ENGINE */}
-            <div className="space-y-4 pt-4 border-t border-stone-200/80 dark:border-zinc-800/80">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs lg:text-sm font-bold uppercase tracking-wider text-zinc-400">
-                  Rubric Criteria
-                </h3>
-                <span className="text-[11px] lg:text-sm font-mono text-zinc-400">
-                  {rubricCriteria.length} {rubricCriteria.length === 1 ? 'criterion' : 'criteria'}
-                </span>
+            {/* Category (Chips + Editable Input + Suggested / Reset) */}
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="event-category-input"
+                    className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                  >
+                    Category
+                  </label>
+                  {categorySuggested && (
+                    <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
+                      Suggested
+                    </span>
+                  )}
+                </div>
+                {!categorySuggested &&
+                  defaultSuggestedCategory &&
+                  eventCategory.trim() !== defaultSuggestedCategory && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDirty(true);
+                        setEventCategory(defaultSuggestedCategory);
+                        setCategorySuggested(true);
+                      }}
+                      className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                    >
+                      Reset to suggested
+                    </button>
+                  )}
               </div>
 
-              {/* Vertical Stack with Auto-Renumbering on Deletion */}
-              <div className="space-y-3">
-                {rubricCriteria.map((item, index) => (
+              <input
+                id="event-category-input"
+                ref={eventCategoryInputRef}
+                type="text"
+                placeholder="e.g. Senior, Junior, Classical"
+                value={eventCategory}
+                enterKeyHint={rubricCriteria.length > 0 && !hasExistingScores ? 'next' : 'done'}
+                onChange={(e) => {
+                  setIsDirty(true);
+                  setCategorySuggested(false);
+                  setEventCategory(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const firstId = rubricCriteria[0]?.id;
+                    if (firstId && !hasExistingScores) {
+                      criterionNameRefs.current[firstId]?.focus();
+                    } else {
+                      e.currentTarget.blur();
+                    }
+                  }
+                }}
+                className="w-full min-h-[46px] bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl px-3.5 text-stone-900 dark:text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/40 placeholder:text-stone-400 dark:placeholder:text-zinc-400 transition-colors motion-reduce:transition-none"
+              />
+
+              {/* Tappable Category Chips */}
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {categoryChips.map((chip) => {
+                  const isActive = eventCategory.trim().toLowerCase() === chip.toLowerCase();
+                  return (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => {
+                        setIsDirty(true);
+                        setEventCategory(chip);
+                        setCategorySuggested(chip === defaultSuggestedCategory && !editingEventId);
+                      }}
+                      className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                        isActive
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 border-stone-200 dark:border-zinc-800 hover:border-emerald-500/50'
+                      }`}
+                    >
+                      {chip}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* PART 2: RUBRIC CRITERIA + PRESETS */}
+          <div className="space-y-4 pt-2 border-t border-stone-200/80 dark:border-zinc-800/80">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs lg:text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Rubric Criteria
+              </h3>
+              <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
+                {rubricCriteria.length} {rubricCriteria.length === 1 ? 'criterion' : 'criteria'}
+              </span>
+            </div>
+
+            {/* Rubric Presets as Tappable Chips */}
+            {!hasExistingScores && (
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 block">
+                  Quick templates
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {RUBRIC_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => handleApplyPreset(preset)}
+                      className="min-h-[36px] px-3 py-1 rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-emerald-500/60 hover:bg-emerald-50/60 dark:hover:bg-emerald-500/10 text-xs font-semibold text-stone-700 dark:text-zinc-300 transition-colors cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {rubricTouched && !hasValidCriterion && (
+              <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                Add a name for at least one rubric criterion.
+              </p>
+            )}
+
+            {/* Vertical Stack with Reorder & Auto-Renumbering */}
+            <div className="space-y-3">
+              {rubricCriteria.map((item, index) => {
+                const isLastCriterion = index === rubricCriteria.length - 1;
+                return (
                   <div
                     key={item.id}
-                    className="p-3.5 rounded-2xl bg-white dark:bg-zinc-950 border border-stone-200/90 dark:border-zinc-800/90 shadow-2xs space-y-2 transition-colors motion-reduce:transition-none hover:border-stone-300 dark:hover:border-zinc-700"
+                    className="p-3.5 rounded-2xl bg-white dark:bg-zinc-950 border border-stone-200/90 dark:border-zinc-800/90 shadow-2xs space-y-2.5 transition-colors motion-reduce:transition-none hover:border-stone-300 dark:hover:border-zinc-700"
                   >
-                    {/* Top Line: Serial Number (Left) + Criterion Name input (Center) + Distinct Red Minus button (Right) */}
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-sm font-bold font-mono text-zinc-400 w-5 shrink-0 text-center select-none">
+                    {/* Top Line: Serial Number + Criterion Name + Up/Down/Delete */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold font-mono text-zinc-400 w-5 shrink-0 text-center select-none tabular-nums">
                         {index + 1}.
                       </span>
 
                       <input
+                        ref={(el) => {
+                          criterionNameRefs.current[item.id] = el;
+                        }}
                         type="text"
                         placeholder="Criterion Name (e.g. Choreography & Flow)"
                         value={item.name}
                         disabled={hasExistingScores}
+                        enterKeyHint="next"
                         onChange={(e) => handleUpdateCriterion(item.id, 'name', e.target.value)}
-                        className="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm font-semibold text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-400 p-0 disabled:opacity-60"
+                        onBlur={() => setRubricTouched(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            criterionMarksRefs.current[item.id]?.focus();
+                          }
+                        }}
+                        className="flex-1 min-h-[38px] bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm font-semibold text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-400 p-0 disabled:opacity-60"
                       />
 
                       {!hasExistingScores && rubricCriteria.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCriterion(item.id)}
-                          className="w-7 h-7 md:w-11 md:h-11 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 flex items-center justify-center font-bold text-base active:scale-90 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
-                          title="Delete criterion"
-                          aria-label={`Delete criterion ${index + 1}`}
-                        >
-                          −
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={index === 0}
+                            onClick={() => handleMoveCriterion(index, -1)}
+                            title="Move criterion up"
+                            aria-label={`Move criterion ${index + 1} up`}
+                            className="w-8 h-8 md:w-10 md:h-10 rounded-lg border border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                          >
+                            <ChevronUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isLastCriterion}
+                            onClick={() => handleMoveCriterion(index, 1)}
+                            title="Move criterion down"
+                            aria-label={`Move criterion ${index + 1} down`}
+                            className="w-8 h-8 md:w-10 md:h-10 rounded-lg border border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCriterion(item.id)}
+                            className="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 flex items-center justify-center font-bold text-base active:scale-90 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
+                            title="Delete criterion"
+                            aria-label={`Delete criterion ${index + 1}`}
+                          >
+                            −
+                          </button>
+                        </div>
                       )}
                     </div>
 
-                    {/* Bottom Line: Left-aligned under the name: Max Marks input */}
+                    {/* Bottom Line: Max Marks */}
                     <div className="pl-7 flex items-center gap-2">
-                      <span className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-400">
+                      <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-zinc-400">
                         Max Marks:
                       </span>
                       <div className="flex items-center gap-1.5">
                         <input
+                          ref={(el) => {
+                            criterionMarksRefs.current[item.id] = el;
+                          }}
                           type="number"
                           min={1}
                           max={100}
                           value={item.maxMarks}
                           disabled={hasExistingScores}
+                          enterKeyHint={isLastCriterion ? 'done' : 'next'}
                           onChange={(e) =>
                             handleUpdateCriterion(item.id, 'maxMarks', parseInt(e.target.value, 10) || 1)
                           }
-                          className="w-16 min-h-[34px] md:min-h-[44px] text-center font-mono font-bold bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg text-xs sm:text-sm text-stone-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (!isLastCriterion) {
+                                const nextId = rubricCriteria[index + 1]?.id;
+                                if (nextId) criterionNameRefs.current[nextId]?.focus();
+                              } else {
+                                e.currentTarget.blur();
+                              }
+                            }
+                          }}
+                          className="w-16 min-h-[36px] md:min-h-[44px] text-center font-mono font-bold tabular-nums bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg text-xs sm:text-sm text-stone-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
                         />
                         <span className="text-xs lg:text-sm font-semibold text-zinc-400 font-mono">pts</span>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-
-              {!hasExistingScores && (
-                <button
-                  type="button"
-                  onClick={handleAddCriterion}
-                  className="w-full min-h-[44px] border border-dashed border-stone-300 dark:border-zinc-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-2xl text-xs sm:text-sm font-bold text-zinc-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-[transform,colors] duration-100 motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] mt-3 bg-stone-50/50 dark:bg-zinc-900"
-                >
-                  <Plus className="w-4 h-4 stroke-[2.2]" />
-                  <span>Add Criterion</span>
-                </button>
-              )}
+                );
+              })}
             </div>
+
+            {!hasExistingScores && (
+              <button
+                type="button"
+                onClick={handleAddCriterion}
+                className="w-full min-h-[44px] border border-dashed border-stone-300 dark:border-zinc-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-2xl text-xs sm:text-sm font-bold text-zinc-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-[transform,colors] duration-100 motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] mt-3 bg-stone-50/50 dark:bg-zinc-900"
+              >
+                <Plus className="w-4 h-4 stroke-[2.2]" />
+                <span>Add Criterion</span>
+              </button>
+            )}
+          </div>
         </div>
       </TaskScreen>
 

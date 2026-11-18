@@ -78,13 +78,53 @@ export function scrollFocusedInputIntoView(target: EventTarget | null): void {
     if (target.readOnly) return;
   }
 
-  window.requestAnimationFrame(() => {
-    window.setTimeout(() => {
-      if (target.isConnected) {
-        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      }
-    }, 90);
-  });
+  const performScroll = () => {
+    if (target.isConnected && document.activeElement === target) {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  };
+
+  const vv = window.visualViewport;
+  if (!vv) {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(performScroll, 180);
+    });
+    return;
+  }
+
+  let settleTimer: number | null = null;
+  let fallbackTimer: number | null = null;
+  let cleanedUp = false;
+
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    vv.removeEventListener('resize', handleResize);
+    target.removeEventListener('blur', cleanup);
+    if (settleTimer !== null) window.clearTimeout(settleTimer);
+    if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+  };
+
+  const handleResize = () => {
+    if (fallbackTimer !== null) {
+      window.clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+    if (settleTimer !== null) window.clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(() => {
+      cleanup();
+      window.requestAnimationFrame(performScroll);
+    }, 60);
+  };
+
+  vv.addEventListener('resize', handleResize);
+  target.addEventListener('blur', cleanup, { once: true });
+
+  // Fallback timer in case keyboard is already open or visualViewport does not resize
+  fallbackTimer = window.setTimeout(() => {
+    cleanup();
+    window.requestAnimationFrame(performScroll);
+  }, 260);
 }
 
 // ========================================================

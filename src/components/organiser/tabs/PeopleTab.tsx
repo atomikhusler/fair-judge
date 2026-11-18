@@ -32,7 +32,8 @@ import {
   Scale,
   Eye,
   MinusCircle,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 import { dbService, subscribeToDatabase, generateUUID } from '../../../lib/supabase';
 import { registerSyncCadence } from '../../../lib/syncEngine';
@@ -184,14 +185,20 @@ function matchHeaderToField(header: string, customFields: CustomParticipantField
   return { field: null, confidence: bestScore };
 }
 
-// Generate 5-character alphanumeric Judge ID: "J-XXXX"
-function generateJudgeId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let randomPart = '';
-  for (let i = 0; i < 4; i++) {
-    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `J-${randomPart}`;
+// Compute uppercase initials from Judge Full Name (e.g. "Sahil Kumar Rout" -> "SKR")
+function computeJudgeInitials(fullName: string): string {
+  const words = fullName
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-zA-Z0-9]/g, ''))
+    .filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words
+    .map((w) => w[0])
+    .join('')
+    .slice(0, 6)
+    .toUpperCase();
 }
 
 // Generate 4-digit numeric PIN
@@ -291,6 +298,20 @@ export function PeopleTab({
   });
   const initialParticipantSnapshotRef = useRef<string>('');
   const [isParticipantUnsavedOpen, setIsParticipantUnsavedOpen] = useState(false);
+  const [schoolSuggested, setSchoolSuggested] = useState(false);
+  const [classSuggested, setClassSuggested] = useState(false);
+  const [participantTouched, setParticipantTouched] = useState<{
+    name?: boolean;
+    school?: boolean;
+    custom?: Record<string, boolean>;
+  }>({});
+  const [participantSaveAttempted, setParticipantSaveAttempted] = useState(false);
+  const [showMoreParticipantOptions, setShowMoreParticipantOptions] = useState(false);
+  const participantNameRef = useRef<HTMLInputElement | null>(null);
+  const participantSchoolRef = useRef<HTMLInputElement | null>(null);
+  const participantClassRef = useRef<HTMLInputElement | null>(null);
+  const participantMobileRef = useRef<HTMLInputElement | null>(null);
+  const participantCustomRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Judges State (Optimistically seeded from local cache)
   const [judges, setJudges] = useState<SupabaseJudge[]>(() =>
@@ -308,6 +329,17 @@ export function PeopleTab({
   });
   const initialJudgeSnapshotRef = useRef<string>('');
   const [isJudgeUnsavedOpen, setIsJudgeUnsavedOpen] = useState(false);
+  const [judgeIdManuallyEdited, setJudgeIdManuallyEdited] = useState(false);
+  const [judgeTouched, setJudgeTouched] = useState<{
+    name?: boolean;
+    judge_id?: boolean;
+    pin?: boolean;
+  }>({});
+  const [judgeSaveAttempted, setJudgeSaveAttempted] = useState(false);
+  const [showMoreJudgeOptions, setShowMoreJudgeOptions] = useState(false);
+  const judgeNameRef = useRef<HTMLInputElement | null>(null);
+  const judgeIdRef = useRef<HTMLInputElement | null>(null);
+  const judgePinRef = useRef<HTMLInputElement | null>(null);
   const [copiedJudgePin, setCopiedJudgePin] = useState<string | null>(null);
   const [downloadingBadgeId, setDownloadingBadgeId] = useState<string | null>(null);
   const [isExportingBadges, setIsExportingBadges] = useState(false);
@@ -438,6 +470,46 @@ export function PeopleTab({
   useEffect(() => {
     setCustomFields(organization.custom_participant_fields || []);
   }, [organization.custom_participant_fields]);
+
+  const orgSchoolSuggestions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of participants) {
+      if (p.is_active === false) continue;
+      const val = (p.school || '').trim();
+      if (!val) continue;
+      counts.set(val, (counts.get(val) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 10)
+      .map(([value]) => value);
+  }, [participants]);
+
+  const orgCategorySuggestions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of participants) {
+      if (p.is_active === false) continue;
+      const val = (p.class_or_age || '').trim();
+      if (!val) continue;
+      counts.set(val, (counts.get(val) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 10)
+      .map(([value]) => value);
+  }, [participants]);
+
+  const defaultSuggestedSchool = orgSchoolSuggestions[0] || '';
+  const defaultSuggestedClass = orgCategorySuggestions[0] || '';
+
+  const requiredCustomFields = useMemo(
+    () => customFields.filter((cf) => Boolean(cf.required)),
+    [customFields]
+  );
+  const optionalCustomFields = useMemo(
+    () => customFields.filter((cf) => !cf.required),
+    [customFields]
+  );
 
   const loadData = useCallback(
     async (force: boolean = false) => {
@@ -965,11 +1037,13 @@ export function PeopleTab({
   // Debounced auto-save participant draft into unified outbox when adding
   useEffect(() => {
     if (!showParticipantModal || editingParticipant) return;
+    if (JSON.stringify(participantForm) === initialParticipantSnapshotRef.current) return;
     const isDirty = Boolean(
       participantForm.name.trim() ||
       participantForm.school.trim() ||
       participantForm.class_or_age.trim() ||
-      participantForm.mobile_number.trim()
+      participantForm.mobile_number.trim() ||
+      Object.values(participantForm.custom_values || {}).some((v) => String(v || '').trim())
     );
     if (!isDirty) return;
 
@@ -988,15 +1062,26 @@ export function PeopleTab({
     setEditingParticipant(null);
     const draft = loadParticipantDraft();
     const nextForm = draft
-      ? draft
+      ? {
+          name: draft.name || '',
+          school: draft.school || '',
+          class_or_age: draft.class_or_age || '',
+          mobile_number: draft.mobile_number || '',
+          custom_values: draft.custom_values || {},
+        }
       : {
           name: '',
-          school: '',
-          class_or_age: '',
+          school: defaultSuggestedSchool,
+          class_or_age: defaultSuggestedClass,
           mobile_number: '',
           custom_values: {},
         };
     setParticipantForm(nextForm);
+    setSchoolSuggested(!draft && Boolean(defaultSuggestedSchool));
+    setClassSuggested(!draft && Boolean(defaultSuggestedClass));
+    setParticipantTouched({});
+    setParticipantSaveAttempted(false);
+    setShowMoreParticipantOptions(false);
     initialParticipantSnapshotRef.current = JSON.stringify(nextForm);
     setIsParticipantUnsavedOpen(false);
     setShowParticipantModal(true);
@@ -1012,6 +1097,11 @@ export function PeopleTab({
       custom_values: p.custom_values || {},
     };
     setParticipantForm(nextForm);
+    setSchoolSuggested(false);
+    setClassSuggested(false);
+    setParticipantTouched({});
+    setParticipantSaveAttempted(false);
+    setShowMoreParticipantOptions(false);
     initialParticipantSnapshotRef.current = JSON.stringify(nextForm);
     setIsParticipantUnsavedOpen(false);
     setShowParticipantModal(true);
@@ -1034,6 +1124,7 @@ export function PeopleTab({
   };
 
   const handleSaveParticipant = async () => {
+    setParticipantSaveAttempted(true);
     if (!participantForm.name.trim()) {
       showToast('Full Name is required.', 'warning');
       return;
@@ -1041,6 +1132,12 @@ export function PeopleTab({
     if (!participantForm.school.trim()) {
       showToast('School / Institution is required.', 'warning');
       return;
+    }
+    for (const cf of requiredCustomFields) {
+      if (!(participantForm.custom_values[cf.id] || '').trim()) {
+        showToast(`${cf.name} is required.`, 'warning');
+        return;
+      }
     }
 
     try {
@@ -1185,10 +1282,14 @@ export function PeopleTab({
     setEditingJudge(null);
     const nextForm = {
       name: '',
-      judge_id: generateJudgeId(),
+      judge_id: '',
       pin: generateJudgePin(),
     };
     setJudgeForm(nextForm);
+    setJudgeIdManuallyEdited(false);
+    setJudgeTouched({});
+    setJudgeSaveAttempted(false);
+    setShowMoreJudgeOptions(false);
     initialJudgeSnapshotRef.current = JSON.stringify(nextForm);
     setIsJudgeUnsavedOpen(false);
     setShowJudgeModal(true);
@@ -1219,6 +1320,10 @@ export function PeopleTab({
       pin: j.pin,
     };
     setJudgeForm(nextForm);
+    setJudgeIdManuallyEdited(true);
+    setJudgeTouched({});
+    setJudgeSaveAttempted(false);
+    setShowMoreJudgeOptions(false);
     initialJudgeSnapshotRef.current = JSON.stringify(nextForm);
     setIsJudgeUnsavedOpen(false);
     setShowJudgeModal(true);
@@ -1238,6 +1343,7 @@ export function PeopleTab({
   };
 
   const handleSaveJudge = async () => {
+    setJudgeSaveAttempted(true);
     if (!judgeForm.name.trim()) {
       showToast('Judge Full Name is required.', 'warning');
       return;
@@ -1246,8 +1352,8 @@ export function PeopleTab({
       showToast('Judge ID Code is required.', 'warning');
       return;
     }
-    if (!judgeForm.pin.trim() || judgeForm.pin.trim().length < 4) {
-      showToast('A valid 4-Digit PIN is required.', 'warning');
+    if (!/^\d{4}$/.test(judgeForm.pin.trim())) {
+      showToast('PIN must be exactly 4 digits.', 'warning');
       return;
     }
 
@@ -2230,116 +2336,437 @@ export function PeopleTab({
       {/* ======================================================== */}
       {/* FULL-SCREEN PARTICIPANT CREATION WIZARD (TaskScreen)     */}
       {/* ======================================================== */}
-      <TaskScreen
-        isOpen={showParticipantModal}
-        title={editingParticipant ? 'Edit Competitor' : 'New Competitor'}
-        onBack={handleCloseParticipantWizard}
-        hasNestedOverlay={Boolean(
-          isParticipantUnsavedOpen ||
-            isConflictPopupOpen ||
-            showStagingModal ||
-            isDeleteModalOpen ||
-            isQrModalOpen ||
-            isJudgeDetailsModalOpen
-        )}
-        maxWidthClass="md:max-w-2xl"
-        secondaryAction={{
-          label: 'Cancel',
-          onClick: handleCloseParticipantWizard,
-        }}
-        primaryAction={{
-          label: 'Save',
-          onClick: handleSaveParticipant,
-          icon: <Check className="w-4 h-4 stroke-[2.5]" />,
-          variant: 'indigo',
-        }}
-      >
-        <div className="max-w-2xl w-full mx-auto space-y-6">
-            {/* Massive Borderless Name Input */}
-            <div className="space-y-1">
-              <label className="text-[11px] lg:text-sm font-bold text-indigo-600 dark:text-indigo-400 tracking-wider uppercase block">
-                Full Name <span className="text-indigo-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={participantForm.name}
-                onChange={(e) => setParticipantForm({ ...participantForm, name: e.target.value })}
-                placeholder="Participant Name..."
-                className="text-3xl sm:text-4xl font-black bg-transparent border-none text-stone-900 dark:text-white focus:outline-none placeholder:text-stone-300 dark:placeholder:text-zinc-700 w-full"
-                autoFocus
-              />
-            </div>
+      {(() => {
+        const missingRequiredCustom = requiredCustomFields.find(
+          (cf) => !(participantForm.custom_values[cf.id] || '').trim()
+        );
+        const participantMissingReason = !participantForm.name.trim()
+          ? 'Add a full name to continue'
+          : !participantForm.school.trim()
+          ? 'Add a school to continue'
+          : missingRequiredCustom
+          ? `Add ${missingRequiredCustom.name} to continue`
+          : null;
+        const isParticipantFormValid = participantMissingReason === null;
+        const hasMoreParticipantSection = true; // Mobile Number + any optional custom fields
 
-            {/* Grouped Card for remaining fields */}
-            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
-              {/* Field: School / Institution (Mandatory) */}
-              <div>
-                <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                  School / Institution <span className="text-indigo-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={participantForm.school}
-                  onChange={(e) => setParticipantForm({ ...participantForm, school: e.target.value })}
-                  placeholder="e.g. Modern High School, DPS, Team Alpha"
-                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                />
-              </div>
-
-              {/* Dynamic Categorization & Mobile */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        return (
+          <TaskScreen
+            isOpen={showParticipantModal}
+            title={editingParticipant ? 'Edit Competitor' : 'New Competitor'}
+            onBack={handleCloseParticipantWizard}
+            hasNestedOverlay={Boolean(
+              isParticipantUnsavedOpen ||
+                isConflictPopupOpen ||
+                showStagingModal ||
+                isDeleteModalOpen ||
+                isQrModalOpen ||
+                isJudgeDetailsModalOpen
+            )}
+            maxWidthClass="md:max-w-2xl"
+            footer={
+              participantMissingReason ? (
+                <p className="text-[11px] lg:text-xs font-medium text-amber-600 dark:text-amber-400 truncate">
+                  {participantMissingReason}
+                </p>
+              ) : undefined
+            }
+            secondaryAction={{
+              label: 'Cancel',
+              onClick: handleCloseParticipantWizard,
+            }}
+            primaryAction={{
+              label: 'Save',
+              disabled: !isParticipantFormValid,
+              onClick: handleSaveParticipant,
+              icon: <Check className="w-4 h-4 stroke-[2.5]" />,
+              variant: 'indigo',
+            }}
+          >
+            <div className="max-w-2xl w-full mx-auto space-y-5">
+              {/* Primary Card: Full Name, School, Category, Required Custom Fields */}
+              <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
+                {/* Full Name (Normal labelled input) */}
                 <div>
-                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                    {categoryLabel}
+                  <label
+                    htmlFor="participant-name-input"
+                    className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+                  >
+                    Full Name <span className="text-indigo-500">*</span>
                   </label>
                   <input
+                    id="participant-name-input"
+                    ref={participantNameRef}
+                    type="text"
+                    value={participantForm.name}
+                    onChange={(e) => setParticipantForm({ ...participantForm, name: e.target.value })}
+                    onBlur={() => setParticipantTouched((prev) => ({ ...prev, name: true }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        participantSchoolRef.current?.focus();
+                      }
+                    }}
+                    placeholder="e.g. Aarav Sharma"
+                    enterKeyHint="next"
+                    autoFocus
+                    className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm sm:text-base font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
+                      (participantTouched.name || participantSaveAttempted) && !participantForm.name.trim()
+                        ? 'border-rose-500 focus:ring-rose-500/30'
+                        : 'border-stone-200 dark:border-zinc-800 focus:ring-indigo-500/40'
+                    }`}
+                  />
+                  {(participantTouched.name || participantSaveAttempted) && !participantForm.name.trim() && (
+                    <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                      Full Name is required.
+                    </p>
+                  )}
+                </div>
+
+                {/* School / Institution (Mandatory + Org Suggestions) */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor="participant-school-input"
+                        className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                      >
+                        School / Institution <span className="text-indigo-500">*</span>
+                      </label>
+                      {schoolSuggested && (
+                        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
+                          Suggested
+                        </span>
+                      )}
+                    </div>
+                    {!schoolSuggested &&
+                      defaultSuggestedSchool &&
+                      participantForm.school.trim() !== defaultSuggestedSchool && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setParticipantForm({ ...participantForm, school: defaultSuggestedSchool });
+                            setSchoolSuggested(true);
+                          }}
+                          className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          Reset to suggested
+                        </button>
+                      )}
+                  </div>
+                  <input
+                    id="participant-school-input"
+                    ref={participantSchoolRef}
+                    type="text"
+                    value={participantForm.school}
+                    onChange={(e) => {
+                      setSchoolSuggested(false);
+                      setParticipantForm({ ...participantForm, school: e.target.value });
+                    }}
+                    onBlur={() => setParticipantTouched((prev) => ({ ...prev, school: true }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        participantClassRef.current?.focus();
+                      }
+                    }}
+                    placeholder="e.g. Modern High School, DPS, Team Alpha"
+                    enterKeyHint="next"
+                    className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
+                      (participantTouched.school || participantSaveAttempted) && !participantForm.school.trim()
+                        ? 'border-rose-500 focus:ring-rose-500/30'
+                        : 'border-stone-200 dark:border-zinc-800 focus:ring-indigo-500/40'
+                    }`}
+                  />
+                  {(participantTouched.school || participantSaveAttempted) && !participantForm.school.trim() && (
+                    <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                      School / Institution is required.
+                    </p>
+                  )}
+                  {orgSchoolSuggestions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {orgSchoolSuggestions.map((schoolChip) => {
+                        const isActive = participantForm.school.trim().toLowerCase() === schoolChip.toLowerCase();
+                        return (
+                          <button
+                            key={schoolChip}
+                            type="button"
+                            onClick={() => {
+                              setParticipantForm({ ...participantForm, school: schoolChip });
+                              setSchoolSuggested(!editingParticipant && schoolChip === defaultSuggestedSchool);
+                              setParticipantTouched((prev) => ({ ...prev, school: true }));
+                            }}
+                            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                              isActive
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 border-stone-200 dark:border-zinc-800 hover:border-indigo-500/50'
+                            }`}
+                          >
+                            {schoolChip}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Dynamic Categorization (Optional + Org Suggestions) */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <label
+                        htmlFor="participant-class-input"
+                        className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                      >
+                        {categoryLabel}
+                      </label>
+                      {classSuggested && (
+                        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
+                          Suggested
+                        </span>
+                      )}
+                    </div>
+                    {!classSuggested &&
+                      defaultSuggestedClass &&
+                      participantForm.class_or_age.trim() !== defaultSuggestedClass && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setParticipantForm({ ...participantForm, class_or_age: defaultSuggestedClass });
+                            setClassSuggested(true);
+                          }}
+                          className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
+                          Reset to suggested
+                        </button>
+                      )}
+                  </div>
+                  <input
+                    id="participant-class-input"
+                    ref={participantClassRef}
                     type="text"
                     value={participantForm.class_or_age}
-                    onChange={(e) => setParticipantForm({ ...participantForm, class_or_age: e.target.value })}
-                    placeholder={categoryLabel.toLowerCase().includes('age') ? '14-16 Yrs' : 'Grade 10'}
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                    Mobile Number (Optional)
-                  </label>
-                  <input
-                    type="tel"
-                    value={participantForm.mobile_number}
-                    onChange={(e) => setParticipantForm({ ...participantForm, mobile_number: e.target.value })}
-                    placeholder="9876543210"
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                  />
-                </div>
-              </div>
-
-              {/* Dynamic custom fields configured in organization */}
-              {customFields.map((cf) => (
-                <div key={cf.id}>
-                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                    {cf.name} {cf.required && <span className="text-indigo-500">*</span>}
-                  </label>
-                  <input
-                    type={cf.type || 'text'}
-                    value={participantForm.custom_values[cf.id] || ''}
-                    onChange={(e) =>
-                      setParticipantForm({
-                        ...participantForm,
-                        custom_values: {
-                          ...participantForm.custom_values,
-                          [cf.id]: e.target.value,
-                        },
-                      })
+                    onChange={(e) => {
+                      setClassSuggested(false);
+                      setParticipantForm({ ...participantForm, class_or_age: e.target.value });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const firstReq = requiredCustomFields[0];
+                        if (firstReq) {
+                          participantCustomRefs.current[firstReq.id]?.focus();
+                        } else if (showMoreParticipantOptions) {
+                          participantMobileRef.current?.focus();
+                        } else {
+                          e.currentTarget.blur();
+                        }
+                      }
+                    }}
+                    placeholder={categoryLabel.toLowerCase().includes('age') ? 'e.g. 14-16 Yrs' : 'e.g. Grade 10'}
+                    enterKeyHint={
+                      requiredCustomFields.length > 0 || showMoreParticipantOptions ? 'next' : 'done'
                     }
                     className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
+                  {orgCategorySuggestions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {orgCategorySuggestions.map((catChip) => {
+                        const isActive = participantForm.class_or_age.trim().toLowerCase() === catChip.toLowerCase();
+                        return (
+                          <button
+                            key={catChip}
+                            type="button"
+                            onClick={() => {
+                              setParticipantForm({ ...participantForm, class_or_age: catChip });
+                              setClassSuggested(!editingParticipant && catChip === defaultSuggestedClass);
+                            }}
+                            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                              isActive
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 border-stone-200 dark:border-zinc-800 hover:border-indigo-500/50'
+                            }`}
+                          >
+                            {catChip}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              ))}
+
+                {/* Required Custom Fields (Enforced on save with inline errors) */}
+                {requiredCustomFields.map((cf, cfIdx) => {
+                  const val = participantForm.custom_values[cf.id] || '';
+                  const isMissing = !val.trim();
+                  const showError = Boolean(
+                    (participantTouched.custom?.[cf.id] || participantSaveAttempted) && isMissing
+                  );
+                  const nextReq = requiredCustomFields[cfIdx + 1];
+                  const hasNextField = Boolean(nextReq || showMoreParticipantOptions);
+                  return (
+                    <div key={cf.id}>
+                      <label
+                        htmlFor={`participant-custom-${cf.id}`}
+                        className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+                      >
+                        {cf.name} <span className="text-indigo-500">*</span>
+                      </label>
+                      <input
+                        id={`participant-custom-${cf.id}`}
+                        ref={(el) => {
+                          participantCustomRefs.current[cf.id] = el;
+                        }}
+                        type={cf.type || 'text'}
+                        value={val}
+                        onChange={(e) =>
+                          setParticipantForm({
+                            ...participantForm,
+                            custom_values: {
+                              ...participantForm.custom_values,
+                              [cf.id]: e.target.value,
+                            },
+                          })
+                        }
+                        onBlur={() =>
+                          setParticipantTouched((prev) => ({
+                            ...prev,
+                            custom: { ...(prev.custom || {}), [cf.id]: true },
+                          }))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (nextReq) {
+                              participantCustomRefs.current[nextReq.id]?.focus();
+                            } else if (showMoreParticipantOptions) {
+                              participantMobileRef.current?.focus();
+                            } else {
+                              e.currentTarget.blur();
+                            }
+                          }
+                        }}
+                        enterKeyHint={hasNextField ? 'next' : 'done'}
+                        className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
+                          showError
+                            ? 'border-rose-500 focus:ring-rose-500/30'
+                            : 'border-stone-200 dark:border-zinc-800 focus:ring-indigo-500/40'
+                        }`}
+                      />
+                      {showError && (
+                        <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                          {cf.name} is required.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Collapsible More Options (Mobile Number & Optional Custom Fields) */}
+              {hasMoreParticipantSection && (
+                <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+                  <button
+                    type="button"
+                    aria-expanded={showMoreParticipantOptions}
+                    onClick={() => setShowMoreParticipantOptions((prev) => !prev)}
+                    className="w-full min-h-[48px] px-4 sm:px-5 flex items-center justify-between text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/60 transition-colors cursor-pointer"
+                  >
+                    <span>
+                      More options
+                      <span className="ml-2 text-[11px] font-normal text-stone-500 dark:text-zinc-400">
+                        Mobile number{optionalCustomFields.length > 0 ? `, ${optionalCustomFields.length} optional` : ''}
+                      </span>
+                    </span>
+                    {showMoreParticipantOptions ? (
+                      <ChevronUp className="w-4 h-4 text-stone-400" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-stone-400" />
+                    )}
+                  </button>
+
+                  {showMoreParticipantOptions && (
+                    <div className="px-4 sm:px-5 pb-4 sm:pb-5 pt-2 border-t border-stone-100 dark:border-zinc-900 space-y-4">
+                      <div>
+                        <label
+                          htmlFor="participant-mobile-input"
+                          className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+                        >
+                          Mobile Number (Optional)
+                        </label>
+                        <input
+                          id="participant-mobile-input"
+                          ref={participantMobileRef}
+                          type="tel"
+                          value={participantForm.mobile_number}
+                          onChange={(e) => setParticipantForm({ ...participantForm, mobile_number: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const firstOpt = optionalCustomFields[0];
+                              if (firstOpt) {
+                                participantCustomRefs.current[firstOpt.id]?.focus();
+                              } else {
+                                e.currentTarget.blur();
+                              }
+                            }
+                          }}
+                          placeholder="9876543210"
+                          enterKeyHint={optionalCustomFields.length > 0 ? 'next' : 'done'}
+                          className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                        />
+                      </div>
+
+                      {optionalCustomFields.map((cf, cfIdx) => {
+                        const nextOpt = optionalCustomFields[cfIdx + 1];
+                        return (
+                          <div key={cf.id}>
+                            <label
+                              htmlFor={`participant-custom-${cf.id}`}
+                              className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+                            >
+                              {cf.name}
+                            </label>
+                            <input
+                              id={`participant-custom-${cf.id}`}
+                              ref={(el) => {
+                                participantCustomRefs.current[cf.id] = el;
+                              }}
+                              type={cf.type || 'text'}
+                              value={participantForm.custom_values[cf.id] || ''}
+                              onChange={(e) =>
+                                setParticipantForm({
+                                  ...participantForm,
+                                  custom_values: {
+                                    ...participantForm.custom_values,
+                                    [cf.id]: e.target.value,
+                                  },
+                                })
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (nextOpt) {
+                                    participantCustomRefs.current[nextOpt.id]?.focus();
+                                  } else {
+                                    e.currentTarget.blur();
+                                  }
+                                }
+                              }}
+                              enterKeyHint={nextOpt ? 'next' : 'done'}
+                              className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-        </div>
-      </TaskScreen>
+          </TaskScreen>
+        );
+      })()}
 
       {/* Participant Unsaved Changes Confirmation Modal (Portaled) */}
       {isParticipantUnsavedOpen &&
@@ -2393,92 +2820,288 @@ export function PeopleTab({
       {/* ======================================================== */}
       {/* FULL-SCREEN JUDGE CREATION WIZARD (TaskScreen)           */}
       {/* ======================================================== */}
-      <TaskScreen
-        isOpen={showJudgeModal}
-        title={editingJudge ? 'Edit Judge Profile' : 'New Judge Profile'}
-        onBack={handleCloseJudgeWizard}
-        hasNestedOverlay={Boolean(
-          isJudgeUnsavedOpen ||
-            isConflictPopupOpen ||
-            showStagingModal ||
-            isDeleteModalOpen ||
-            isQrModalOpen ||
-            isJudgeDetailsModalOpen
-        )}
-        maxWidthClass="md:max-w-2xl"
-        secondaryAction={{
-          label: 'Cancel',
-          onClick: handleCloseJudgeWizard,
-        }}
-        primaryAction={{
-          label: 'Save',
-          onClick: handleSaveJudge,
-          icon: <Check className="w-4 h-4 stroke-[2.5]" />,
-          variant: 'amber',
-        }}
-      >
-        <div className="max-w-2xl w-full mx-auto space-y-6">
-            {/* Massive Borderless Name Input */}
-            <div className="space-y-1">
-              <label className="text-[11px] lg:text-sm font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase block">
-                Judge Full Name <span className="text-amber-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={judgeForm.name}
-                onChange={(e) => setJudgeForm({ ...judgeForm, name: e.target.value })}
-                placeholder="Judge Full Name..."
-                className="text-3xl sm:text-4xl font-black bg-transparent border-none text-stone-900 dark:text-white focus:outline-none placeholder:text-stone-300 dark:placeholder:text-zinc-700 w-full"
-                autoFocus
-              />
-            </div>
+      {(() => {
+        const suggestedJudgeId = computeJudgeInitials(judgeForm.name);
+        const normalizedJudgeId = judgeForm.judge_id.trim().toUpperCase();
+        const duplicateJudgeMatch = normalizedJudgeId
+          ? judges.find(
+              (j) =>
+                j.id !== editingJudge?.id &&
+                (j.judge_id || '').trim().toUpperCase() === normalizedJudgeId
+            )
+          : undefined;
+        const isPinValid = /^\d{4}$/.test(judgeForm.pin.trim());
+        const judgeMissingReason = !judgeForm.name.trim()
+          ? 'Add judge full name to continue'
+          : !judgeForm.judge_id.trim()
+          ? 'Add a Judge ID to continue'
+          : !isPinValid
+          ? 'Enter a 4-digit PIN to continue'
+          : null;
+        const isJudgeFormValid = judgeMissingReason === null;
+        const isJudgeIdSuggestedActive =
+          !editingJudge &&
+          !judgeIdManuallyEdited &&
+          Boolean(suggestedJudgeId) &&
+          normalizedJudgeId === suggestedJudgeId;
 
-            {/* Grouped Card */}
-            <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
-              {/* Field 1: Organisation ID (READ-ONLY) */}
-              <div>
-                <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                  Organisation ID (Read-Only)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={organization.org_id}
-                  className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-stone-500 dark:text-zinc-400 select-all cursor-default"
-                />
-              </div>
-
-              {/* Field 2 & 3: Auto-Generated Judge ID & 4-Digit PIN */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        return (
+          <TaskScreen
+            isOpen={showJudgeModal}
+            title={editingJudge ? 'Edit Judge Profile' : 'New Judge Profile'}
+            onBack={handleCloseJudgeWizard}
+            hasNestedOverlay={Boolean(
+              isJudgeUnsavedOpen ||
+                isConflictPopupOpen ||
+                showStagingModal ||
+                isDeleteModalOpen ||
+                isQrModalOpen ||
+                isJudgeDetailsModalOpen
+            )}
+            maxWidthClass="md:max-w-2xl"
+            footer={
+              judgeMissingReason ? (
+                <p className="text-[11px] lg:text-xs font-medium text-amber-600 dark:text-amber-400 truncate">
+                  {judgeMissingReason}
+                </p>
+              ) : undefined
+            }
+            secondaryAction={{
+              label: 'Cancel',
+              onClick: handleCloseJudgeWizard,
+            }}
+            primaryAction={{
+              label: 'Save',
+              disabled: !isJudgeFormValid,
+              onClick: handleSaveJudge,
+              icon: <Check className="w-4 h-4 stroke-[2.5]" />,
+              variant: 'amber',
+            }}
+          >
+            <div className="max-w-2xl w-full mx-auto space-y-5">
+              {/* Primary Card: Judge Full Name, Judge ID Code, 4-Digit PIN */}
+              <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
+                {/* Judge Full Name (Normal labelled input) */}
                 <div>
-                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                    Judge ID Code
+                  <label
+                    htmlFor="judge-name-input"
+                    className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+                  >
+                    Judge Full Name <span className="text-amber-500">*</span>
                   </label>
                   <input
+                    id="judge-name-input"
+                    ref={judgeNameRef}
                     type="text"
-                    value={judgeForm.judge_id}
-                    onChange={(e) => setJudgeForm({ ...judgeForm, judge_id: e.target.value })}
-                    className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-stone-900 dark:text-white"
+                    value={judgeForm.name}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      setJudgeForm((prev) => ({
+                        ...prev,
+                        name: nextName,
+                        judge_id:
+                          !editingJudge && !judgeIdManuallyEdited
+                            ? computeJudgeInitials(nextName)
+                            : prev.judge_id,
+                      }));
+                    }}
+                    onBlur={() => setJudgeTouched((prev) => ({ ...prev, name: true }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        judgeIdRef.current?.focus();
+                      }
+                    }}
+                    placeholder="e.g. Sahil Kumar Rout"
+                    enterKeyHint="next"
+                    autoFocus
+                    className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm sm:text-base font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
+                      (judgeTouched.name || judgeSaveAttempted) && !judgeForm.name.trim()
+                        ? 'border-rose-500 focus:ring-rose-500/30'
+                        : 'border-stone-200 dark:border-zinc-800 focus:ring-amber-500/40'
+                    }`}
                   />
+                  {(judgeTouched.name || judgeSaveAttempted) && !judgeForm.name.trim() && (
+                    <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                      Judge Full Name is required.
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <label className="text-[11px] lg:text-sm font-bold text-stone-500 dark:text-zinc-400 tracking-wider mb-1 uppercase block">
-                    4-Digit PIN
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="\d{4}"
-                    maxLength={4}
-                    value={judgeForm.pin}
-                    onChange={(e) => setJudgeForm({ ...judgeForm, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                    className="w-full min-h-[46px] px-3.5 text-center rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-black text-amber-500 dark:text-amber-400"
-                  />
+
+                {/* Judge ID Code & 4-Digit PIN */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Judge ID Code */}
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <label
+                          htmlFor="judge-id-input"
+                          className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                        >
+                          Judge ID Code <span className="text-amber-500">*</span>
+                        </label>
+                        {isJudgeIdSuggestedActive && (
+                          <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
+                            Suggested
+                          </span>
+                        )}
+                      </div>
+                      {suggestedJudgeId && normalizedJudgeId !== suggestedJudgeId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setJudgeForm((prev) => ({ ...prev, judge_id: suggestedJudgeId }));
+                            if (!editingJudge) {
+                              setJudgeIdManuallyEdited(false);
+                            }
+                          }}
+                          className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                        >
+                          Reset to suggested
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      id="judge-id-input"
+                      ref={judgeIdRef}
+                      type="text"
+                      value={judgeForm.judge_id}
+                      onChange={(e) => {
+                        setJudgeIdManuallyEdited(true);
+                        setJudgeForm({ ...judgeForm, judge_id: e.target.value });
+                      }}
+                      onBlur={() => setJudgeTouched((prev) => ({ ...prev, judge_id: true }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          judgePinRef.current?.focus();
+                        }
+                      }}
+                      placeholder="e.g. SKR"
+                      enterKeyHint="next"
+                      className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm font-mono font-bold uppercase text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
+                        (judgeTouched.judge_id || judgeSaveAttempted) && !judgeForm.judge_id.trim()
+                          ? 'border-rose-500 focus:ring-rose-500/30'
+                          : 'border-stone-200 dark:border-zinc-800 focus:ring-amber-500/40'
+                      }`}
+                    />
+                    {(judgeTouched.judge_id || judgeSaveAttempted) && !judgeForm.judge_id.trim() && (
+                      <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                        Judge ID Code is required.
+                      </p>
+                    )}
+                    {duplicateJudgeMatch && (
+                      <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          This Judge ID is already in use by {duplicateJudgeMatch.name}.
+                        </span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 4-Digit PIN + Regenerate */}
+                  <div>
+                    <label
+                      htmlFor="judge-pin-input"
+                      className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+                    >
+                      4-Digit PIN <span className="text-amber-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="judge-pin-input"
+                        ref={judgePinRef}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d{4}"
+                        maxLength={4}
+                        value={judgeForm.pin}
+                        onChange={(e) =>
+                          setJudgeForm({
+                            ...judgeForm,
+                            pin: e.target.value.replace(/\D/g, '').slice(0, 4),
+                          })
+                        }
+                        onBlur={() => setJudgeTouched((prev) => ({ ...prev, pin: true }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        enterKeyHint="done"
+                        className={`flex-1 min-w-0 min-h-[46px] px-3.5 text-center rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm font-mono font-black text-amber-600 dark:text-amber-400 focus:outline-none focus:ring-2 transition-colors ${
+                          (judgeTouched.pin || judgeSaveAttempted) && !isPinValid
+                            ? 'border-rose-500 focus:ring-rose-500/30'
+                            : 'border-stone-200 dark:border-zinc-800 focus:ring-amber-500/40'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJudgeForm((prev) => ({ ...prev, pin: generateJudgePin() }));
+                          setJudgeTouched((prev) => ({ ...prev, pin: true }));
+                        }}
+                        className="min-h-[46px] px-3 rounded-xl border border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900 hover:bg-stone-100 dark:hover:bg-zinc-800 text-xs font-semibold text-stone-700 dark:text-zinc-200 flex items-center gap-1.5 shrink-0 active:scale-95 transition-[transform,colors] cursor-pointer"
+                        title="Generate a new 4-digit PIN"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Regenerate</span>
+                      </button>
+                    </div>
+                    {(judgeTouched.pin || judgeSaveAttempted) && !isPinValid && (
+                      <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                        PIN must be exactly 4 digits.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {/* Collapsible More Options (Read-Only Organisation ID) */}
+              <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+                <button
+                  type="button"
+                  aria-expanded={showMoreJudgeOptions}
+                  onClick={() => setShowMoreJudgeOptions((prev) => !prev)}
+                  className="w-full min-h-[48px] px-4 sm:px-5 flex items-center justify-between text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/60 transition-colors cursor-pointer"
+                >
+                  <span>
+                    More options
+                    <span className="ml-2 text-[11px] font-normal text-stone-500 dark:text-zinc-400">
+                      Organisation ID
+                    </span>
+                  </span>
+                  {showMoreJudgeOptions ? (
+                    <ChevronUp className="w-4 h-4 text-stone-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-stone-400" />
+                  )}
+                </button>
+
+                {showMoreJudgeOptions && (
+                  <div className="px-4 sm:px-5 pb-4 sm:pb-5 pt-2 border-t border-stone-100 dark:border-zinc-900">
+                    <label
+                      htmlFor="judge-org-id-readonly"
+                      className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
+                    >
+                      Organisation ID (Read-Only)
+                    </label>
+                    <input
+                      id="judge-org-id-readonly"
+                      type="text"
+                      readOnly
+                      value={organization.org_id}
+                      className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-mono font-bold text-stone-500 dark:text-zinc-400 select-all cursor-default"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
-        </div>
-      </TaskScreen>
+          </TaskScreen>
+        );
+      })()}
 
       {/* Judge Unsaved Changes Confirmation Modal (Portaled) */}
       {isJudgeUnsavedOpen &&
