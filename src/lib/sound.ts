@@ -1,6 +1,7 @@
 /**
- * Procedural Web Audio Sound Engine for Fair Judge (EPIC 16.3.3)
+ * Procedural Web Audio Sound Engine for Fair Judge (EPIC 16.8.7 Acoustic Chimes)
  * - Zero external audio assets (100% offline-safe, zero bundle bloat)
+ * - Sine-partial bell & wood-block synthesis with low-pass warmth and room delay
  * - Scoped localStorage persistence matching src/lib/haptics.ts
  * - Safe against browser autoplay restrictions (no burst replay on late unlock)
  */
@@ -9,6 +10,7 @@ export type SoundLevel = 'off' | 'soft' | 'crisp';
 export type ActiveSoundLevel = 'soft' | 'crisp';
 export type SoundEvent =
   | 'boot'
+  | 'launch'
   | 'signin'
   | 'shutdown'
   | 'tap'
@@ -114,11 +116,12 @@ export function toggleSoundMute(): SoundLevel {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton Web Audio Graph
+// Singleton Web Audio Graph (Dry Bus + 28ms/41ms Feedback Room Reverb)
 // ---------------------------------------------------------------------------
 
 let audioCtx: AudioContext | null = null;
-let masterGain: GainNode | null = null;
+let dryBus: GainNode | null = null;
+let roomInput: GainNode | null = null;
 let unlockAttached = false;
 let lastTickAt = 0;
 let pendingLaunchChime = false;
@@ -142,14 +145,53 @@ function getAudioContext(): AudioContext | null {
     compressor.attack.setValueAtTime(0.003, ctx.currentTime);
     compressor.release.setValueAtTime(0.15, ctx.currentTime);
 
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(1, ctx.currentTime);
-
-    gain.connect(compressor);
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(1, ctx.currentTime);
+    masterGain.connect(compressor);
     compressor.connect(ctx.destination);
 
+    const dry = ctx.createGain();
+    dry.gain.setValueAtTime(1, ctx.currentTime);
+    dry.connect(masterGain);
+
+    // Short acoustic room: cross-coupled 28 ms and 41 ms delays, feedback 0.3, wet mix 0.18
+    const roomIn = ctx.createGain();
+    roomIn.gain.setValueAtTime(1, ctx.currentTime);
+
+    const delayA = ctx.createDelay(0.2);
+    delayA.delayTime.setValueAtTime(0.028, ctx.currentTime);
+
+    const delayB = ctx.createDelay(0.2);
+    delayB.delayTime.setValueAtTime(0.041, ctx.currentTime);
+
+    const fbA = ctx.createGain();
+    fbA.gain.setValueAtTime(0.3, ctx.currentTime);
+
+    const fbB = ctx.createGain();
+    fbB.gain.setValueAtTime(0.3, ctx.currentTime);
+
+    const roomTapSum = ctx.createGain();
+    roomTapSum.gain.setValueAtTime(0.5, ctx.currentTime);
+
+    const wetMix = ctx.createGain();
+    wetMix.gain.setValueAtTime(0.18, ctx.currentTime);
+
+    roomIn.connect(delayA);
+    roomIn.connect(delayB);
+
+    delayA.connect(fbA);
+    fbA.connect(delayB);
+    delayB.connect(fbB);
+    fbB.connect(delayA);
+
+    delayA.connect(roomTapSum);
+    delayB.connect(roomTapSum);
+    roomTapSum.connect(wetMix);
+    wetMix.connect(masterGain);
+
     audioCtx = ctx;
-    masterGain = gain;
+    dryBus = dry;
+    roomInput = roomIn;
     return ctx;
   } catch {
     return null;
@@ -174,14 +216,11 @@ export function unlockSoundEngine(): void {
     if (isProjectorRouteActive() || getSoundLevel() === 'off' || targetCtx.state !== 'running') {
       return;
     }
-    const dest = masterGain;
-    if (!dest) return;
+    if (!dryBus || !roomInput) return;
     launchChimePlayed = true;
     const scale = getSoundLevel() === 'crisp' ? 0.72 : 0.38;
     try {
-      for (const step of SOUND_PATTERNS.boot) {
-        scheduleTone(targetCtx, dest, step, scale);
-      }
+      schedulePattern(targetCtx, SOUND_PATTERNS.launch, scale);
     } catch {}
   };
 
@@ -226,74 +265,161 @@ if (typeof window !== 'undefined') {
   unlockSoundEngine();
 }
 
-interface ToneStep {
+// ---------------------------------------------------------------------------
+// Acoustic Partial Synthesis
+// ---------------------------------------------------------------------------
+
+interface PartialSpec {
+  ratio: number;
+  level: number;
+  decayScale: number;
+}
+
+const BELL_PARTIALS: readonly PartialSpec[] = [
+  { ratio: 1.0, level: 1.0, decayScale: 1.0 },
+  { ratio: 2.0, level: 0.3, decayScale: 0.62 },
+  { ratio: 2.76, level: 0.18, decayScale: 0.4 },
+  { ratio: 5.4, level: 0.07, decayScale: 0.2 },
+];
+
+const WOOD_PARTIALS: readonly PartialSpec[] = [
+  { ratio: 1.0, level: 1.0, decayScale: 1.0 },
+  { ratio: 3.9, level: 0.25, decayScale: 0.65 },
+];
+
+interface NoteStep {
   freq: number;
-  endFreq?: number;
-  type: OscillatorType;
   delay: number;
-  duration: number;
+  decay: number;
   gain: number;
 }
 
-function scheduleTone(ctx: AudioContext, dest: AudioNode, step: ToneStep, scale: number): void {
-  const startAt = ctx.currentTime + step.delay;
-  const stopAt = startAt + step.duration + 0.02;
-  const peakGain = Math.max(0.001, step.gain * scale);
-
-  const osc = ctx.createOscillator();
-  const env = ctx.createGain();
-
-  osc.type = step.type;
-  osc.frequency.setValueAtTime(step.freq, startAt);
-  if (step.endFreq && step.endFreq > 0) {
-    osc.frequency.exponentialRampToValueAtTime(step.endFreq, startAt + step.duration);
-  }
-
-  env.gain.setValueAtTime(0.0001, startAt);
-  env.gain.linearRampToValueAtTime(peakGain, startAt + Math.min(0.008, step.duration * 0.25));
-  env.gain.exponentialRampToValueAtTime(0.0001, startAt + step.duration);
-
-  osc.connect(env);
-  env.connect(dest);
-
-  osc.start(startAt);
-  osc.stop(stopAt);
+interface SoundPattern {
+  voice: 'bell' | 'wood';
+  lowpassHz: number;
+  attackSec: number;
+  notes: readonly NoteStep[];
 }
 
-const SOUND_PATTERNS: Record<SoundEvent, ToneStep[]> = {
-  tick: [
-    { freq: 1120, endFreq: 720, type: 'triangle', delay: 0, duration: 0.016, gain: 0.16 },
+function schedulePattern(ctx: AudioContext, pattern: SoundPattern, scale: number): void {
+  if (!dryBus || !roomInput) return;
+
+  const voiceFilter = ctx.createBiquadFilter();
+  voiceFilter.type = 'lowpass';
+  voiceFilter.frequency.setValueAtTime(pattern.lowpassHz, ctx.currentTime);
+  voiceFilter.Q.setValueAtTime(0.707, ctx.currentTime);
+
+  voiceFilter.connect(dryBus);
+  voiceFilter.connect(roomInput);
+
+  const partials = pattern.voice === 'wood' ? WOOD_PARTIALS : BELL_PARTIALS;
+  const maxFreq = ctx.sampleRate * 0.48;
+  const baseTime = ctx.currentTime;
+
+  for (const note of pattern.notes) {
+    const startAt = baseTime + note.delay;
+    for (const partial of partials) {
+      const freq = note.freq * partial.ratio;
+      if (freq <= 0 || freq > maxFreq) continue;
+
+      const partialDecay = Math.max(0.025, note.decay * partial.decayScale);
+      const attack = Math.min(pattern.attackSec, partialDecay * 0.2);
+      const peakGain = Math.max(0.0005, note.gain * partial.level * scale);
+      const endAt = startAt + partialDecay;
+
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, startAt);
+
+      env.gain.setValueAtTime(0.0001, startAt);
+      env.gain.linearRampToValueAtTime(peakGain, startAt + attack);
+      env.gain.exponentialRampToValueAtTime(0.0001, endAt);
+      env.gain.linearRampToValueAtTime(0, endAt + 0.015);
+
+      osc.connect(env);
+      env.connect(voiceFilter);
+
+      osc.start(startAt);
+      osc.stop(endAt + 0.02);
+    }
+  }
+}
+
+const LAUNCH_PATTERN: SoundPattern = {
+  voice: 'bell',
+  lowpassHz: 6500,
+  attackSec: 0.005,
+  notes: [
+    { freq: 523.25, delay: 0, decay: 1.6, gain: 0.19 },
+    { freq: 783.99, delay: 0.18, decay: 2.15, gain: 0.21 },
   ],
-  tap: [
-    { freq: 840, endFreq: 520, type: 'sine', delay: 0, duration: 0.024, gain: 0.2 },
-  ],
-  boot: [
-    { freq: 523.25, type: 'sine', delay: 0, duration: 0.16, gain: 0.2 },
-    { freq: 659.25, type: 'sine', delay: 0.06, duration: 0.18, gain: 0.22 },
-  ],
-  signin: [
-    { freq: 659.25, type: 'sine', delay: 0, duration: 0.2, gain: 0.2 },
-  ],
-  shutdown: [
-    { freq: 659.25, type: 'sine', delay: 0, duration: 0.12, gain: 0.18 },
-    { freq: 440, endFreq: 329.63, type: 'sine', delay: 0.07, duration: 0.18, gain: 0.16 },
-  ],
-  success: [
-    { freq: 659.25, type: 'sine', delay: 0, duration: 0.11, gain: 0.2 },
-    { freq: 987.77, type: 'sine', delay: 0.07, duration: 0.18, gain: 0.22 },
-  ],
-  warning: [
-    { freq: 392.0, type: 'triangle', delay: 0, duration: 0.1, gain: 0.22 },
-    { freq: 349.23, type: 'triangle', delay: 0.11, duration: 0.14, gain: 0.22 },
-  ],
-  alert: [
-    { freq: 880.0, type: 'sine', delay: 0, duration: 0.11, gain: 0.24 },
-    { freq: 698.46, type: 'sine', delay: 0.11, duration: 0.11, gain: 0.22 },
-    { freq: 880.0, type: 'triangle', delay: 0.22, duration: 0.18, gain: 0.22 },
-  ],
-  notify: [
-    { freq: 1046.5, type: 'sine', delay: 0, duration: 0.16, gain: 0.18 },
-  ],
+};
+
+const SOUND_PATTERNS: Record<SoundEvent, SoundPattern> = {
+  launch: LAUNCH_PATTERN,
+  boot: LAUNCH_PATTERN,
+  signin: {
+    voice: 'bell',
+    lowpassHz: 6500,
+    attackSec: 0.005,
+    notes: [{ freq: 880.0, delay: 0, decay: 1.4, gain: 0.21 }],
+  },
+  shutdown: {
+    voice: 'bell',
+    lowpassHz: 6500,
+    attackSec: 0.005,
+    notes: [
+      { freq: 783.99, delay: 0, decay: 1.3, gain: 0.19 },
+      { freq: 523.25, delay: 0.2, decay: 1.8, gain: 0.18 },
+    ],
+  },
+  success: {
+    voice: 'bell',
+    lowpassHz: 6500,
+    attackSec: 0.005,
+    notes: [
+      { freq: 659.25, delay: 0, decay: 0.9, gain: 0.18 },
+      { freq: 987.77, delay: 0.12, decay: 1.2, gain: 0.2 },
+    ],
+  },
+  notify: {
+    voice: 'bell',
+    lowpassHz: 6500,
+    attackSec: 0.005,
+    notes: [{ freq: 1318.5, delay: 0, decay: 0.9, gain: 0.17 }],
+  },
+  warning: {
+    voice: 'bell',
+    lowpassHz: 2200,
+    attackSec: 0.006,
+    notes: [
+      { freq: 392.0, delay: 0, decay: 0.85, gain: 0.21 },
+      { freq: 329.63, delay: 0.14, decay: 1.05, gain: 0.19 },
+    ],
+  },
+  alert: {
+    voice: 'bell',
+    lowpassHz: 7800,
+    attackSec: 0.004,
+    notes: [
+      { freq: 880.0, delay: 0, decay: 0.8, gain: 0.22 },
+      { freq: 698.46, delay: 0.12, decay: 1.0, gain: 0.21 },
+    ],
+  },
+  tap: {
+    voice: 'wood',
+    lowpassHz: 6500,
+    attackSec: 0.004,
+    notes: [{ freq: 1800.0, delay: 0, decay: 0.05, gain: 0.19 }],
+  },
+  tick: {
+    voice: 'wood',
+    lowpassHz: 6500,
+    attackSec: 0.004,
+    notes: [{ freq: 1800.0, delay: 0, decay: 0.05, gain: 0.15 }],
+  },
 };
 
 export interface PlaySoundOptions {
@@ -315,17 +441,14 @@ export function playSound(event: SoundEvent, options?: PlaySoundOptions): void {
   if (options?.launch) {
     if (launchChimePlayed) return;
     const launchCtx = getAudioContext();
-    const launchDest = masterGain;
-    if (!launchCtx || !launchDest) return;
+    if (!launchCtx || !dryBus || !roomInput) return;
 
     if (launchCtx.state === 'running') {
       pendingLaunchChime = false;
       launchChimePlayed = true;
       const scale = level === 'crisp' ? 0.72 : 0.38;
       try {
-        for (const step of SOUND_PATTERNS.boot) {
-          scheduleTone(launchCtx, launchDest, step, scale);
-        }
+        schedulePattern(launchCtx, SOUND_PATTERNS.launch, scale);
       } catch {}
       return;
     }
@@ -342,19 +465,16 @@ export function playSound(event: SoundEvent, options?: PlaySoundOptions): void {
   }
 
   const ctx = getAudioContext();
-  const dest = masterGain;
-  if (!ctx || !dest) return;
+  if (!ctx || !dryBus || !roomInput) return;
 
   const scale = level === 'crisp' ? 0.72 : 0.38;
-  const steps = SOUND_PATTERNS[event];
+  const pattern = SOUND_PATTERNS[event];
 
   const trigger = () => {
     // Drop stale audio if browser delayed resume past 120ms (prevents queued bursts)
     if (isProjectorRouteActive() || Date.now() - nowMs > 120 || ctx.state !== 'running') return;
     try {
-      for (const step of steps) {
-        scheduleTone(ctx, dest, step, scale);
-      }
+      schedulePattern(ctx, pattern, scale);
     } catch {}
   };
 

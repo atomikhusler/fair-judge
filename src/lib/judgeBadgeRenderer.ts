@@ -1,184 +1,41 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QRCodeSVG } from 'qrcode.react';
+import { toBlob } from 'html-to-image';
 import { Organization, SupabaseJudge } from './supabaseTypes';
 import { safeName } from './downloadUtils';
 import { saveFile, printHtml } from './fileActions';
+import {
+  JUDGE_BADGE_HEIGHT,
+  JUDGE_BADGE_STYLES,
+  JUDGE_BADGE_WIDTH,
+  JudgeBadgeTemplateData,
+  renderBadgeHtml,
+} from './judgeBadgeTemplate';
 
-export const BADGE_WIDTH = 1080;
-export const BADGE_HEIGHT = 1350;
-
-const APP_NAME = 'Fair Judge';
-const APP_TAGLINE = 'Judge transparently';
-const SCAN_INSTRUCTION = 'Scan with terminal camera to sign in';
-const DEVELOPER_CREDIT = 'Engineered with intent · Sahil Kumar Rout';
-const FONT_STACK =
-  '"Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-const MONO_STACK =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-
-// Exact TippingScaleIcon SVG vector paths from src/components/shared/BrandBadge.tsx
-const SCALE_SVG_PATHS = [
-  'M12 3v18',
-  'M7 21h10',
-  'M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2',
-  'm2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z',
-  'm16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z',
-] as const;
-
-interface BadgeModel {
-  judgeName: string;
-  orgName: string;
-  orgId: string;
-  judgeId: string;
-  qrPayload: string;
-  qrSvgMarkup: string;
-  qrViewBoxSize: number;
-  qrDarkPath: string;
-}
-
-function escapeHtml(str: string): string {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function extractQrVectorData(qrPayload: string): {
-  svgMarkup: string;
-  viewBoxSize: number;
-  darkPath: string;
-} {
-  const svgMarkup = renderToStaticMarkup(
+function buildQrSvgMarkup(qrPayload: string): string {
+  return renderToStaticMarkup(
     React.createElement(QRCodeSVG, {
       value: qrPayload,
-      size: 512,
+      size: 620,
       level: 'H',
       includeMargin: false,
       bgColor: '#FFFFFF',
-      fgColor: '#09090B',
+      fgColor: '#111111',
     })
   );
-
-  const viewBoxMatch = svgMarkup.match(/viewBox="0 0 (\d+) (\d+)"/);
-  const viewBoxSize = viewBoxMatch ? Number.parseInt(viewBoxMatch[1], 10) || 21 : 21;
-
-  const pathMatches = Array.from(svgMarkup.matchAll(/<path[^>]*d="([^"]+)"[^>]*>/g));
-  const darkPath =
-    pathMatches.length >= 2
-      ? pathMatches[1][1]
-      : pathMatches.length === 1
-      ? pathMatches[0][1]
-      : '';
-
-  return { svgMarkup, viewBoxSize, darkPath };
 }
 
-function buildBadgeModel(
+function buildTemplateData(
   judge: SupabaseJudge,
-  organization: Organization,
-  qrPayload: string
-): BadgeModel {
-  const { svgMarkup, viewBoxSize, darkPath } = extractQrVectorData(qrPayload);
+  organization: Organization
+): JudgeBadgeTemplateData {
   return {
     judgeName: (judge.name || 'Judge').trim() || 'Judge',
     orgName: (organization.name || 'Fair Judge').trim() || 'Fair Judge',
     orgId: organization.org_id,
     judgeId: judge.judge_id || judge.id.slice(0, 6),
-    qrPayload,
-    qrSvgMarkup: svgMarkup,
-    qrViewBoxSize: viewBoxSize,
-    qrDarkPath: darkPath,
   };
-}
-
-function drawRoundedRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
-): void {
-  const r = Math.min(radius, width / 2, height / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + width - r, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-  ctx.lineTo(x + width, y + height - r);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-  ctx.lineTo(x + r, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-function wrapLines(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  maxLines: number
-): string[] {
-  const clean = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!clean) return [''];
-
-  const words = clean.split(' ');
-  const lines: string[] = [];
-  let current = '';
-
-  const pushEllipsized = (base: string) => {
-    let clipped = base.trimEnd();
-    while (clipped.length > 1 && ctx.measureText(`${clipped}…`).width > maxWidth) {
-      clipped = clipped.slice(0, -1);
-    }
-    return `${clipped}…`;
-  };
-
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    const candidate = current ? `${current} ${word}` : word;
-
-    if (ctx.measureText(candidate).width <= maxWidth) {
-      current = candidate;
-      continue;
-    }
-
-    if (current) {
-      if (lines.length + 1 >= maxLines) {
-        const remaining = `${current} ${words.slice(i).join(' ')}`;
-        lines.push(pushEllipsized(remaining));
-        return lines;
-      }
-      lines.push(current);
-      current = '';
-      i -= 1;
-    } else {
-      // Single unbroken word wider than maxWidth: break by character
-      let part = '';
-      for (let c = 0; c < word.length; c++) {
-        const nextPart = part + word[c];
-        if (ctx.measureText(nextPart).width <= maxWidth) {
-          part = nextPart;
-        } else {
-          if (lines.length + 1 >= maxLines) {
-            lines.push(pushEllipsized(`${part}${word.slice(c)}`));
-            return lines;
-          }
-          lines.push(part);
-          part = word[c];
-        }
-      }
-      current = part;
-    }
-  }
-
-  if (current) {
-    lines.push(current);
-  }
-
-  return lines.slice(0, maxLines);
 }
 
 async function ensureLocalGeistLoaded(): Promise<void> {
@@ -186,229 +43,83 @@ async function ensureLocalGeistLoaded(): Promise<void> {
   try {
     await Promise.race([
       Promise.all([
-        document.fonts.load('400 32px Geist'),
-        document.fonts.load('600 36px Geist'),
-        document.fonts.load('700 64px Geist'),
+        document.fonts.load('500 34px Geist'),
+        document.fonts.load('600 56px Geist'),
+        document.fonts.load('700 128px Geist'),
       ]),
-      new Promise<void>((r) => setTimeout(r, 350)),
+      new Promise<void>((r) => window.setTimeout(r, 400)),
     ]);
   } catch {
-    // Fallback cleanly to local system sans-serif if Geist cannot be preloaded
+    // Fallback cleanly to system sans-serif if font preload fails
   }
 }
 
 /**
- * Shared 1080x1350 canvas renderer for Judge Badge PNG downloads.
- * Uses local Geist font, offline BrandBadge scale Path2D geometry, and unmodified QR payload.
+ * Renders the 1080x1350 judge badge template via html-to-image (pixelRatio: 1)
+ * and saves through fileActions.saveFile() as judge-badge-<judge_id>.png.
  * Never renders the Judge PIN.
- */
-export async function renderJudgeBadgeCanvas(
-  judge: SupabaseJudge,
-  organization: Organization,
-  qrPayload: string
-): Promise<HTMLCanvasElement> {
-  await ensureLocalGeistLoaded();
-
-  const model = buildBadgeModel(judge, organization, qrPayload);
-  const canvas = document.createElement('canvas');
-  canvas.width = BADGE_WIDTH;
-  canvas.height = BADGE_HEIGHT;
-
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('Canvas 2D context unavailable.');
-  }
-
-  // Background
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, BADGE_WIDTH, BADGE_HEIGHT);
-
-  // Outer machined badge border
-  drawRoundedRect(ctx, 24, 24, BADGE_WIDTH - 48, BADGE_HEIGHT - 48, 44);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = '#E4E4E7';
-  ctx.stroke();
-
-  // Top emerald accent bar
-  ctx.save();
-  drawRoundedRect(ctx, 24, 24, BADGE_WIDTH - 48, BADGE_HEIGHT - 48, 44);
-  ctx.clip();
-  ctx.fillStyle = '#059669';
-  ctx.fillRect(24, 24, BADGE_WIDTH - 48, 14);
-  ctx.restore();
-
-  const centerX = BADGE_WIDTH / 2;
-
-  // 1. Fair Judge Logo + App Name (centered row)
-  ctx.font = `700 38px ${FONT_STACK}`;
-  const appNameWidth = ctx.measureText(APP_NAME).width;
-  const iconBoxSize = 62;
-  const headerGap = 18;
-  const totalHeaderWidth = iconBoxSize + headerGap + appNameWidth;
-  const headerStartX = centerX - totalHeaderWidth / 2;
-  const headerTopY = 82;
-
-  // BrandBadge rounded emerald container
-  drawRoundedRect(ctx, headerStartX, headerTopY, iconBoxSize, iconBoxSize, 16);
-  ctx.fillStyle = 'rgba(16, 185, 129, 0.12)';
-  ctx.fill();
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)';
-  ctx.stroke();
-
-  // TippingScaleIcon Path2D strokes (viewBox 24x24 scaled cleanly)
-  ctx.save();
-  const iconInnerSize = 36;
-  const iconOffset = (iconBoxSize - iconInnerSize) / 2;
-  ctx.translate(headerStartX + iconOffset, headerTopY + iconOffset);
-  ctx.scale(iconInnerSize / 24, iconInnerSize / 24);
-  ctx.strokeStyle = '#059669';
-  ctx.lineWidth = 2.2;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  for (const d of SCALE_SVG_PATHS) {
-    ctx.stroke(new Path2D(d));
-  }
-  ctx.restore();
-
-  // App Name
-  ctx.fillStyle = '#09090B';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.font = `700 38px ${FONT_STACK}`;
-  ctx.fillText(APP_NAME, headerStartX + iconBoxSize + headerGap, headerTopY + iconBoxSize / 2 + 1);
-
-  // 2. Tagline: "Judge transparently"
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = '#059669';
-  ctx.font = `700 22px ${MONO_STACK}`;
-  ctx.fillText(APP_TAGLINE.toUpperCase(), centerX, 164);
-
-  // Subtle horizontal divider
-  ctx.fillStyle = '#E4E4E7';
-  ctx.fillRect(108, 212, BADGE_WIDTH - 216, 2);
-
-  // 3. Judge Full Name (wraps up to 2 lines)
-  ctx.fillStyle = '#09090B';
-  ctx.font = `700 58px ${FONT_STACK}`;
-  const judgeLines = wrapLines(ctx, model.judgeName, BADGE_WIDTH - 140, 2);
-  let cursorY = judgeLines.length === 1 ? 258 : 238;
-  for (const line of judgeLines) {
-    ctx.fillText(line, centerX, cursorY);
-    cursorY += 68;
-  }
-
-  // 4. Organisation Name (truncates cleanly after 2 lines)
-  ctx.fillStyle = '#52525B';
-  ctx.font = `600 30px ${FONT_STACK}`;
-  const orgLines = wrapLines(ctx, model.orgName, BADGE_WIDTH - 160, 2);
-  let orgY = Math.max(cursorY + 12, 396);
-  for (const line of orgLines) {
-    ctx.fillText(line, centerX, orgY);
-    orgY += 38;
-  }
-
-  // 5. Organisation ID & Judge ID strip (NO PIN!)
-  const stripY = Math.max(orgY + 22, 492);
-  const stripW = BADGE_WIDTH - 160;
-  const stripH = 104;
-  drawRoundedRect(ctx, 80, stripY, stripW, stripH, 24);
-  ctx.fillStyle = '#F4F4F5';
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#E4E4E7';
-  ctx.stroke();
-
-  // Vertical divider between Org ID and Judge ID
-  ctx.fillStyle = '#D4D4D8';
-  ctx.fillRect(centerX - 1, stripY + 20, 2, stripH - 40);
-
-  const leftColCenter = 80 + stripW / 4;
-  const rightColCenter = 80 + (stripW * 3) / 4;
-
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#71717A';
-  ctx.font = `700 18px ${MONO_STACK}`;
-  ctx.fillText('ORG ID', leftColCenter, stripY + 20);
-  ctx.fillText('JUDGE ID', rightColCenter, stripY + 20);
-
-  ctx.fillStyle = '#09090B';
-  ctx.font = `700 30px ${MONO_STACK}`;
-  ctx.fillText(model.orgId, leftColCenter, stripY + 50);
-  ctx.fillText(model.judgeId, rightColCenter, stripY + 50);
-
-  // 6. Large QR Code (centered in white frame)
-  const qrFrameSize = 516;
-  const qrFrameX = (BADGE_WIDTH - qrFrameSize) / 2;
-  const qrFrameY = stripY + stripH + 34;
-
-  drawRoundedRect(ctx, qrFrameX, qrFrameY, qrFrameSize, qrFrameSize, 32);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fill();
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = '#D4D4D8';
-  ctx.stroke();
-
-  if (model.qrDarkPath) {
-    const qrPadding = 34;
-    const qrDrawSize = qrFrameSize - qrPadding * 2;
-    const scale = qrDrawSize / model.qrViewBoxSize;
-    ctx.save();
-    ctx.translate(qrFrameX + qrPadding, qrFrameY + qrPadding);
-    ctx.scale(scale, scale);
-    ctx.fillStyle = '#09090B';
-    ctx.fill(new Path2D(model.qrDarkPath));
-    ctx.restore();
-  }
-
-  // 7. Scan instruction line
-  const scanTextY = qrFrameY + qrFrameSize + 28;
-  ctx.fillStyle = '#3F3F46';
-  ctx.font = `600 24px ${FONT_STACK}`;
-  ctx.fillText(SCAN_INSTRUCTION, centerX, scanTextY);
-
-  // 8. Developer credit line
-  ctx.fillStyle = '#E4E4E7';
-  ctx.fillRect(140, BADGE_HEIGHT - 110, BADGE_WIDTH - 280, 2);
-
-  ctx.fillStyle = '#71717A';
-  ctx.font = `600 21px ${MONO_STACK}`;
-  ctx.fillText(DEVELOPER_CREDIT, centerX, BADGE_HEIGHT - 84);
-
-  return canvas;
-}
-
-/**
- * Generates and downloads a 1080x1350 PNG judge badge through fileActions.saveFile().
  */
 export async function exportJudgeBadgePng(
   judge: SupabaseJudge,
   organization: Organization,
   qrPayload: string
 ): Promise<string> {
-  const canvas = await renderJudgeBadgeCanvas(judge, organization, qrPayload);
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((out) => {
-      if (out) {
-        resolve(out);
-      } else {
-        reject(new Error('Failed to encode PNG badge.'));
-      }
-    }, 'image/png');
-  });
+  if (typeof document === 'undefined') {
+    throw new Error('Badge export is only supported in the browser.');
+  }
 
-  const fileName = `judge-badge-${safeName(judge.judge_id || judge.name)}-${safeName(judge.name)}.png`;
-  await saveFile(blob, fileName);
-  return fileName;
+  await ensureLocalGeistLoaded();
+
+  const data = buildTemplateData(judge, organization);
+  const qrSvg = buildQrSvgMarkup(qrPayload);
+  const badgeMarkup = renderBadgeHtml(data, qrSvg);
+
+  const host = document.createElement('div');
+  host.setAttribute('aria-hidden', 'true');
+  host.style.position = 'fixed';
+  host.style.left = '-10000px';
+  host.style.top = '0';
+  host.style.width = `${JUDGE_BADGE_WIDTH}px`;
+  host.style.height = `${JUDGE_BADGE_HEIGHT}px`;
+  host.style.pointerEvents = 'none';
+  host.style.opacity = '1';
+  host.style.zIndex = '-1';
+  host.innerHTML = `<style>${JUDGE_BADGE_STYLES}</style>${badgeMarkup}`;
+
+  document.body.appendChild(host);
+
+  try {
+    const badgeEl = host.querySelector('.badge') as HTMLElement | null;
+    if (!badgeEl) {
+      throw new Error('Failed to mount badge template.');
+    }
+
+    const blob = await toBlob(badgeEl, {
+      width: JUDGE_BADGE_WIDTH,
+      height: JUDGE_BADGE_HEIGHT,
+      canvasWidth: JUDGE_BADGE_WIDTH,
+      canvasHeight: JUDGE_BADGE_HEIGHT,
+      pixelRatio: 1,
+      backgroundColor: '#ffffff',
+    });
+
+    if (!blob) {
+      throw new Error('Failed to encode PNG badge.');
+    }
+
+    const fileName = `judge-badge-${safeName(data.judgeId)}.png`;
+    await saveFile(blob, fileName);
+    return fileName;
+  } finally {
+    if (host.parentNode) {
+      host.parentNode.removeChild(host);
+    }
+  }
 }
 
 /**
  * Builds one offline HTML document containing one centred badge per A4 portrait page
- * using the bundled Geist font and inline Scale & QR SVGs (zero network requests, no PIN).
- * Prints via fileActions.printHtml().
+ * using the exact renderBadgeHtml() output and JUDGE_BADGE_STYLES (zero network calls, no PIN).
  */
 export function buildJudgeBadgesPrintHtml(
   judges: SupabaseJudge[],
@@ -418,68 +129,26 @@ export function buildJudgeBadgesPrintHtml(
   const baseHref =
     typeof window !== 'undefined' ? `${window.location.origin}/` : '/';
 
-  const logoSvgMarkup = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SCALE_SVG_PATHS.map(
-    (d) => `<path d="${d}" />`
-  ).join('')}</svg>`;
-
   const pagesHtml = judges
     .map((judge) => {
-      const model = buildBadgeModel(judge, organization, getQrPayload(judge));
-      return `
-        <section class="badge-page">
-          <article class="badge-card">
-            <div class="accent-bar"></div>
-            <div class="badge-inner">
-              <div class="brand-header">
-                <div class="brand-row">
-                  <div class="brand-icon">${logoSvgMarkup}</div>
-                  <span class="brand-name">${escapeHtml(APP_NAME)}</span>
-                </div>
-                <p class="brand-tagline">${escapeHtml(APP_TAGLINE)}</p>
-              </div>
-
-              <div class="divider"></div>
-
-              <div class="identity-block">
-                <h1 class="judge-name">${escapeHtml(model.judgeName)}</h1>
-                <p class="org-name">${escapeHtml(model.orgName)}</p>
-              </div>
-
-              <div class="id-strip">
-                <div class="id-col">
-                  <span class="id-label">ORG ID</span>
-                  <span class="id-value">${escapeHtml(model.orgId)}</span>
-                </div>
-                <div class="id-divider"></div>
-                <div class="id-col">
-                  <span class="id-label">JUDGE ID</span>
-                  <span class="id-value">${escapeHtml(model.judgeId)}</span>
-                </div>
-              </div>
-
-              <div class="qr-section">
-                <div class="qr-frame">
-                  ${model.qrSvgMarkup}
-                </div>
-                <p class="scan-note">${escapeHtml(SCAN_INSTRUCTION)}</p>
-              </div>
-
-              <div class="badge-footer">
-                <p class="dev-credit">${escapeHtml(DEVELOPER_CREDIT)}</p>
-              </div>
-            </div>
-          </article>
-        </section>
-      `;
+      const data = buildTemplateData(judge, organization);
+      const qrSvg = buildQrSvgMarkup(getQrPayload(judge));
+      const badgeMarkup = renderBadgeHtml(data, qrSvg);
+      return `<section class="badge-page"><div class="badge-slot"><div class="badge-scale">${badgeMarkup}</div></div></section>`;
     })
-    .join('');
+    .join('\n');
+
+  const safeOrgTitle = (organization.name || 'Fair Judge')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <base href="${escapeHtml(baseHref)}" />
-  <title>${escapeHtml(organization.name)} — Judge Badges</title>
+  <base href="${baseHref}" />
+  <title>${safeOrgTitle} — Judge Badges</title>
   <style>
     @font-face {
       font-family: 'Geist';
@@ -494,16 +163,10 @@ export function buildJudgeBadgesPrintHtml(
       margin: 10mm;
     }
 
-    * {
-      box-sizing: border-box;
+    html, body {
       margin: 0;
       padding: 0;
-    }
-
-    html, body {
       background: #ffffff;
-      color: #09090b;
-      font-family: ${FONT_STACK};
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
@@ -514,228 +177,35 @@ export function buildJudgeBadgesPrintHtml(
       display: flex;
       align-items: center;
       justify-content: center;
-      break-after: page;
       page-break-after: always;
-      break-inside: avoid;
+      break-after: page;
       page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .badge-page:last-child {
-      break-after: auto;
       page-break-after: auto;
+      break-after: auto;
     }
 
-    .badge-card {
-      width: 176mm;
-      height: 220mm;
-      background: #ffffff;
-      border: 1.5pt solid #e4e4e7;
-      border-radius: 10mm;
-      overflow: hidden;
+    .badge-slot {
+      width: 180mm;
+      height: 225mm;
       display: flex;
-      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
     }
 
-    .accent-bar {
-      height: 3.5mm;
-      width: 100%;
-      background: #059669;
+    .badge-scale {
+      width: 1080px;
+      height: 1350px;
       flex-shrink: 0;
+      transform: scale(0.6296);
+      transform-origin: center center;
     }
 
-    .badge-inner {
-      flex: 1;
-      padding: 9mm 11mm 8mm 11mm;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-    }
-
-    .brand-header {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2.5mm;
-    }
-
-    .brand-row {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 3mm;
-    }
-
-    .brand-icon {
-      width: 10.5mm;
-      height: 10.5mm;
-      border-radius: 2.8mm;
-      background: rgba(16, 185, 129, 0.12);
-      border: 1pt solid rgba(16, 185, 129, 0.35);
-      color: #059669;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2mm;
-    }
-
-    .brand-icon svg {
-      width: 100%;
-      height: 100%;
-    }
-
-    .brand-name {
-      font-size: 20pt;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: #09090b;
-    }
-
-    .brand-tagline {
-      font-family: ${MONO_STACK};
-      font-size: 9.5pt;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: #059669;
-    }
-
-    .divider {
-      width: 100%;
-      height: 0.75pt;
-      background: #e4e4e7;
-      margin: 4.5mm 0 5.5mm 0;
-    }
-
-    .identity-block {
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2.5mm;
-      margin-bottom: 5.5mm;
-    }
-
-    .judge-name {
-      font-size: 27pt;
-      font-weight: 700;
-      line-height: 1.15;
-      color: #09090b;
-      max-width: 100%;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      overflow-wrap: anywhere;
-    }
-
-    .org-name {
-      font-size: 14.5pt;
-      font-weight: 600;
-      line-height: 1.25;
-      color: #52525b;
-      max-width: 92%;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      overflow-wrap: anywhere;
-    }
-
-    .id-strip {
-      width: 100%;
-      display: grid;
-      grid-template-columns: 1fr 0.75pt 1fr;
-      align-items: center;
-      background: #f4f4f5;
-      border: 1pt solid #e4e4e7;
-      border-radius: 4.5mm;
-      padding: 3.8mm 4mm;
-      margin-bottom: 6mm;
-    }
-
-    .id-col {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1.2mm;
-      min-width: 0;
-    }
-
-    .id-divider {
-      width: 0.75pt;
-      height: 10mm;
-      background: #d4d4d8;
-    }
-
-    .id-label {
-      font-family: ${MONO_STACK};
-      font-size: 8.5pt;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      color: #71717a;
-      text-transform: uppercase;
-    }
-
-    .id-value {
-      font-family: ${MONO_STACK};
-      font-size: 15pt;
-      font-weight: 700;
-      color: #09090b;
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .qr-section {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4.5mm;
-      width: 100%;
-    }
-
-    .qr-frame {
-      width: 84mm;
-      height: 84mm;
-      padding: 5.5mm;
-      background: #ffffff;
-      border: 1.25pt solid #d4d4d8;
-      border-radius: 5.5mm;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .qr-frame svg {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    .scan-note {
-      font-size: 11.5pt;
-      font-weight: 600;
-      color: #3f3f46;
-    }
-
-    .badge-footer {
-      width: 100%;
-      border-top: 0.75pt solid #e4e4e7;
-      padding-top: 4mm;
-      margin-top: 4mm;
-    }
-
-    .dev-credit {
-      font-family: ${MONO_STACK};
-      font-size: 9.5pt;
-      font-weight: 600;
-      color: #71717a;
-    }
+    ${JUDGE_BADGE_STYLES}
   </style>
 </head>
 <body>
