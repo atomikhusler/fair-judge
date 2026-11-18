@@ -28,7 +28,8 @@ import {
   ChevronDown,
   Lock,
   KeyRound,
-  Scale
+  Scale,
+  Minus
 } from 'lucide-react';
 import { 
   Organization, 
@@ -41,9 +42,12 @@ import {
 import { dbService, generateUUID, subscribeToDatabase, supabase } from '../../../lib/supabase';
 import { registerSyncCadence } from '../../../lib/syncEngine';
 import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
+import { triggerHaptic } from '../../../lib/haptics';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
+import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
+import { useTaskScreenBackGuard } from '../../common/useTaskScreenBackGuard';
 import {
   TaskScreen,
   useModalAccessibility,
@@ -99,6 +103,56 @@ const RUBRIC_PRESETS: Array<{ label: string; criteria: Array<{ name: string; max
     ],
   },
 ];
+
+interface EventFormPanelHeaderProps {
+  step: 1 | 2;
+  title: string;
+  summary?: string;
+  isComplete: boolean;
+}
+
+function EventFormPanelHeader({
+  step,
+  title,
+  summary,
+  isComplete,
+}: EventFormPanelHeaderProps) {
+  return (
+    <div className="flex items-center justify-between gap-2 pb-3 border-b border-stone-100 dark:border-zinc-900">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span
+          className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0 tabular-nums transition-colors ${
+            isComplete
+              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30'
+              : 'bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800'
+          }`}
+        >
+          {step}
+        </span>
+        <h3 className="text-sm font-bold text-stone-900 dark:text-white truncate">
+          {title}
+        </h3>
+      </div>
+      {(summary || isComplete) && (
+        <div className="flex items-center gap-1.5 min-w-0 shrink">
+          {summary && (
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate tabular-nums">
+              {summary}
+            </span>
+          )}
+          {isComplete && (
+            <span
+              aria-label={`${title} complete`}
+              className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0"
+            >
+              <Check className="w-2.5 h-2.5 stroke-[3]" />
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function EventsTab({
   organization,
@@ -179,8 +233,52 @@ export function EventsTab({
 
   const eventTitleInputRef = useRef<HTMLInputElement>(null);
   const eventCategoryInputRef = useRef<HTMLInputElement>(null);
-  const criterionNameRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const criterionNameRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const criterionMarksRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const criterionRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const rubricCriteriaRef = useRef<RubricItem[]>(rubricCriteria);
+  rubricCriteriaRef.current = rubricCriteria;
+  const pendingFocusCriterionIdRef = useRef<string | null>(null);
+  const [editingMarksText, setEditingMarksText] = useState<Record<string, string>>({});
+  const [draggingCriterionId, setDraggingCriterionId] = useState<string | null>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  const syncCriterionTextareaHeight = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(32, el.scrollHeight)}px`;
+  }, []);
+
+  useEffect(() => {
+    const targetId = pendingFocusCriterionIdRef.current;
+    if (!targetId) return;
+    pendingFocusCriterionIdRef.current = null;
+    const input = criterionNameRefs.current[targetId];
+    if (input) {
+      input.focus();
+    }
+  }, [rubricCriteria]);
+
+  useEffect(() => {
+    if (!isWizardOpen) {
+      setEditingMarksText({});
+      setDraggingCriterionId(null);
+      dragCleanupRef.current?.();
+      return;
+    }
+    const raf = window.requestAnimationFrame(() => {
+      rubricCriteria.forEach((c) => {
+        syncCriterionTextareaHeight(criterionNameRefs.current[c.id] || null);
+      });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [isWizardOpen, rubricCriteria, syncCriterionTextareaHeight]);
+
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+    };
+  }, []);
 
   // Org-derived Event Category suggestions, falling back to Senior/Junior/Classical when none exist
   const { categoryChips, defaultSuggestedCategory } = useMemo(() => {
@@ -614,7 +712,7 @@ export function EventsTab({
     showToast('Draft cleared. Starting fresh.');
   };
 
-  const handleCloseWizard = () => {
+  const handleCloseWizard = useCallback(() => {
     if (isDirty) {
       setIsUnsavedExitModalOpen(true);
       return;
@@ -622,7 +720,7 @@ export function EventsTab({
     setIsWizardOpen(false);
     setIsDirty(false);
     setShowDraftBanner(false);
-  };
+  }, [isDirty]);
 
   const handleForceDiscardAndExit = () => {
     clearDraft();
@@ -632,10 +730,35 @@ export function EventsTab({
     setShowDraftBanner(false);
   };
 
-  const handleSaveDraftAndExit = async () => {
+  const handleSaveDraftAndExit = () => {
+    if (!editingEventId) {
+      try {
+        const stateToSave: DraftState = {
+          name: eventName,
+          category: eventCategory,
+          rubricCriteria,
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(draftStorageKey, JSON.stringify(stateToSave));
+      } catch (err) {
+        console.warn('Failed to save event draft:', err);
+      }
+      showToast('Draft saved locally.');
+    }
     setIsUnsavedExitModalOpen(false);
-    await handleSaveEvent();
+    setIsWizardOpen(false);
+    setIsDirty(false);
+    setShowDraftBanner(false);
   };
+
+  useTaskScreenBackGuard({
+    isOpen: isWizardOpen,
+    onBack: handleCloseWizard,
+    hasNestedOverlay: Boolean(isUnsavedExitModalOpen || isEventActionModalOpen),
+    onCloseNested: () => {
+      if (isUnsavedExitModalOpen) setIsUnsavedExitModalOpen(false);
+    },
+  });
 
   // ========================================================
   // 6. PROHIBITED RULE ENFORCEMENT & EDIT / DELETE DISPATCH
@@ -870,15 +993,17 @@ export function EventsTab({
     return rubricCriteria.reduce((sum, item) => sum + (Number(item.maxMarks) || 0), 0);
   }, [rubricCriteria]);
 
-  const handleAddCriterion = () => {
+  const handleAddCriterion = (focusNew: boolean = false) => {
     if (hasExistingScores) {
       showToast('Rubric schema is locked to preserve ledger integrity.');
       return;
     }
+    const newId = generateUUID();
+    pendingFocusCriterionIdRef.current = focusNew ? newId : null;
     setIsDirty(true);
     setRubricCriteria((prev) => [
       ...prev,
-      { id: generateUUID(), name: '', maxMarks: 10 },
+      { id: newId, name: '', maxMarks: 10 },
     ]);
   };
 
@@ -899,25 +1024,152 @@ export function EventsTab({
       return;
     }
     if (rubricCriteria.length <= 1) return;
+    const removedIndex = rubricCriteria.findIndex((c) => c.id === id);
+    if (removedIndex === -1) return;
+    const removedItem = rubricCriteria[removedIndex];
+
     setIsDirty(true);
     setRubricCriteria((prev) => prev.filter((c) => c.id !== id));
-  };
 
-  const handleMoveCriterion = (index: number, direction: -1 | 1) => {
-    if (hasExistingScores) {
-      showToast('Rubric schema is locked to preserve ledger integrity.');
-      return;
-    }
-    const targetIdx = index + direction;
-    if (targetIdx < 0 || targetIdx >= rubricCriteria.length) return;
-    setIsDirty(true);
-    setRubricCriteria((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(index, 1);
-      next.splice(targetIdx, 0, moved);
-      return next;
+    const label = removedItem.name.trim()
+      ? `Removed "${removedItem.name.trim()}".`
+      : `Removed criterion #${removedIndex + 1}.`;
+
+    showToast(label, 'info', 5000, {
+      label: 'Undo',
+      onClick: () => {
+        setIsDirty(true);
+        setRubricCriteria((prev) => {
+          if (prev.some((c) => c.id === removedItem.id)) return prev;
+          const next = [...prev];
+          const insertAt = Math.min(removedIndex, next.length);
+          next.splice(insertAt, 0, removedItem);
+          return next;
+        });
+      },
     });
   };
+
+  const handleMoveCriterion = useCallback(
+    (index: number, direction: -1 | 1) => {
+      if (hasExistingScores) {
+        showToast('Rubric schema is locked to preserve ledger integrity.');
+        return;
+      }
+      const targetIdx = index + direction;
+      if (targetIdx < 0 || targetIdx >= rubricCriteria.length) return;
+      setIsDirty(true);
+      setRubricCriteria((prev) => {
+        const next = [...prev];
+        const [moved] = next.splice(index, 1);
+        next.splice(targetIdx, 0, moved);
+        return next;
+      });
+      triggerHaptic('tick');
+    },
+    [hasExistingScores, rubricCriteria.length, showToast]
+  );
+
+  const handleCriterionPointerDown = useCallback(
+    (criterionId: string, e: React.PointerEvent<HTMLElement>) => {
+      if (hasExistingScores || rubricCriteria.length <= 1) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+      // Ignore direct interactions on controls inside the row
+      const eventTarget = e.target as HTMLElement | null;
+      if (
+        eventTarget &&
+        eventTarget.closest('button, input, textarea, select') &&
+        !eventTarget.closest('[data-criterion-handle="true"]')
+      ) {
+        return;
+      }
+
+      dragCleanupRef.current?.();
+
+      const captureEl = e.currentTarget;
+      const pointerId = e.pointerId;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let holdTimer: number | null = null;
+      let isDragActive = false;
+
+      const finish = () => {
+        if (holdTimer !== null) {
+          window.clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', finish);
+        window.removeEventListener('pointercancel', finish);
+        if (isDragActive) {
+          try {
+            if (captureEl.hasPointerCapture(pointerId)) {
+              captureEl.releasePointerCapture(pointerId);
+            }
+          } catch {}
+          setDraggingCriterionId(null);
+        }
+        if (dragCleanupRef.current === finish) {
+          dragCleanupRef.current = null;
+        }
+      };
+
+      const onPointerMove = (moveEvt: PointerEvent) => {
+        if (moveEvt.pointerId !== pointerId) return;
+        if (!isDragActive) {
+          if (Math.abs(moveEvt.clientY - startY) > 8 || Math.abs(moveEvt.clientX - startX) > 8) {
+            finish();
+          }
+          return;
+        }
+
+        const prev = rubricCriteriaRef.current;
+        const currentIdx = prev.findIndex((c) => c.id === criterionId);
+        if (currentIdx === -1) return;
+
+        let targetIdx = currentIdx;
+        for (let i = 0; i < prev.length; i++) {
+          const rowEl = criterionRowRefs.current[prev[i].id];
+          if (!rowEl) continue;
+          const rect = rowEl.getBoundingClientRect();
+          const midpoint = rect.top + rect.height / 2;
+          if (i < currentIdx && moveEvt.clientY < midpoint) {
+            targetIdx = i;
+            break;
+          }
+          if (i > currentIdx && moveEvt.clientY > midpoint) {
+            targetIdx = i;
+          }
+        }
+
+        if (targetIdx === currentIdx) return;
+        const next = [...prev];
+        const [moved] = next.splice(currentIdx, 1);
+        next.splice(targetIdx, 0, moved);
+        rubricCriteriaRef.current = next;
+        setRubricCriteria(next);
+        setIsDirty(true);
+        triggerHaptic('tick');
+      };
+
+      holdTimer = window.setTimeout(() => {
+        holdTimer = null;
+        isDragActive = true;
+        try {
+          captureEl.setPointerCapture(pointerId);
+        } catch {}
+        setDraggingCriterionId(criterionId);
+        triggerHaptic('tick');
+      }, 250);
+
+      dragCleanupRef.current = finish;
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', finish);
+      window.addEventListener('pointercancel', finish);
+    },
+    [hasExistingScores, rubricCriteria.length]
+  );
 
   const handleApplyPreset = (preset: typeof RUBRIC_PRESETS[0]) => {
     if (hasExistingScores) {
@@ -941,9 +1193,9 @@ export function EventsTab({
   const hasValidCriterion = rubricCriteria.some((c) => c.name.trim().length > 0);
   const isFormValid = Boolean(eventName.trim()) && hasValidCriterion;
   const eventMissingReason = !eventName.trim()
-    ? 'Add an event title to continue'
+    ? 'Add an event title to save'
     : !hasValidCriterion
-    ? 'Add at least one criterion name to continue'
+    ? 'Add a criterion name to save'
     : null;
 
   const handleSaveEvent = async () => {
@@ -1745,40 +1997,39 @@ export function EventsTab({
         title={editingEventId ? 'Edit Event' : 'New Event'}
         onBack={handleCloseWizard}
         hasNestedOverlay={Boolean(isUnsavedExitModalOpen || isEventActionModalOpen)}
-        maxWidthClass="md:max-w-2xl"
+        maxWidthClass="md:max-w-2xl lg:max-w-[1000px]"
+        headerAction={
+          <button
+            type="button"
+            disabled={!isFormValid || isSubmitting}
+            onClick={handleSaveEvent}
+            className="min-h-[44px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-[transform,opacity] duration-100 motion-reduce:transition-none disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <Check className="w-4 h-4 stroke-[2.5]" />
+            <span>{isSubmitting ? 'Saving...' : 'Save'}</span>
+          </button>
+        }
         footer={
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <div className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-zinc-300 flex items-center gap-1.5">
+          <div className="w-full flex items-center justify-center text-center">
+            <div className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-zinc-300 flex items-center justify-center gap-1.5">
               <span>Total Marks:</span>
               <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base tabular-nums whitespace-nowrap">
                 {totalRubricMarks} pts
               </span>
             </div>
-            {eventMissingReason && (
-              <p className="text-[11px] lg:text-xs font-medium text-amber-600 dark:text-amber-400 truncate">
-                {eventMissingReason}
-              </p>
-            )}
           </div>
         }
-        secondaryAction={{
-          label: 'Cancel',
-          onClick: handleCloseWizard,
-          disabled: isSubmitting,
-        }}
-        primaryAction={{
-          label: 'Save',
-          loading: isSubmitting,
-          loadingLabel: 'Saving...',
-          disabled: !isFormValid || isSubmitting,
-          onClick: handleSaveEvent,
-          variant: 'emerald',
-        }}
       >
-        <div className="max-w-2xl w-full mx-auto space-y-6">
+        {eventMissingReason && (
+          <p className="-mx-4 -mt-5 px-4 py-1.5 border-b border-stone-200/70 dark:border-zinc-800/70 bg-stone-100/70 dark:bg-zinc-950/70 text-[13px] font-medium text-zinc-500 dark:text-zinc-400 text-center">
+            {eventMissingReason}
+          </p>
+        )}
+
+        <div className="max-w-2xl lg:max-w-[1000px] w-full mx-auto space-y-5">
           {/* Draft Recovery Banner */}
           {showDraftBanner && cachedDraft && !editingEventId && (
-            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-2xl text-xs sm:text-sm font-medium flex flex-wrap items-center justify-between gap-2 animate-in fade-in motion-reduce:animate-none">
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-2xl text-xs sm:text-sm font-medium flex flex-wrap items-center justify-between gap-2 animate-in fade-in motion-reduce:animate-none">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span>
@@ -1789,14 +2040,14 @@ export function EventsTab({
                 <button
                   type="button"
                   onClick={handleResumeDraft}
-                  className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs lg:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+                  className="min-h-[44px] px-3 inline-flex items-center bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs lg:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
                 >
                   Resume Draft
                 </button>
                 <button
                   type="button"
                   onClick={handleDiscardDraft}
-                  className="px-2.5 py-1 md:min-h-[44px] md:inline-flex md:items-center bg-stone-200/80 dark:bg-zinc-800 hover:bg-stone-300 text-stone-700 dark:text-zinc-300 rounded-lg text-xs lg:text-sm font-semibold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
+                  className="min-h-[44px] px-3 inline-flex items-center bg-stone-200/80 dark:bg-zinc-800 hover:bg-stone-300 text-stone-700 dark:text-zinc-300 rounded-xl text-xs lg:text-sm font-semibold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
                 >
                   Start Fresh
                 </button>
@@ -1804,343 +2055,354 @@ export function EventsTab({
             </div>
           )}
 
-          {/* PART 1: EVENT DETAILS */}
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
-            {/* Event Title (Normal labelled field) */}
-            <div>
-              <label
-                htmlFor="event-title-input"
-                className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300 mb-1.5 block"
-              >
-                Event Title <span className="text-emerald-600 dark:text-emerald-400">*</span>
-              </label>
-              <input
-                id="event-title-input"
-                ref={eventTitleInputRef}
-                type="text"
-                placeholder="e.g. Classical Solo Dance"
-                value={eventName}
-                enterKeyHint="next"
-                onChange={(e) => {
-                  setIsDirty(true);
-                  setEventName(e.target.value);
-                }}
-                onBlur={() => setEventTitleTouched(true)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    eventCategoryInputRef.current?.focus();
-                  }
-                }}
-                className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm sm:text-base font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
-                  eventTitleTouched && !eventName.trim()
-                    ? 'border-rose-500 focus:ring-rose-500/30'
-                    : 'border-stone-200 dark:border-zinc-800 focus:ring-emerald-500/40'
-                }`}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+            {/* PANEL 1: EVENT DETAILS */}
+            <section className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl shadow-sm p-3 sm:p-5 flex flex-col gap-4 min-w-0">
+              <EventFormPanelHeader
+                step={1}
+                title="Event details"
+                summary={eventName.trim() ? eventCategory.trim() || 'General' : 'Title and category'}
+                isComplete={Boolean(eventName.trim())}
               />
-              {eventTitleTouched && !eventName.trim() && (
-                <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
-                  Event Title is required.
-                </p>
-              )}
-            </div>
 
-            {/* Category (Chips + Editable Input + Suggested / Reset) */}
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="flex items-center gap-2">
+              {/* Event Title */}
+              <div>
+                <label
+                  htmlFor="event-title-input"
+                  className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5 block"
+                >
+                  Event Title <span className="text-emerald-600 dark:text-emerald-400">*</span>
+                </label>
+                <input
+                  id="event-title-input"
+                  ref={eventTitleInputRef}
+                  type="text"
+                  placeholder="e.g. Classical Solo Dance"
+                  value={eventName}
+                  enterKeyHint="next"
+                  onChange={(e) => {
+                    setIsDirty(true);
+                    setEventName(e.target.value);
+                  }}
+                  onBlur={() => setEventTitleTouched(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      eventCategoryInputRef.current?.focus();
+                    }
+                  }}
+                  className={`w-full h-12 px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm sm:text-base font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
+                    eventTitleTouched && !eventName.trim()
+                      ? 'border-rose-500 focus:ring-rose-500/30'
+                      : 'border-stone-200 dark:border-zinc-800 focus:ring-emerald-500/40'
+                  }`}
+                />
+                {eventTitleTouched && !eventName.trim() && (
+                  <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mt-1.5">
+                    Event Title is required.
+                  </p>
+                )}
+              </div>
+
+              {/* Category (Input + Sleek Emerald Chips + Reset) */}
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
                   <label
                     htmlFor="event-category-input"
-                    className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                    className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400"
                   >
                     Category
                   </label>
-                  {categorySuggested && (
-                    <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
-                      Suggested
-                    </span>
-                  )}
+                  {!categorySuggested &&
+                    defaultSuggestedCategory &&
+                    eventCategory.trim() !== defaultSuggestedCategory && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsDirty(true);
+                          setEventCategory(defaultSuggestedCategory);
+                          setCategorySuggested(true);
+                        }}
+                        className="min-h-[44px] -my-2 inline-flex items-center text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                      >
+                        Reset to suggested
+                      </button>
+                    )}
                 </div>
-                {!categorySuggested &&
-                  defaultSuggestedCategory &&
-                  eventCategory.trim() !== defaultSuggestedCategory && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsDirty(true);
-                        setEventCategory(defaultSuggestedCategory);
-                        setCategorySuggested(true);
-                      }}
-                      className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                    >
-                      Reset to suggested
-                    </button>
-                  )}
-              </div>
 
-              <input
-                id="event-category-input"
-                ref={eventCategoryInputRef}
-                type="text"
-                placeholder="e.g. Senior, Junior, Classical"
-                value={eventCategory}
-                enterKeyHint={rubricCriteria.length > 0 && !hasExistingScores ? 'next' : 'done'}
-                onChange={(e) => {
-                  setIsDirty(true);
-                  setCategorySuggested(false);
-                  setEventCategory(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const firstId = rubricCriteria[0]?.id;
-                    if (firstId && !hasExistingScores) {
-                      criterionNameRefs.current[firstId]?.focus();
-                    } else {
-                      e.currentTarget.blur();
+                <input
+                  id="event-category-input"
+                  ref={eventCategoryInputRef}
+                  type="text"
+                  placeholder="e.g. Senior, Junior, Classical"
+                  value={eventCategory}
+                  enterKeyHint={rubricCriteria.length > 0 && !hasExistingScores ? 'next' : 'done'}
+                  onChange={(e) => {
+                    setIsDirty(true);
+                    setCategorySuggested(false);
+                    setEventCategory(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const firstId = rubricCriteria[0]?.id;
+                      if (firstId && !hasExistingScores) {
+                        criterionNameRefs.current[firstId]?.focus();
+                      } else {
+                        e.currentTarget.blur();
+                      }
                     }
-                  }
-                }}
-                className="w-full min-h-[46px] bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl px-3.5 text-stone-900 dark:text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/40 placeholder:text-stone-400 dark:placeholder:text-zinc-400 transition-colors motion-reduce:transition-none"
+                  }}
+                  className="w-full h-12 bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl px-3.5 text-stone-900 dark:text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/40 placeholder:text-stone-400 dark:placeholder:text-zinc-400 transition-colors motion-reduce:transition-none"
+                />
+
+                {/* Tappable Category Chips: Single horizontal row, h-7 text-[11px] inside 44px tap area */}
+                <div className="flex items-center flex-nowrap gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 mt-1">
+                  {categoryChips.map((chip) => {
+                    const isActive = eventCategory.trim().toLowerCase() === chip.toLowerCase();
+                    return (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => {
+                          setIsDirty(true);
+                          setEventCategory(chip);
+                          setCategorySuggested(chip === defaultSuggestedCategory && !editingEventId);
+                        }}
+                        className="min-h-[44px] py-2 shrink-0 inline-flex items-center cursor-pointer group focus:outline-none"
+                      >
+                        <span
+                          className={`h-7 px-2.5 rounded-lg inline-flex items-center whitespace-nowrap text-[11px] font-semibold border transition-colors ${
+                            isActive
+                              ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 border-emerald-500/50'
+                              : 'bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300 border-emerald-500/20 group-hover:bg-emerald-500/[0.14] group-hover:border-emerald-500/35'
+                          }`}
+                        >
+                          {chip}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            {/* PANEL 2: RUBRIC */}
+            <section className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl shadow-sm p-3 sm:p-5 flex flex-col gap-4 min-w-0">
+              <EventFormPanelHeader
+                step={2}
+                title="Rubric"
+                isComplete={hasValidCriterion}
               />
 
-              {/* Tappable Category Chips */}
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {categoryChips.map((chip) => {
-                  const isActive = eventCategory.trim().toLowerCase() === chip.toLowerCase();
+              {/* Quick Templates: Sleek soft emerald tint */}
+              {!hasExistingScores && (
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 block mb-0.5">
+                    Quick templates
+                  </span>
+                  <div className="flex items-center flex-nowrap gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
+                    {RUBRIC_PRESETS.map((preset) => {
+                      const isPresetActive =
+                        preset.criteria.length === rubricCriteria.length &&
+                        preset.criteria.every(
+                          (pc, idx) =>
+                            rubricCriteria[idx]?.name.trim() === pc.name &&
+                            Number(rubricCriteria[idx]?.maxMarks) === pc.maxMarks
+                        );
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => handleApplyPreset(preset)}
+                          className="min-h-[44px] py-2 shrink-0 inline-flex items-center cursor-pointer group focus:outline-none"
+                        >
+                          <span
+                            className={`h-7 px-2.5 rounded-lg inline-flex items-center whitespace-nowrap border text-[11px] font-semibold transition-colors ${
+                              isPresetActive
+                                ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 border-emerald-500/50'
+                                : 'bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300 border-emerald-500/20 group-hover:bg-emerald-500/[0.14] group-hover:border-emerald-500/35'
+                            }`}
+                          >
+                            {preset.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {rubricTouched && !hasValidCriterion && (
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                  Add a name for at least one rubric criterion.
+                </p>
+              )}
+
+              {/* Single Container for All Criteria Rows */}
+              <div className="bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl divide-y divide-stone-200 dark:divide-zinc-800 overflow-hidden">
+                {/* Column Header Row (MARKS label once per list) */}
+                <div className="flex items-center gap-1.5 px-2 py-1.5 bg-stone-100/70 dark:bg-zinc-900/80">
+                  <span className="w-6 shrink-0" />
+                  <span className="flex-1 min-w-0 text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 px-1.5">
+                    Criterion
+                  </span>
+                  <span className="w-14 shrink-0 text-center text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                    MARKS
+                  </span>
+                  {!hasExistingScores && <span className="w-11 shrink-0" />}
+                </div>
+
+                {rubricCriteria.map((item, index) => {
+                  const isLastCriterion = index === rubricCriteria.length - 1;
+                  const isDragging = draggingCriterionId === item.id;
+                  const canReorder = !hasExistingScores && rubricCriteria.length > 1;
                   return (
-                    <button
-                      key={chip}
-                      type="button"
-                      onClick={() => {
-                        setIsDirty(true);
-                        setEventCategory(chip);
-                        setCategorySuggested(chip === defaultSuggestedCategory && !editingEventId);
+                    <div
+                      key={item.id}
+                      ref={(el) => {
+                        criterionRowRefs.current[item.id] = el;
                       }}
-                      className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                        isActive
-                          ? 'bg-emerald-600 text-white border-emerald-600'
-                          : 'bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 border-stone-200 dark:border-zinc-800 hover:border-emerald-500/50'
+                      onPointerDown={(e) => handleCriterionPointerDown(item.id, e)}
+                      onKeyDown={(e) => {
+                        if (!hasExistingScores && e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                          e.preventDefault();
+                          handleMoveCriterion(index, e.key === 'ArrowUp' ? -1 : 1);
+                        }
+                      }}
+                      className={`min-h-[56px] flex items-center gap-1.5 px-2 py-2 ${
+                        isDragging
+                          ? 'bg-emerald-50/80 dark:bg-emerald-500/15 ring-1 ring-emerald-500/40 relative z-10'
+                          : 'transition-colors motion-reduce:transition-none'
                       }`}
                     >
-                      {chip}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* PART 2: RUBRIC CRITERIA + PRESETS */}
-          <div className="space-y-4 pt-2 border-t border-stone-200/80 dark:border-zinc-800/80">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs lg:text-sm font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Rubric Criteria
-              </h3>
-              <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
-                {rubricCriteria.length} {rubricCriteria.length === 1 ? 'criterion' : 'criteria'}
-              </span>
-            </div>
-
-            {/* Rubric Presets as Tappable Chips */}
-            {!hasExistingScores && (
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 block">
-                  Quick templates
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {RUBRIC_PRESETS.map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => handleApplyPreset(preset)}
-                      className="min-h-[36px] px-3 py-1 rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-emerald-500/60 hover:bg-emerald-50/60 dark:hover:bg-emerald-500/10 text-xs font-semibold text-stone-700 dark:text-zinc-300 transition-colors cursor-pointer"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {rubricTouched && !hasValidCriterion && (
-              <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
-                Add a name for at least one rubric criterion.
-              </p>
-            )}
-
-            {/* Vertical Stack with Reorder & Auto-Renumbering */}
-            <div className="space-y-3">
-              {rubricCriteria.map((item, index) => {
-                const isLastCriterion = index === rubricCriteria.length - 1;
-                return (
-                  <div
-                    key={item.id}
-                    className="p-3.5 rounded-2xl bg-white dark:bg-zinc-950 border border-stone-200/90 dark:border-zinc-800/90 shadow-2xs space-y-2.5 transition-colors motion-reduce:transition-none hover:border-stone-300 dark:hover:border-zinc-700"
-                  >
-                    {/* Top Line: Serial Number + Criterion Name + Up/Down/Delete */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold font-mono text-zinc-400 w-5 shrink-0 text-center select-none tabular-nums">
+                      {/* Index / Drag Handle (24px wide, >=44px tall, touch-none) */}
+                      <span
+                        data-criterion-handle="true"
+                        tabIndex={canReorder ? 0 : undefined}
+                        role={canReorder ? 'button' : undefined}
+                        aria-label={
+                          canReorder
+                            ? `Criterion ${index + 1}, hold to drag or press Alt+Up/Down to reorder`
+                            : undefined
+                        }
+                        className={`w-6 min-h-[44px] shrink-0 flex items-center justify-center text-xs font-bold font-mono text-zinc-400 select-none tabular-nums focus:outline-none focus:text-emerald-600 dark:focus:text-emerald-400 ${
+                          canReorder ? 'touch-none cursor-grab active:cursor-grabbing' : ''
+                        }`}
+                      >
                         {index + 1}.
                       </span>
 
-                      <input
+                      {/* Name Textarea (flex-1, min-w-0, auto-grows up to 2+ lines, zero clipping) */}
+                      <textarea
                         ref={(el) => {
                           criterionNameRefs.current[item.id] = el;
+                          syncCriterionTextareaHeight(el);
                         }}
-                        type="text"
-                        placeholder="Criterion Name (e.g. Choreography & Flow)"
+                        rows={1}
+                        placeholder="Criterion name"
                         value={item.name}
                         disabled={hasExistingScores}
                         enterKeyHint="next"
-                        onChange={(e) => handleUpdateCriterion(item.id, 'name', e.target.value)}
+                        onChange={(e) => {
+                          syncCriterionTextareaHeight(e.currentTarget);
+                          handleUpdateCriterion(item.id, 'name', e.target.value);
+                        }}
                         onBlur={() => setRubricTouched(true)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
+                          if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             criterionMarksRefs.current[item.id]?.focus();
                           }
                         }}
-                        className="flex-1 min-h-[38px] bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm font-semibold text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-400 p-0 disabled:opacity-60"
+                        className="flex-1 min-w-0 resize-none overflow-hidden py-1.5 px-1.5 rounded-xl bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-sm font-semibold leading-5 text-stone-900 dark:text-white placeholder:text-stone-400 dark:placeholder:text-zinc-500 disabled:opacity-60"
                       />
 
-                      {!hasExistingScores && rubricCriteria.length > 1 && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            disabled={index === 0}
-                            onClick={() => handleMoveCriterion(index, -1)}
-                            title="Move criterion up"
-                            aria-label={`Move criterion ${index + 1} up`}
-                            className="w-8 h-8 md:w-10 md:h-10 rounded-lg border border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                          >
-                            <ChevronUp className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isLastCriterion}
-                            onClick={() => handleMoveCriterion(index, 1)}
-                            title="Move criterion down"
-                            aria-label={`Move criterion ${index + 1} down`}
-                            className="w-8 h-8 md:w-10 md:h-10 rounded-lg border border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                          >
-                            <ChevronDown className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveCriterion(item.id)}
-                            className="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 flex items-center justify-center font-bold text-base active:scale-90 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
-                            title="Delete criterion"
-                            aria-label={`Delete criterion ${index + 1}`}
-                          >
-                            −
-                          </button>
-                        </div>
+                      {/* Marks Field (w-14, number only, no "pts") */}
+                      <input
+                        ref={(el) => {
+                          criterionMarksRefs.current[item.id] = el;
+                        }}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={editingMarksText[item.id] ?? String(item.maxMarks)}
+                        disabled={hasExistingScores}
+                        aria-label={`Max marks for criterion ${index + 1}`}
+                        enterKeyHint={isLastCriterion && hasExistingScores ? 'done' : 'next'}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '').slice(0, 3);
+                          setEditingMarksText((prev) => ({ ...prev, [item.id]: raw }));
+                          if (raw !== '') {
+                            const parsed = parseInt(raw, 10);
+                            const clamped = Math.min(100, Math.max(1, parsed));
+                            handleUpdateCriterion(item.id, 'maxMarks', clamped);
+                          }
+                        }}
+                        onBlur={() => {
+                          setEditingMarksText((prev) => {
+                            if (!(item.id in prev)) return prev;
+                            const next = { ...prev };
+                            delete next[item.id];
+                            return next;
+                          });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (!isLastCriterion) {
+                              const nextId = rubricCriteria[index + 1]?.id;
+                              if (nextId) criterionNameRefs.current[nextId]?.focus();
+                            } else if (!hasExistingScores) {
+                              handleAddCriterion(true);
+                            } else {
+                              e.currentTarget.blur();
+                            }
+                          }
+                        }}
+                        className="w-14 shrink-0 h-11 px-2 text-center font-mono font-bold tabular-nums rounded-xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 text-xs sm:text-sm text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-60"
+                      />
+
+                      {/* Single Minus Button (44x44) — Hidden when hasExistingScores */}
+                      {!hasExistingScores && (
+                        <button
+                          type="button"
+                          disabled={rubricCriteria.length <= 1}
+                          aria-label={`Remove criterion ${index + 1}`}
+                          onClick={() => handleRemoveCriterion(item.id)}
+                          className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-zinc-500 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
+                  );
+                })}
+              </div>
 
-                    {/* Bottom Line: Max Marks */}
-                    <div className="pl-7 flex items-center gap-2">
-                      <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-zinc-400">
-                        Max Marks:
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          ref={(el) => {
-                            criterionMarksRefs.current[item.id] = el;
-                          }}
-                          type="number"
-                          min={1}
-                          max={100}
-                          value={item.maxMarks}
-                          disabled={hasExistingScores}
-                          enterKeyHint={isLastCriterion ? 'done' : 'next'}
-                          onChange={(e) =>
-                            handleUpdateCriterion(item.id, 'maxMarks', parseInt(e.target.value, 10) || 1)
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              if (!isLastCriterion) {
-                                const nextId = rubricCriteria[index + 1]?.id;
-                                if (nextId) criterionNameRefs.current[nextId]?.focus();
-                              } else {
-                                e.currentTarget.blur();
-                              }
-                            }
-                          }}
-                          className="w-16 min-h-[36px] md:min-h-[44px] text-center font-mono font-bold tabular-nums bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg text-xs sm:text-sm text-stone-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
-                        />
-                        <span className="text-xs lg:text-sm font-semibold text-zinc-400 font-mono">pts</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {!hasExistingScores && (
-              <button
-                type="button"
-                onClick={handleAddCriterion}
-                className="w-full min-h-[44px] border border-dashed border-stone-300 dark:border-zinc-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-2xl text-xs sm:text-sm font-bold text-zinc-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-[transform,colors] duration-100 motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] mt-3 bg-stone-50/50 dark:bg-zinc-900"
-              >
-                <Plus className="w-4 h-4 stroke-[2.2]" />
-                <span>Add Criterion</span>
-              </button>
-            )}
+              {!hasExistingScores && (
+                <button
+                  type="button"
+                  onClick={() => handleAddCriterion(true)}
+                  className="w-full min-h-[44px] border border-dashed border-stone-300 dark:border-zinc-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-xl text-xs sm:text-sm font-bold text-zinc-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-[transform,colors] duration-100 motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] bg-stone-50/50 dark:bg-zinc-900"
+                >
+                  <Plus className="w-4 h-4 stroke-[2.2]" />
+                  <span>Add Criterion</span>
+                </button>
+              )}
+            </section>
           </div>
         </div>
       </TaskScreen>
 
-      {/* Unsaved Changes In-App Confirmation Modal (Portaled) */}
-      {isUnsavedExitModalOpen &&
-        (() => {
-          const modalNode = (
-            <div
-              className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
-              onClick={() => setIsUnsavedExitModalOpen(false)}
-            >
-              <div
-                ref={unsavedExitDialogRef}
-                tabIndex={-1}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Discard Changes?"
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl focus:outline-none"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
-                    <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
-                  </div>
-                </div>
-                <div className="space-y-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleForceDiscardAndExit}
-                    className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Discard &amp; Exit</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsUnsavedExitModalOpen(false)}
-                    className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
-                  >
-                    Keep Editing
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-          return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
-        })()}
+      <UnsavedChangesDialog
+        isOpen={isUnsavedExitModalOpen}
+        dialogRef={unsavedExitDialogRef}
+        canSaveDraft={!editingEventId}
+        onSaveDraft={handleSaveDraftAndExit}
+        onDiscardAndExit={handleForceDiscardAndExit}
+        onKeepEditing={() => setIsUnsavedExitModalOpen(false)}
+      />
 
       {/* ======================================================== */}
       {/* FULL-SCREEN PARTICIPANTS LINEUP (TaskScreen)             */}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Menu, 
   CircleUser, 
@@ -11,7 +12,9 @@ import {
   CheckCircle2,
   Mail,
   Send,
-  X
+  X,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react';
 import { Organization } from '../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase, getStoredSession, setStoredSession, invalidateCache } from '../../lib/supabase';
@@ -42,6 +45,36 @@ const InsightsTab = lazyWithRetry(() => import('./tabs/InsightsTab').then((m) =>
 
 export type OrganiserNavTab = 'live' | 'events' | 'people' | 'insights';
 
+const SIDEBAR_STORAGE_KEY = 'fj_sidebar_collapsed';
+
+function getInitialSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+  } catch {}
+  return window.innerWidth < 1280;
+}
+
+function getOrgInitials(name: string): string {
+  const words = (name || '')
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-zA-Z0-9]/g, ''))
+    .filter(Boolean);
+  if (words.length === 0) return 'FJ';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+interface SidebarTooltipState {
+  id: string;
+  label: string;
+  top: number;
+  left: number;
+}
+
 interface OrganiserDashboardProps {
   organization: Organization;
   onLogout: () => void;
@@ -67,6 +100,13 @@ export function OrganiserDashboard({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(mustChangePassword);
   const [isBannerDismissed, setIsBannerDismissed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(getInitialSidebarCollapsed);
+  const [sidebarTooltip, setSidebarTooltip] = useState<SidebarTooltipState | null>(null);
+  const [hasLiveEvent, setHasLiveEvent] = useState<boolean>(() =>
+    dbService
+      .getCachedEvents(initialOrg.org_id)
+      .some((evt) => (evt.status || '').toLowerCase() === 'active')
+  );
   const {
     bannerNotices,
     inboxNotices,
@@ -286,6 +326,112 @@ export function OrganiserDashboard({
     }
   };
 
+  // Read existing cached event status for Live tab dot without adding queries, subscriptions, or sync logic
+  useEffect(() => {
+    const refreshCachedLiveStatus = () => {
+      const active = dbService
+        .getCachedEvents(organization.org_id)
+        .some((evt) => (evt.status || '').toLowerCase() === 'active');
+      setHasLiveEvent(active);
+    };
+
+    refreshCachedLiveStatus();
+    const unsub = eventBus.on('cache_updated', (payload) => {
+      const table = payload?.table;
+      if (!table || matchesDbTable(table, DB_TABLES.EVENTS, DB_TABLES.ALL)) {
+        refreshCachedLiveStatus();
+      }
+    });
+    return unsub;
+  }, [organization.org_id]);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarTooltip(null);
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // Keyboard shortcut "[" toggles desktop sidebar unless focus is in an editable element
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '[' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (window.innerWidth < 1024) return;
+
+      const target = (e.target instanceof HTMLElement ? e.target : document.activeElement) as HTMLElement | null;
+      if (target) {
+        if (
+          target.isContentEditable ||
+          Boolean(
+            target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"]')
+          )
+        ) {
+          return;
+        }
+      }
+
+      e.preventDefault();
+      toggleSidebar();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleSidebar]);
+
+  // Clear collapsed tooltip whenever sidebar expands or window resizes/scrolls
+  useEffect(() => {
+    if (!isSidebarCollapsed) {
+      setSidebarTooltip(null);
+      return;
+    }
+    const clearTooltip = () => setSidebarTooltip(null);
+    window.addEventListener('resize', clearTooltip);
+    window.addEventListener('scroll', clearTooltip, true);
+    return () => {
+      window.removeEventListener('resize', clearTooltip);
+      window.removeEventListener('scroll', clearTooltip, true);
+    };
+  }, [isSidebarCollapsed]);
+
+  const showCollapsedTooltip = useCallback(
+    (id: string, label: string, el: HTMLElement | null) => {
+      if (!isSidebarCollapsed || !el) return;
+      const rect = el.getBoundingClientRect();
+      setSidebarTooltip({
+        id,
+        label,
+        top: rect.top + rect.height / 2,
+        left: rect.right + 10,
+      });
+    },
+    [isSidebarCollapsed]
+  );
+
+  const hideCollapsedTooltip = useCallback((id?: string) => {
+    setSidebarTooltip((prev) => {
+      if (!prev) return null;
+      if (id && prev.id !== id) return prev;
+      return null;
+    });
+  }, []);
+
+  const handleTooltipFocus = useCallback(
+    (id: string, label: string, el: HTMLElement) => {
+      if (!isSidebarCollapsed) return;
+      try {
+        if (!el.matches(':focus-visible')) return;
+      } catch {}
+      showCollapsedTooltip(id, label, el);
+    },
+    [isSidebarCollapsed, showCollapsedTooltip]
+  );
+
   // Tab definitions
   const navTabs: Array<{ id: OrganiserNavTab; label: string; icon: React.ElementType }> = [
     { id: 'live', label: 'Live', icon: Radio },
@@ -293,6 +439,13 @@ export function OrganiserDashboard({
     { id: 'people', label: 'People', icon: Users },
     { id: 'insights', label: 'Insights', icon: BarChart3 },
   ];
+
+  const orgInitials = getOrgInitials(organization.name);
+  const labelTransitionClass = isSidebarCollapsed
+    ? 'opacity-0 pointer-events-none transition-opacity duration-[100ms] ease-out motion-reduce:transition-none'
+    : 'opacity-100 transition-opacity duration-[160ms] delay-[70ms] ease-out motion-reduce:transition-none motion-reduce:delay-0';
+  const sidebarFocusRingClass =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/75 focus-visible:ring-offset-1 focus-visible:ring-offset-stone-100 dark:focus-visible:ring-offset-zinc-950';
 
   const isOrgDeleted = Boolean(organization.deleted_at) || blockedMode === 'deleted';
   const isOrgSuspended = Boolean(organization.suspended) || blockedMode === 'suspended';
@@ -310,7 +463,11 @@ export function OrganiserDashboard({
   }
 
   return (
-    <div className="h-[100dvh] w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-between overflow-hidden transition-colors duration-200 relative select-none lg:pl-64">
+    <div
+      className={`h-[100dvh] w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-between overflow-hidden transition-colors duration-200 relative select-none lg:transition-[padding-left,background-color,color] lg:duration-[220ms] lg:ease-out lg:motion-reduce:transition-none ${
+        isSidebarCollapsed ? 'lg:pl-[72px]' : 'lg:pl-64'
+      }`}
+    >
       
       {/* ======================================================== */}
       {/* 1. THE TOP HEADER (Framer-Grade Premium Navigation)     */}
@@ -482,7 +639,11 @@ export function OrganiserDashboard({
       />
 
       {orgLoadError && (
-        <div className="shrink-0 max-w-4xl lg:max-w-[1100px] w-full mx-auto px-3 sm:px-4 pt-2 z-20">
+        <div
+          className={`shrink-0 max-w-4xl w-full mx-auto px-3 sm:px-4 pt-2 z-20 ${
+            isSidebarCollapsed ? 'lg:max-w-[1240px]' : 'lg:max-w-[1100px]'
+          }`}
+        >
           <ReadRetryBanner
             message={orgLoadError}
             isRetrying={isRetryingOrg}
@@ -496,7 +657,9 @@ export function OrganiserDashboard({
       {/* ======================================================== */}
       <PullToRefresh
         onRefresh={handleManualPullRefresh}
-        className="flex-1 flex flex-col overflow-hidden max-w-4xl lg:max-w-[1100px] w-full mx-auto relative animate-fade-in"
+        className={`flex-1 flex flex-col overflow-hidden max-w-4xl w-full mx-auto relative animate-fade-in ${
+          isSidebarCollapsed ? 'lg:max-w-[1240px]' : 'lg:max-w-[1100px]'
+        }`}
       >
         <div
           key={activeTab}
@@ -555,86 +718,233 @@ export function OrganiserDashboard({
       {/* ======================================================== */}
       <aside
         aria-label="Organiser desktop navigation"
-        className="hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 lg:flex-col lg:justify-between lg:bg-white lg:dark:bg-zinc-950 lg:border-r lg:border-stone-200 lg:dark:border-zinc-800/80 lg:z-30 lg:select-none"
+        className={`hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:flex-col lg:justify-between lg:bg-stone-100/75 lg:dark:bg-zinc-950/95 lg:border-r lg:border-stone-200/60 lg:dark:border-zinc-800/50 lg:z-30 lg:select-none lg:overflow-x-hidden lg:transition-[width] lg:duration-[220ms] lg:ease-out lg:motion-reduce:transition-none ${
+          isSidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-64'
+        }`}
       >
-        {/* Top: Branding & Organisation Name */}
-        <div className="lg:px-5 lg:py-5 lg:border-b lg:border-stone-200 lg:dark:border-zinc-800/80 lg:space-y-1.5">
-          <div className="lg:flex lg:items-center lg:gap-2.5">
-            <BrandBadge size="xs" role="organiser" motion="still" strokeWidth={2.4} />
-            <span className="lg:text-lg lg:font-black lg:tracking-tight lg:text-zinc-900 lg:dark:text-white lg:font-sans">
-              Fair Judge
-            </span>
-          </div>
-          <div className="lg:flex lg:items-center lg:gap-1.5 lg:min-w-0">
-            <span className="lg:text-sm lg:font-bold lg:text-zinc-700 lg:dark:text-zinc-300 lg:tracking-wide lg:uppercase lg:truncate">
-              {organization.name}
-            </span>
-            {verificationStatus === 'verified' && (
-              <span title="Verified Organization" className="lg:inline-flex lg:shrink-0">
-                <CheckCircle2 className="lg:w-3.5 lg:h-3.5 lg:text-emerald-500 lg:shrink-0" />
+        {/* Top: Branding, Toggle & Organisation Area (fixed height rows so icons never shift) */}
+        <div className="lg:px-3 lg:pt-3.5 lg:pb-3.5 lg:border-b lg:border-stone-200/60 lg:dark:border-zinc-800/50 lg:space-y-2">
+          {/* Row 1: Fair Judge Logo + Collapse/Expand Toggle */}
+          <div className="lg:relative lg:h-9 lg:flex lg:items-center">
+            <div
+              className={`lg:flex lg:items-center lg:gap-2.5 lg:pl-2.5 lg:pr-10 lg:min-w-0 lg:whitespace-nowrap lg:overflow-hidden ${labelTransitionClass}`}
+            >
+              <BrandBadge size="xs" role="organiser" motion="still" strokeWidth={2.4} />
+              <span className="lg:text-base lg:font-black lg:tracking-tight lg:text-zinc-900 lg:dark:text-white lg:font-sans">
+                Fair Judge
               </span>
-            )}
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-expanded={!isSidebarCollapsed}
+              aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              onMouseEnter={(e) =>
+                showCollapsedTooltip('sidebar-toggle', 'Expand sidebar ([)', e.currentTarget)
+              }
+              onMouseLeave={() => hideCollapsedTooltip('sidebar-toggle')}
+              onFocus={(e) =>
+                handleTooltipFocus('sidebar-toggle', 'Expand sidebar ([)', e.currentTarget)
+              }
+              onBlur={() => hideCollapsedTooltip('sidebar-toggle')}
+              className={`lg:absolute lg:right-0 lg:top-0 lg:h-9 lg:flex lg:items-center lg:justify-center lg:rounded-xl lg:text-zinc-500 lg:dark:text-zinc-400 lg:hover:text-zinc-900 lg:dark:hover:text-white lg:hover:bg-stone-200/60 lg:dark:hover:bg-zinc-900 lg:transition-[width,color,background-color] lg:duration-[220ms] lg:ease-out lg:motion-reduce:transition-none lg:cursor-pointer ${sidebarFocusRingClass} ${
+                isSidebarCollapsed ? 'lg:w-12' : 'lg:w-9'
+              }`}
+            >
+              {isSidebarCollapsed ? (
+                <PanelLeftOpen className="lg:w-[18px] lg:h-[18px] lg:stroke-[2.1]" />
+              ) : (
+                <PanelLeftClose className="lg:w-[18px] lg:h-[18px] lg:stroke-[2.1]" />
+              )}
+            </button>
+          </div>
+
+          {/* Row 2: Organisation Initials Circle (collapsed & expanded anchor) + Full Name (expanded) */}
+          <div
+            tabIndex={isSidebarCollapsed ? 0 : undefined}
+            aria-label={
+              isSidebarCollapsed
+                ? `${organization.name}${verificationStatus === 'verified' ? ' (Verified)' : ''}`
+                : undefined
+            }
+            onMouseEnter={(e) =>
+              showCollapsedTooltip(
+                'org-badge',
+                verificationStatus === 'verified'
+                  ? `${organization.name} · Verified`
+                  : organization.name,
+                e.currentTarget
+              )
+            }
+            onMouseLeave={() => hideCollapsedTooltip('org-badge')}
+            onFocus={(e) =>
+              handleTooltipFocus(
+                'org-badge',
+                verificationStatus === 'verified'
+                  ? `${organization.name} · Verified`
+                  : organization.name,
+                e.currentTarget
+              )
+            }
+            onBlur={() => hideCollapsedTooltip('org-badge')}
+            className={`lg:h-9 lg:flex lg:items-center lg:gap-2.5 lg:pl-2.5 lg:min-w-0 lg:rounded-xl ${
+              isSidebarCollapsed ? sidebarFocusRingClass : ''
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className="lg:w-7 lg:h-7 lg:rounded-full lg:bg-emerald-500/12 lg:dark:bg-emerald-500/15 lg:border lg:border-emerald-500/25 lg:text-emerald-700 lg:dark:text-emerald-300 lg:text-[11px] lg:font-black lg:tracking-tight lg:flex lg:items-center lg:justify-center lg:shrink-0"
+            >
+              {orgInitials}
+            </span>
+
+            <div
+              className={`lg:flex lg:items-center lg:gap-1.5 lg:min-w-0 lg:flex-1 lg:overflow-hidden ${labelTransitionClass}`}
+            >
+              <span className="lg:text-xs lg:font-bold lg:text-zinc-700 lg:dark:text-zinc-300 lg:tracking-wide lg:uppercase lg:truncate">
+                {organization.name}
+              </span>
+              {verificationStatus === 'verified' && (
+                <span title="Verified Organization" className="lg:inline-flex lg:shrink-0">
+                  <CheckCircle2 className="lg:w-3.5 lg:h-3.5 lg:text-emerald-500 lg:shrink-0" />
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Middle: Navigation Tabs */}
-        <div className="lg:flex-1 lg:px-3 lg:py-4 lg:space-y-1 lg:overflow-y-auto">
+        {/* Middle: Navigation Landmark & Tabs */}
+        <nav
+          aria-label="Primary navigation"
+          className="lg:flex-1 lg:px-3 lg:py-4 lg:space-y-1 lg:overflow-y-auto lg:overflow-x-hidden"
+        >
           {navTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
+            const showLiveDot = tab.id === 'live' && hasLiveEvent;
+            const tooltipLabel =
+              tab.id === 'live' && hasLiveEvent ? 'Live · Event active' : tab.label;
+
             return (
               <button
                 key={tab.id}
                 type="button"
+                aria-current={isActive ? 'page' : undefined}
+                aria-label={isSidebarCollapsed ? tooltipLabel : undefined}
                 onClick={() => {
                   triggerHaptic('tap');
                   setActiveTab(tab.id);
                 }}
-                className={`lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:transition-colors lg:duration-150 lg:motion-reduce:transition-none lg:cursor-pointer ${
+                onMouseEnter={(e) =>
+                  showCollapsedTooltip(`tab-${tab.id}`, tooltipLabel, e.currentTarget)
+                }
+                onMouseLeave={() => hideCollapsedTooltip(`tab-${tab.id}`)}
+                onFocus={(e) =>
+                  handleTooltipFocus(`tab-${tab.id}`, tooltipLabel, e.currentTarget)
+                }
+                onBlur={() => hideCollapsedTooltip(`tab-${tab.id}`)}
+                className={`lg:relative lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:transition-colors lg:duration-150 lg:motion-reduce:transition-none lg:cursor-pointer lg:overflow-hidden ${sidebarFocusRingClass} ${
                   isActive
-                    ? 'lg:bg-emerald-500/10 lg:text-emerald-700 lg:dark:text-emerald-400 lg:font-bold'
-                    : 'lg:text-zinc-600 lg:dark:text-zinc-400 lg:hover:bg-stone-100 lg:dark:hover:bg-zinc-900 lg:hover:text-zinc-900 lg:dark:hover:text-zinc-100 lg:font-medium'
+                    ? 'lg:bg-emerald-500/10 lg:dark:bg-emerald-500/12 lg:text-emerald-700 lg:dark:text-emerald-400 lg:font-bold'
+                    : 'lg:text-zinc-600 lg:dark:text-zinc-400 lg:hover:bg-stone-200/60 lg:dark:hover:bg-zinc-900/90 lg:hover:text-zinc-900 lg:dark:hover:text-zinc-100 lg:font-medium'
                 }`}
               >
-                <Icon className="lg:w-5 lg:h-5 lg:stroke-[2.2] lg:shrink-0" />
-                <span>{tab.label}</span>
+                {isActive && (
+                  <span
+                    aria-hidden="true"
+                    className="lg:absolute lg:left-0 lg:top-2 lg:bottom-2 lg:w-[3px] lg:rounded-full lg:bg-emerald-600 lg:dark:bg-emerald-400"
+                  />
+                )}
+                <span className="lg:relative lg:inline-flex lg:shrink-0">
+                  <Icon className="lg:w-5 lg:h-5 lg:stroke-[2.2] lg:shrink-0" />
+                  {showLiveDot && (
+                    <span
+                      aria-hidden="true"
+                      className="lg:absolute lg:-top-0.5 lg:-right-0.5 lg:w-2 lg:h-2 lg:rounded-full lg:bg-emerald-500 lg:ring-2 lg:ring-stone-100 lg:dark:ring-zinc-950"
+                    />
+                  )}
+                </span>
+                <span className={`lg:whitespace-nowrap lg:truncate ${labelTransitionClass}`}>
+                  {tab.label}
+                </span>
               </button>
             );
           })}
-        </div>
+        </nav>
 
         {/* Bottom: Settings & Account Entry Points */}
-        <div className="lg:px-3 lg:py-4 lg:border-t lg:border-stone-200 lg:dark:border-zinc-800/80 lg:space-y-1">
+        <div className="lg:px-3 lg:py-4 lg:border-t lg:border-stone-200/60 lg:dark:border-zinc-800/50 lg:space-y-1 lg:overflow-x-hidden">
           <button
             type="button"
             onClick={() => setIsDrawerOpen(true)}
-            className="lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:font-medium lg:text-zinc-700 lg:dark:text-zinc-300 lg:hover:bg-stone-100 lg:dark:hover:bg-zinc-900 lg:hover:text-zinc-900 lg:dark:hover:text-white lg:transition-colors lg:cursor-pointer"
+            onMouseEnter={(e) => showCollapsedTooltip('nav-settings', 'Settings', e.currentTarget)}
+            onMouseLeave={() => hideCollapsedTooltip('nav-settings')}
+            onFocus={(e) => handleTooltipFocus('nav-settings', 'Settings', e.currentTarget)}
+            onBlur={() => hideCollapsedTooltip('nav-settings')}
+            className={`lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:font-medium lg:text-zinc-700 lg:dark:text-zinc-300 lg:hover:bg-stone-200/60 lg:dark:hover:bg-zinc-900/90 lg:hover:text-zinc-900 lg:dark:hover:text-white lg:transition-colors lg:cursor-pointer lg:overflow-hidden ${sidebarFocusRingClass}`}
             aria-label="Open Navigation Drawer"
           >
             <Menu className="lg:w-5 lg:h-5 lg:stroke-[2.2] lg:shrink-0" />
-            <span>Settings</span>
+            <span className={`lg:whitespace-nowrap lg:truncate ${labelTransitionClass}`}>
+              Settings
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsAccountModalOpen(true)}
-            className="lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:justify-between lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:font-medium lg:text-zinc-700 lg:dark:text-zinc-300 lg:hover:bg-stone-100 lg:dark:hover:bg-zinc-900 lg:hover:text-zinc-900 lg:dark:hover:text-white lg:transition-colors lg:cursor-pointer"
+            onMouseEnter={(e) =>
+              showCollapsedTooltip(
+                'nav-account',
+                verificationStatus !== 'verified' ? 'Account · Action needed' : 'Account',
+                e.currentTarget
+              )
+            }
+            onMouseLeave={() => hideCollapsedTooltip('nav-account')}
+            onFocus={(e) =>
+              handleTooltipFocus(
+                'nav-account',
+                verificationStatus !== 'verified' ? 'Account · Action needed' : 'Account',
+                e.currentTarget
+              )
+            }
+            onBlur={() => hideCollapsedTooltip('nav-account')}
+            className={`lg:w-full lg:min-h-[44px] lg:flex lg:items-center lg:gap-3 lg:px-3.5 lg:py-2.5 lg:rounded-xl lg:text-sm lg:font-medium lg:text-zinc-700 lg:dark:text-zinc-300 lg:hover:bg-stone-200/60 lg:dark:hover:bg-zinc-900/90 lg:hover:text-zinc-900 lg:dark:hover:text-white lg:transition-colors lg:cursor-pointer lg:overflow-hidden ${sidebarFocusRingClass}`}
             aria-label="Open Account Settings"
           >
-            <span className="lg:flex lg:items-center lg:gap-3 lg:min-w-0">
+            <span className="lg:relative lg:inline-flex lg:shrink-0">
               <CircleUser className="lg:w-5 lg:h-5 lg:stroke-[2.2] lg:shrink-0" />
-              <span className="lg:truncate">Account</span>
+              {verificationStatus !== 'verified' && (
+                <span
+                  aria-hidden="true"
+                  className={`lg:absolute lg:-top-0.5 lg:-right-0.5 lg:w-2 lg:h-2 lg:rounded-full lg:ring-2 lg:ring-stone-100 lg:dark:ring-zinc-950 ${
+                    verificationStatus === 'rejected' ? 'lg:bg-red-500' : 'lg:bg-amber-500'
+                  }`}
+                />
+              )}
             </span>
-            {verificationStatus !== 'verified' && (
-              <span
-                className={`lg:w-2.5 lg:h-2.5 lg:rounded-full lg:shrink-0 ${
-                  verificationStatus === 'rejected' ? 'lg:bg-red-500' : 'lg:bg-amber-500'
-                }`}
-              />
-            )}
+            <span className={`lg:whitespace-nowrap lg:truncate ${labelTransitionClass}`}>
+              Account
+            </span>
           </button>
         </div>
       </aside>
+
+      {/* Portaled Floating Tooltip for Collapsed Desktop Rail */}
+      {isSidebarCollapsed &&
+        sidebarTooltip &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{ top: sidebarTooltip.top, left: sidebarTooltip.left }}
+            className="hidden lg:block fixed z-[140] -translate-y-1/2 pointer-events-none px-2.5 py-1.5 rounded-lg bg-zinc-900 dark:bg-zinc-800 text-white dark:text-zinc-100 border border-zinc-800 dark:border-zinc-700/80 text-xs font-semibold shadow-lg whitespace-nowrap"
+          >
+            {sidebarTooltip.label}
+          </div>,
+          document.body
+        )}
 
       {/* ======================================================== */}
       {/* 4. THE 4-TAB BOTTOM NAVIGATION SHELL (Framer-Grade)     */}

@@ -8,7 +8,7 @@ import React, {
   ReactNode,
 } from 'react';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info } from 'lucide-react';
-import { eventBus, ToastPayload } from '../../lib/eventBus';
+import { eventBus, ToastPayload, ToastAction } from '../../lib/eventBus';
 import { playSound } from '../../lib/sound';
 
 export type ToastType = 'success' | 'warning' | 'info' | 'error';
@@ -18,15 +18,16 @@ export interface ToastItem {
   type: ToastType;
   message: string;
   duration: number;
+  action?: ToastAction;
 }
 
 export interface ToastContextValue {
-  showToast: (message: string, type?: ToastType, duration?: number) => void;
+  showToast: (message: string, type?: ToastType, duration?: number, action?: ToastAction) => void;
   toast: {
-    success: (message: string, duration?: number) => void;
-    error: (message: string, duration?: number) => void;
-    warning: (message: string, duration?: number) => void;
-    info: (message: string, duration?: number) => void;
+    success: (message: string, duration?: number, action?: ToastAction) => void;
+    error: (message: string, duration?: number, action?: ToastAction) => void;
+    warning: (message: string, duration?: number, action?: ToastAction) => void;
+    info: (message: string, duration?: number, action?: ToastAction) => void;
   };
 }
 
@@ -39,7 +40,8 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 export function showToast(
   message: string,
   type: ToastType = 'success',
-  duration: number = 3200
+  duration: number = 3200,
+  action?: ToastAction
 ) {
   eventBus.emit('toast', {
     id: `toast_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -47,14 +49,15 @@ export function showToast(
     title: message,
     message,
     duration,
+    action,
   });
 }
 
 export const toast = {
-  success: (msg: string, d?: number) => showToast(msg, 'success', d),
-  error: (msg: string, d?: number) => showToast(msg, 'error', d),
-  warning: (msg: string, d?: number) => showToast(msg, 'warning', d),
-  info: (msg: string, d?: number) => showToast(msg, 'info', d),
+  success: (msg: string, d?: number, action?: ToastAction) => showToast(msg, 'success', d, action),
+  error: (msg: string, d?: number, action?: ToastAction) => showToast(msg, 'error', d, action),
+  warning: (msg: string, d?: number, action?: ToastAction) => showToast(msg, 'warning', d, action),
+  info: (msg: string, d?: number, action?: ToastAction) => showToast(msg, 'info', d, action),
 };
 
 export function useToast(): ToastContextValue {
@@ -236,6 +239,23 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
         </p>
       </div>
 
+      {/* Optional Action Button (e.g. Undo) */}
+      {isFront && item.action && (
+        <button
+          type="button"
+          onTouchStart={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            item.action?.onClick();
+            onDismiss(item.id);
+          }}
+          className="shrink-0 min-h-[44px] -my-2 px-3 rounded-lg text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 active:scale-95 transition-colors cursor-pointer"
+        >
+          {item.action.label}
+        </button>
+      )}
+
       {/* Front Toast Subtle Swipe Indicator Pill */}
       {isFront && (
         <div
@@ -281,6 +301,7 @@ export function ToastContainer() {
         type,
         message: msg,
         duration,
+        action: payload.action,
       };
 
       const isSyncCompleteToast =
@@ -340,8 +361,8 @@ export function ToastContainer() {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const handleShowToast = useCallback(
-    (message: string, type: ToastType = 'success', duration: number = 3200) => {
-      showToast(message, type, duration);
+    (message: string, type: ToastType = 'success', duration: number = 3200, action?: ToastAction) => {
+      showToast(message, type, duration, action);
     },
     []
   );

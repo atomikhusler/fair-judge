@@ -17,12 +17,18 @@ export interface SyncStatusPayload {
   message?: string;
 }
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastPayload {
   id?: string;
   type: 'success' | 'warning' | 'info' | 'error';
   title: string;
   message?: string;
   duration?: number;
+  action?: ToastAction;
 }
 
 import type { OrgBlockCode } from './orgEnforcement';

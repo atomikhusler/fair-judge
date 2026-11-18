@@ -43,6 +43,8 @@ import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
 import { TaskScreen, useModalAccessibility } from '../../common/TaskScreen';
+import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
+import { useTaskScreenBackGuard } from '../../common/useTaskScreenBackGuard';
 import { exportJudgeBadgePng, exportJudgeBadgesPrint } from '../../../lib/judgeBadgeRenderer';
 import { 
   Organization, 
@@ -1107,13 +1109,13 @@ export function PeopleTab({
     setShowParticipantModal(true);
   };
 
-  const handleCloseParticipantWizard = () => {
+  const handleCloseParticipantWizard = useCallback(() => {
     if (JSON.stringify(participantForm) !== initialParticipantSnapshotRef.current) {
       setIsParticipantUnsavedOpen(true);
       return;
     }
     setShowParticipantModal(false);
-  };
+  }, [participantForm]);
 
   const handleForceDiscardParticipant = () => {
     if (!editingParticipant) {
@@ -1122,6 +1124,26 @@ export function PeopleTab({
     setIsParticipantUnsavedOpen(false);
     setShowParticipantModal(false);
   };
+
+  const handleSaveParticipantDraftAndExit = () => {
+    if (!editingParticipant) {
+      void saveDraft(participantDraftKey, {
+        version: 1,
+        form: participantForm,
+        timestamp: Date.now(),
+      });
+      showToast('Draft saved locally.');
+    }
+    setIsParticipantUnsavedOpen(false);
+    setShowParticipantModal(false);
+  };
+
+  useTaskScreenBackGuard({
+    isOpen: showParticipantModal,
+    onBack: handleCloseParticipantWizard,
+    hasNestedOverlay: isParticipantUnsavedOpen,
+    onCloseNested: () => setIsParticipantUnsavedOpen(false),
+  });
 
   const handleSaveParticipant = async () => {
     setParticipantSaveAttempted(true);
@@ -1276,17 +1298,61 @@ export function PeopleTab({
   };
 
   // ========================================================
-  // PART 2: JUDGE PROVISIONING ACTIONS (Add / Edit / Delete)
+  // PART 2: JUDGE PROVISIONING ACTIONS (Add / Edit / Delete) & DRAFTS
   // ========================================================
+  const judgeDraftKey = `judge_draft:${organization.org_id}`;
+
+  const loadJudgeDraft = useCallback(() => {
+    try {
+      const parsed = getDraftSync<any>(judgeDraftKey);
+      if (parsed && parsed.version === 1 && Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
+        return parsed;
+      }
+    } catch {}
+    return null;
+  }, [judgeDraftKey]);
+
+  const clearJudgeDraft = useCallback(() => {
+    void removeDraft(judgeDraftKey);
+  }, [judgeDraftKey]);
+
+  useEffect(() => {
+    if (!showJudgeModal || editingJudge) return;
+    if (JSON.stringify(judgeForm) === initialJudgeSnapshotRef.current) return;
+    const hasContent = Boolean(judgeForm.name.trim() || judgeForm.judge_id.trim());
+    if (!hasContent) return;
+
+    const timer = setTimeout(() => {
+      void saveDraft(judgeDraftKey, {
+        version: 1,
+        form: judgeForm,
+        judgeIdManuallyEdited,
+        timestamp: Date.now(),
+      });
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [showJudgeModal, editingJudge, judgeForm, judgeIdManuallyEdited, judgeDraftKey]);
+
   const handleOpenAddJudge = () => {
     setEditingJudge(null);
-    const nextForm = {
-      name: '',
-      judge_id: '',
-      pin: generateJudgePin(),
-    };
+    const draft = loadJudgeDraft();
+    const draftForm = draft?.form;
+    const nextForm = draftForm
+      ? {
+          name: draftForm.name || '',
+          judge_id: draftForm.judge_id || '',
+          pin: /^\d{4}$/.test(String(draftForm.pin || '').trim())
+            ? String(draftForm.pin).trim()
+            : generateJudgePin(),
+        }
+      : {
+          name: '',
+          judge_id: '',
+          pin: generateJudgePin(),
+        };
     setJudgeForm(nextForm);
-    setJudgeIdManuallyEdited(false);
+    setJudgeIdManuallyEdited(Boolean(draft?.judgeIdManuallyEdited));
     setJudgeTouched({});
     setJudgeSaveAttempted(false);
     setShowMoreJudgeOptions(false);
@@ -1329,18 +1395,42 @@ export function PeopleTab({
     setShowJudgeModal(true);
   };
 
-  const handleCloseJudgeWizard = () => {
+  const handleCloseJudgeWizard = useCallback(() => {
     if (JSON.stringify(judgeForm) !== initialJudgeSnapshotRef.current) {
       setIsJudgeUnsavedOpen(true);
       return;
     }
     setShowJudgeModal(false);
-  };
+  }, [judgeForm]);
 
   const handleForceDiscardJudge = () => {
+    if (!editingJudge) {
+      clearJudgeDraft();
+    }
     setIsJudgeUnsavedOpen(false);
     setShowJudgeModal(false);
   };
+
+  const handleSaveJudgeDraftAndExit = () => {
+    if (!editingJudge) {
+      void saveDraft(judgeDraftKey, {
+        version: 1,
+        form: judgeForm,
+        judgeIdManuallyEdited,
+        timestamp: Date.now(),
+      });
+      showToast('Draft saved locally.');
+    }
+    setIsJudgeUnsavedOpen(false);
+    setShowJudgeModal(false);
+  };
+
+  useTaskScreenBackGuard({
+    isOpen: showJudgeModal,
+    onBack: handleCloseJudgeWizard,
+    hasNestedOverlay: isJudgeUnsavedOpen,
+    onCloseNested: () => setIsJudgeUnsavedOpen(false),
+  });
 
   const handleSaveJudge = async () => {
     setJudgeSaveAttempted(true);
@@ -1371,6 +1461,7 @@ export function PeopleTab({
           judgeForm.pin.trim(),
           judgeForm.judge_id.trim().toUpperCase()
         );
+        clearJudgeDraft();
       }
       setShowJudgeModal(false);
       await loadData(true);
@@ -2341,11 +2432,11 @@ export function PeopleTab({
           (cf) => !(participantForm.custom_values[cf.id] || '').trim()
         );
         const participantMissingReason = !participantForm.name.trim()
-          ? 'Add a full name to continue'
+          ? 'Add a full name to save'
           : !participantForm.school.trim()
-          ? 'Add a school to continue'
+          ? 'Add a school to save'
           : missingRequiredCustom
-          ? `Add ${missingRequiredCustom.name} to continue`
+          ? `Add ${missingRequiredCustom.name} to save`
           : null;
         const isParticipantFormValid = participantMissingReason === null;
         const hasMoreParticipantSection = true; // Mobile Number + any optional custom fields
@@ -2364,25 +2455,24 @@ export function PeopleTab({
                 isJudgeDetailsModalOpen
             )}
             maxWidthClass="md:max-w-2xl"
-            footer={
-              participantMissingReason ? (
-                <p className="text-[11px] lg:text-xs font-medium text-amber-600 dark:text-amber-400 truncate">
-                  {participantMissingReason}
-                </p>
-              ) : undefined
+            headerAction={
+              <button
+                type="button"
+                disabled={!isParticipantFormValid}
+                onClick={handleSaveParticipant}
+                className="min-h-[44px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold shadow-md shadow-indigo-600/20 active:scale-[0.98] transition-[transform,opacity] duration-100 motion-reduce:transition-none disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Check className="w-4 h-4 stroke-[2.5]" />
+                <span>Save</span>
+              </button>
             }
-            secondaryAction={{
-              label: 'Cancel',
-              onClick: handleCloseParticipantWizard,
-            }}
-            primaryAction={{
-              label: 'Save',
-              disabled: !isParticipantFormValid,
-              onClick: handleSaveParticipant,
-              icon: <Check className="w-4 h-4 stroke-[2.5]" />,
-              variant: 'indigo',
-            }}
           >
+            {participantMissingReason && (
+              <p className="-mx-4 -mt-5 px-4 py-1.5 border-b border-stone-200/70 dark:border-zinc-800/70 bg-stone-100/70 dark:bg-zinc-950/70 text-[13px] font-medium text-zinc-500 dark:text-zinc-400 text-center">
+                {participantMissingReason}
+              </p>
+            )}
+
             <div className="max-w-2xl w-full mx-auto space-y-5">
               {/* Primary Card: Full Name, School, Category, Required Custom Fields */}
               <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 border-t-white/5 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
@@ -2409,7 +2499,6 @@ export function PeopleTab({
                     }}
                     placeholder="e.g. Aarav Sharma"
                     enterKeyHint="next"
-                    autoFocus
                     className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm sm:text-base font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
                       (participantTouched.name || participantSaveAttempted) && !participantForm.name.trim()
                         ? 'border-rose-500 focus:ring-rose-500/30'
@@ -2426,19 +2515,12 @@ export function PeopleTab({
                 {/* School / Institution (Mandatory + Org Suggestions) */}
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <label
-                        htmlFor="participant-school-input"
-                        className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
-                      >
-                        School / Institution <span className="text-indigo-500">*</span>
-                      </label>
-                      {schoolSuggested && (
-                        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
-                          Suggested
-                        </span>
-                      )}
-                    </div>
+                    <label
+                      htmlFor="participant-school-input"
+                      className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                    >
+                      School / Institution <span className="text-indigo-500">*</span>
+                    </label>
                     {!schoolSuggested &&
                       defaultSuggestedSchool &&
                       participantForm.school.trim() !== defaultSuggestedSchool && (
@@ -2448,7 +2530,7 @@ export function PeopleTab({
                             setParticipantForm({ ...participantForm, school: defaultSuggestedSchool });
                             setSchoolSuggested(true);
                           }}
-                          className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                          className="min-h-[44px] -my-2 inline-flex items-center text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                         >
                           Reset to suggested
                         </button>
@@ -2484,7 +2566,7 @@ export function PeopleTab({
                     </p>
                   )}
                   {orgSchoolSuggestions.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
+                    <div className="flex items-center flex-nowrap gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 mt-1">
                       {orgSchoolSuggestions.map((schoolChip) => {
                         const isActive = participantForm.school.trim().toLowerCase() === schoolChip.toLowerCase();
                         return (
@@ -2496,13 +2578,17 @@ export function PeopleTab({
                               setSchoolSuggested(!editingParticipant && schoolChip === defaultSuggestedSchool);
                               setParticipantTouched((prev) => ({ ...prev, school: true }));
                             }}
-                            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                              isActive
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 border-stone-200 dark:border-zinc-800 hover:border-indigo-500/50'
-                            }`}
+                            className="min-h-[44px] py-2 shrink-0 inline-flex items-center cursor-pointer group focus:outline-none"
                           >
-                            {schoolChip}
+                            <span
+                              className={`h-7 px-2.5 rounded-lg inline-flex items-center whitespace-nowrap text-[11px] font-semibold border transition-colors ${
+                                isActive
+                                  ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 border-emerald-500/50'
+                                  : 'bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300 border-emerald-500/20 group-hover:bg-emerald-500/[0.14] group-hover:border-emerald-500/35'
+                              }`}
+                            >
+                              {schoolChip}
+                            </span>
                           </button>
                         );
                       })}
@@ -2513,19 +2599,12 @@ export function PeopleTab({
                 {/* Dynamic Categorization (Optional + Org Suggestions) */}
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <label
-                        htmlFor="participant-class-input"
-                        className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
-                      >
-                        {categoryLabel}
-                      </label>
-                      {classSuggested && (
-                        <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
-                          Suggested
-                        </span>
-                      )}
-                    </div>
+                    <label
+                      htmlFor="participant-class-input"
+                      className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                    >
+                      {categoryLabel}
+                    </label>
                     {!classSuggested &&
                       defaultSuggestedClass &&
                       participantForm.class_or_age.trim() !== defaultSuggestedClass && (
@@ -2535,7 +2614,7 @@ export function PeopleTab({
                             setParticipantForm({ ...participantForm, class_or_age: defaultSuggestedClass });
                             setClassSuggested(true);
                           }}
-                          className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                          className="min-h-[44px] -my-2 inline-flex items-center text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                         >
                           Reset to suggested
                         </button>
@@ -2570,7 +2649,7 @@ export function PeopleTab({
                     className="w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-sm font-medium text-stone-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                   {orgCategorySuggestions.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
+                    <div className="flex items-center flex-nowrap gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 mt-1">
                       {orgCategorySuggestions.map((catChip) => {
                         const isActive = participantForm.class_or_age.trim().toLowerCase() === catChip.toLowerCase();
                         return (
@@ -2581,13 +2660,17 @@ export function PeopleTab({
                               setParticipantForm({ ...participantForm, class_or_age: catChip });
                               setClassSuggested(!editingParticipant && catChip === defaultSuggestedClass);
                             }}
-                            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                              isActive
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-stone-100 dark:bg-zinc-900 text-stone-700 dark:text-zinc-300 border-stone-200 dark:border-zinc-800 hover:border-indigo-500/50'
-                            }`}
+                            className="min-h-[44px] py-2 shrink-0 inline-flex items-center cursor-pointer group focus:outline-none"
                           >
-                            {catChip}
+                            <span
+                              className={`h-7 px-2.5 rounded-lg inline-flex items-center whitespace-nowrap text-[11px] font-semibold border transition-colors ${
+                                isActive
+                                  ? 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 border-emerald-500/50'
+                                  : 'bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300 border-emerald-500/20 group-hover:bg-emerald-500/[0.14] group-hover:border-emerald-500/35'
+                              }`}
+                            >
+                              {catChip}
+                            </span>
                           </button>
                         );
                       })}
@@ -2768,54 +2851,14 @@ export function PeopleTab({
         );
       })()}
 
-      {/* Participant Unsaved Changes Confirmation Modal (Portaled) */}
-      {isParticipantUnsavedOpen &&
-        (() => {
-          const modalNode = (
-            <div
-              className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
-              onClick={() => setIsParticipantUnsavedOpen(false)}
-            >
-              <div
-                ref={participantUnsavedDialogRef}
-                tabIndex={-1}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Discard Changes?"
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl focus:outline-none"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
-                    <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
-                  </div>
-                </div>
-                <div className="space-y-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleForceDiscardParticipant}
-                    className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Discard &amp; Exit</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsParticipantUnsavedOpen(false)}
-                    className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
-                  >
-                    Keep Editing
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-          return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
-        })()}
+      <UnsavedChangesDialog
+        isOpen={isParticipantUnsavedOpen}
+        dialogRef={participantUnsavedDialogRef}
+        canSaveDraft={!editingParticipant}
+        onSaveDraft={handleSaveParticipantDraftAndExit}
+        onDiscardAndExit={handleForceDiscardParticipant}
+        onKeepEditing={() => setIsParticipantUnsavedOpen(false)}
+      />
 
       {/* ======================================================== */}
       {/* FULL-SCREEN JUDGE CREATION WIZARD (TaskScreen)           */}
@@ -2832,18 +2875,13 @@ export function PeopleTab({
           : undefined;
         const isPinValid = /^\d{4}$/.test(judgeForm.pin.trim());
         const judgeMissingReason = !judgeForm.name.trim()
-          ? 'Add judge full name to continue'
+          ? 'Add judge full name to save'
           : !judgeForm.judge_id.trim()
-          ? 'Add a Judge ID to continue'
+          ? 'Add a Judge ID to save'
           : !isPinValid
-          ? 'Enter a 4-digit PIN to continue'
+          ? 'Enter a 4-digit PIN to save'
           : null;
         const isJudgeFormValid = judgeMissingReason === null;
-        const isJudgeIdSuggestedActive =
-          !editingJudge &&
-          !judgeIdManuallyEdited &&
-          Boolean(suggestedJudgeId) &&
-          normalizedJudgeId === suggestedJudgeId;
 
         return (
           <TaskScreen
@@ -2859,25 +2897,24 @@ export function PeopleTab({
                 isJudgeDetailsModalOpen
             )}
             maxWidthClass="md:max-w-2xl"
-            footer={
-              judgeMissingReason ? (
-                <p className="text-[11px] lg:text-xs font-medium text-amber-600 dark:text-amber-400 truncate">
-                  {judgeMissingReason}
-                </p>
-              ) : undefined
+            headerAction={
+              <button
+                type="button"
+                disabled={!isJudgeFormValid}
+                onClick={handleSaveJudge}
+                className="min-h-[44px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black shadow-md shadow-amber-500/20 active:scale-[0.98] transition-[transform,opacity] duration-100 motion-reduce:transition-none disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Check className="w-4 h-4 stroke-[2.5]" />
+                <span>Save</span>
+              </button>
             }
-            secondaryAction={{
-              label: 'Cancel',
-              onClick: handleCloseJudgeWizard,
-            }}
-            primaryAction={{
-              label: 'Save',
-              disabled: !isJudgeFormValid,
-              onClick: handleSaveJudge,
-              icon: <Check className="w-4 h-4 stroke-[2.5]" />,
-              variant: 'amber',
-            }}
           >
+            {judgeMissingReason && (
+              <p className="-mx-4 -mt-5 px-4 py-1.5 border-b border-stone-200/70 dark:border-zinc-800/70 bg-stone-100/70 dark:bg-zinc-950/70 text-[13px] font-medium text-zinc-500 dark:text-zinc-400 text-center">
+                {judgeMissingReason}
+              </p>
+            )}
+
             <div className="max-w-2xl w-full mx-auto space-y-5">
               {/* Primary Card: Judge Full Name, Judge ID Code, 4-Digit PIN */}
               <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
@@ -2914,7 +2951,6 @@ export function PeopleTab({
                     }}
                     placeholder="e.g. Sahil Kumar Rout"
                     enterKeyHint="next"
-                    autoFocus
                     className={`w-full min-h-[46px] px-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border text-sm sm:text-base font-semibold text-stone-900 dark:text-white focus:outline-none focus:ring-2 transition-colors ${
                       (judgeTouched.name || judgeSaveAttempted) && !judgeForm.name.trim()
                         ? 'border-rose-500 focus:ring-rose-500/30'
@@ -2933,19 +2969,12 @@ export function PeopleTab({
                   {/* Judge ID Code */}
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <label
-                          htmlFor="judge-id-input"
-                          className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
-                        >
-                          Judge ID Code <span className="text-amber-500">*</span>
-                        </label>
-                        {isJudgeIdSuggestedActive && (
-                          <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400">
-                            Suggested
-                          </span>
-                        )}
-                      </div>
+                      <label
+                        htmlFor="judge-id-input"
+                        className="text-xs lg:text-sm font-semibold text-stone-700 dark:text-zinc-300"
+                      >
+                        Judge ID Code <span className="text-amber-500">*</span>
+                      </label>
                       {suggestedJudgeId && normalizedJudgeId !== suggestedJudgeId && (
                         <button
                           type="button"
@@ -2955,7 +2984,7 @@ export function PeopleTab({
                               setJudgeIdManuallyEdited(false);
                             }
                           }}
-                          className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                          className="min-h-[44px] -my-2 inline-flex items-center text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                         >
                           Reset to suggested
                         </button>
@@ -3103,54 +3132,14 @@ export function PeopleTab({
         );
       })()}
 
-      {/* Judge Unsaved Changes Confirmation Modal (Portaled) */}
-      {isJudgeUnsavedOpen &&
-        (() => {
-          const modalNode = (
-            <div
-              className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
-              onClick={() => setIsJudgeUnsavedOpen(false)}
-            >
-              <div
-                ref={judgeUnsavedDialogRef}
-                tabIndex={-1}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Discard Changes?"
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl focus:outline-none"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
-                    <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
-                  </div>
-                </div>
-                <div className="space-y-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleForceDiscardJudge}
-                    className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Discard &amp; Exit</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsJudgeUnsavedOpen(false)}
-                    className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
-                  >
-                    Keep Editing
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-          return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
-        })()}
+      <UnsavedChangesDialog
+        isOpen={isJudgeUnsavedOpen}
+        dialogRef={judgeUnsavedDialogRef}
+        canSaveDraft={!editingJudge}
+        onSaveDraft={handleSaveJudgeDraftAndExit}
+        onDiscardAndExit={handleForceDiscardJudge}
+        onKeepEditing={() => setIsJudgeUnsavedOpen(false)}
+      />
 
       {/* ======================================================== */}
       {/* 1. CLEAN SHOW QR MODAL (Portaled to document.body)       */}
