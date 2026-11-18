@@ -9,6 +9,7 @@ export type SoundLevel = 'off' | 'soft' | 'crisp';
 export type ActiveSoundLevel = 'soft' | 'crisp';
 export type SoundEvent =
   | 'boot'
+  | 'signin'
   | 'shutdown'
   | 'tap'
   | 'tick'
@@ -22,6 +23,13 @@ const SOUND_LAST_ACTIVE_KEY = 'fairjudge_sound_last_active';
 const ACTIVE_SESSION_STORAGE_KEY = 'fairjudge_active_session';
 
 export const SOUND_CHANGE_EVENT = 'fairjudge_sound_change';
+
+export function isProjectorRouteActive(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.hash.startsWith('#/projector')) return true;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('view') === 'projector';
+}
 
 function isAdminRouteActive(): boolean {
   if (typeof window === 'undefined') return false;
@@ -85,6 +93,9 @@ export function isSoundMuted(): boolean {
 
 export function setSoundLevel(level: SoundLevel): void {
   if (typeof window === 'undefined') return;
+  if (level === 'off') {
+    pendingLaunchChime = false;
+  }
   try {
     localStorage.setItem(getScopedSoundStorageKey(), level);
     if (level === 'soft' || level === 'crisp') {
@@ -110,6 +121,8 @@ let audioCtx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let unlockAttached = false;
 let lastTickAt = 0;
+let pendingLaunchChime = false;
+let launchChimePlayed = false;
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -145,25 +158,63 @@ function getAudioContext(): AudioContext | null {
 
 export function unlockSoundEngine(): void {
   if (typeof window === 'undefined' || unlockAttached) return;
+  if (isProjectorRouteActive()) {
+    pendingLaunchChime = false;
+    return;
+  }
   unlockAttached = true;
 
+  const detachListeners = () => {
+    window.removeEventListener('pointerdown', tryUnlock, true);
+    window.removeEventListener('keydown', tryUnlock, true);
+  };
+
+  const playPendingLaunchIfReady = (targetCtx: AudioContext, shouldPlay: boolean) => {
+    if (!shouldPlay || launchChimePlayed) return;
+    if (isProjectorRouteActive() || getSoundLevel() === 'off' || targetCtx.state !== 'running') {
+      return;
+    }
+    const dest = masterGain;
+    if (!dest) return;
+    launchChimePlayed = true;
+    const scale = getSoundLevel() === 'crisp' ? 0.72 : 0.38;
+    try {
+      for (const step of SOUND_PATTERNS.boot) {
+        scheduleTone(targetCtx, dest, step, scale);
+      }
+    } catch {}
+  };
+
   const tryUnlock = () => {
-    if (getSoundLevel() === 'off') return;
+    if (isProjectorRouteActive()) {
+      pendingLaunchChime = false;
+      detachListeners();
+      unlockAttached = false;
+      return;
+    }
+    if (getSoundLevel() === 'off') {
+      pendingLaunchChime = false;
+      return;
+    }
+    const shouldPlayLaunch = pendingLaunchChime && !launchChimePlayed;
+    pendingLaunchChime = false;
+
     const ctx = getAudioContext();
     if (!ctx) return;
+
     if (ctx.state === 'suspended') {
       ctx
         .resume()
         .then(() => {
           if (ctx.state === 'running') {
-            window.removeEventListener('pointerdown', tryUnlock, true);
-            window.removeEventListener('keydown', tryUnlock, true);
+            detachListeners();
+            playPendingLaunchIfReady(ctx, shouldPlayLaunch);
           }
         })
         .catch(() => {});
     } else if (ctx.state === 'running') {
-      window.removeEventListener('pointerdown', tryUnlock, true);
-      window.removeEventListener('keydown', tryUnlock, true);
+      detachListeners();
+      playPendingLaunchIfReady(ctx, shouldPlayLaunch);
     }
   };
 
@@ -219,7 +270,9 @@ const SOUND_PATTERNS: Record<SoundEvent, ToneStep[]> = {
   boot: [
     { freq: 523.25, type: 'sine', delay: 0, duration: 0.16, gain: 0.2 },
     { freq: 659.25, type: 'sine', delay: 0.06, duration: 0.18, gain: 0.22 },
-    { freq: 783.99, type: 'triangle', delay: 0.12, duration: 0.24, gain: 0.18 },
+  ],
+  signin: [
+    { freq: 659.25, type: 'sine', delay: 0, duration: 0.2, gain: 0.2 },
   ],
   shutdown: [
     { freq: 659.25, type: 'sine', delay: 0, duration: 0.12, gain: 0.18 },
@@ -243,9 +296,44 @@ const SOUND_PATTERNS: Record<SoundEvent, ToneStep[]> = {
   ],
 };
 
-export function playSound(event: SoundEvent): void {
+export interface PlaySoundOptions {
+  launch?: boolean;
+}
+
+export function playSound(event: SoundEvent, options?: PlaySoundOptions): void {
+  if (isProjectorRouteActive()) {
+    if (options?.launch) pendingLaunchChime = false;
+    return;
+  }
+
   const level = getSoundLevel();
-  if (level === 'off') return;
+  if (level === 'off') {
+    if (options?.launch) pendingLaunchChime = false;
+    return;
+  }
+
+  if (options?.launch) {
+    if (launchChimePlayed) return;
+    const launchCtx = getAudioContext();
+    const launchDest = masterGain;
+    if (!launchCtx || !launchDest) return;
+
+    if (launchCtx.state === 'running') {
+      pendingLaunchChime = false;
+      launchChimePlayed = true;
+      const scale = level === 'crisp' ? 0.72 : 0.38;
+      try {
+        for (const step of SOUND_PATTERNS.boot) {
+          scheduleTone(launchCtx, launchDest, step, scale);
+        }
+      } catch {}
+      return;
+    }
+
+    pendingLaunchChime = true;
+    unlockSoundEngine();
+    return;
+  }
 
   const nowMs = Date.now();
   if (event === 'tick') {
@@ -262,7 +350,7 @@ export function playSound(event: SoundEvent): void {
 
   const trigger = () => {
     // Drop stale audio if browser delayed resume past 120ms (prevents queued bursts)
-    if (Date.now() - nowMs > 120 || ctx.state !== 'running') return;
+    if (isProjectorRouteActive() || Date.now() - nowMs > 120 || ctx.state !== 'running') return;
     try {
       for (const step of steps) {
         scheduleTone(ctx, dest, step, scale);

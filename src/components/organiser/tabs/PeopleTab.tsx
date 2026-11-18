@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import * as XLSX from 'xlsx';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
@@ -41,6 +40,7 @@ import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
+import { exportJudgeBadgePng, exportJudgeBadgesPrint } from '../../../lib/judgeBadgeRenderer';
 import { 
   Organization, 
   SupabaseParticipant, 
@@ -297,6 +297,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     pin: '',
   });
   const [copiedJudgePin, setCopiedJudgePin] = useState<string | null>(null);
+  const [downloadingBadgeId, setDownloadingBadgeId] = useState<string | null>(null);
+  const [isExportingBadges, setIsExportingBadges] = useState(false);
 
   // Show QR Modal State
   const [selectedJudgeForQr, setSelectedJudgeForQr] = useState<SupabaseJudge | null>(null);
@@ -1150,235 +1152,36 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   };
 
   // ========================================================
-  // PART 5: ROBUST STANDALONE BADGE PRINT ENGINE (window.open)
+  // PART 5: SHARED JUDGE BADGE PRINT & PNG ACTIONS
   // ========================================================
-  const handleTriggerPrint = () => {
+  const handleTriggerPrint = async () => {
     if (judges.length === 0) {
       showToast('No judges found to print badges for.', 'warning');
       return;
     }
+    if (isExportingBadges) return;
+    setIsExportingBadges(true);
+    try {
+      await exportJudgeBadgesPrint(judges, organization, getJudgeQrPayload);
+    } catch (err: any) {
+      console.error('Failed to print judge badges:', err);
+      showToast(err?.message || 'Unable to prepare badges for printing.', 'error');
+    } finally {
+      setIsExportingBadges(false);
+    }
+  };
 
-    const escapeHtml = (str: string) =>
-      String(str || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-
-    const badgesHtml = judges
-      .map((j) => {
-        const qrPayload = getJudgeQrPayload(j);
-        const qrSvgString = renderToStaticMarkup(
-          <QRCodeSVG value={qrPayload} size={128} level="M" />
-        );
-
-        return `
-          <div class="badge-card">
-            <div>
-              <div class="badge-header">
-                <span class="org-name">${escapeHtml(organization.name)}</span>
-                <h3 class="judge-name">${escapeHtml(j.name)}</h3>
-                <p class="judge-role">Official Evaluator / Judge</p>
-              </div>
-
-              <div class="qr-box">
-                <div class="qr-container">
-                  ${qrSvgString}
-                </div>
-              </div>
-              <p class="qr-sub">Scan with terminal camera for 1-tap authentication</p>
-            </div>
-
-            <div>
-              <div class="cred-strip">
-                <div class="cred-col">
-                  <span class="cred-label">Judge ID Code</span>
-                  <span class="cred-val">${escapeHtml(j.judge_id || j.id.slice(0, 6))}</span>
-                </div>
-                <div class="cred-col">
-                  <span class="cred-label">4-Digit PIN</span>
-                  <span class="cred-val pin">${escapeHtml(j.pin)}</span>
-                </div>
-              </div>
-
-              <div class="badge-footer">
-                <span class="brand">⚖️ FAIR JUDGE</span>
-                <span class="sys">Competition Systems</span>
-              </div>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
-
-    const htmlDocument = `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>${escapeHtml(organization.name)} - Official Judge Credentials</title>
-        <style>
-          @page { size: A4 portrait; margin: 12mm; }
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: #ffffff !important;
-            color: #09090b !important;
-            padding: 16px;
-          }
-          .header {
-            text-align: center;
-            border-bottom: 2px solid #18181b;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-          }
-          .header h1 {
-            font-size: 20px;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-          }
-          .header p {
-            font-size: 11px;
-            font-family: monospace;
-            color: #71717a;
-            margin-top: 2px;
-          }
-          .badge-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
-          }
-          .badge-card {
-            border: 2px solid #18181b;
-            border-radius: 16px;
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            background: #ffffff;
-            break-inside: avoid;
-            page-break-inside: avoid;
-            min-height: 310px;
-          }
-          .badge-header {
-            text-align: center;
-            border-bottom: 1px solid #e4e4e7;
-            padding-bottom: 8px;
-          }
-          .org-name {
-            font-size: 10px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: #71717a;
-            display: block;
-          }
-          .judge-name {
-            font-size: 17px;
-            font-weight: 900;
-            color: #09090b;
-            margin-top: 4px;
-            text-transform: uppercase;
-          }
-          .judge-role {
-            font-size: 9px;
-            color: #71717a;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            font-weight: 600;
-            margin-top: 2px;
-          }
-          .qr-box {
-            display: flex;
-            justify-content: center;
-            margin: 12px 0 6px 0;
-          }
-          .qr-container {
-            padding: 8px;
-            border: 1px solid #e4e4e7;
-            border-radius: 12px;
-            background: #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-          .qr-sub {
-            font-size: 9px;
-            text-align: center;
-            color: #71717a;
-            font-weight: 500;
-            margin-bottom: 6px;
-          }
-          .cred-strip {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            background: #f4f4f5;
-            padding: 8px;
-            border-radius: 10px;
-            text-align: center;
-            margin-top: 4px;
-          }
-          .cred-col {}
-          .cred-label {
-            font-size: 8px;
-            font-weight: 700;
-            color: #71717a;
-            text-transform: uppercase;
-            display: block;
-          }
-          .cred-val {
-            font-size: 13px;
-            font-family: monospace;
-            font-weight: 900;
-            color: #18181b;
-          }
-          .cred-val.pin {
-            color: #059669;
-          }
-          .badge-footer {
-            margin-top: 10px;
-            padding-top: 8px;
-            border-top: 1px solid #e4e4e7;
-            display: flex;
-            justify-content: space-between;
-            font-size: 9px;
-            color: #71717a;
-            font-weight: 600;
-          }
-          .brand {
-            font-weight: 900;
-            color: #09090b;
-          }
-          .sys {
-            font-family: monospace;
-            font-size: 8px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>${escapeHtml(organization.name)}</h1>
-          <p>Official Judge Credentials & Badges • Org ID: ${escapeHtml(organization.org_id)}</p>
-        </div>
-        <div class="badge-grid">
-          ${badgesHtml}
-        </div>
-      </body>
-      </html>
-    `;
-
-    const printWin = window.open('', '_blank');
-    if (printWin) {
-      printWin.document.write(htmlDocument);
-      printWin.document.close();
-      printWin.focus();
-      setTimeout(() => {
-        printWin.print();
-      }, 250);
-    } else {
-      showToast('Pop-up blocked. Allow pop-ups to print badges.', 'warning');
+  const handleDownloadJudgeBadge = async (j: SupabaseJudge) => {
+    if (downloadingBadgeId) return;
+    setDownloadingBadgeId(j.id);
+    try {
+      await exportJudgeBadgePng(j, organization, getJudgeQrPayload(j));
+      showToast(`Downloaded PNG badge for ${j.name}.`);
+    } catch (err: any) {
+      console.error('Failed to download judge badge PNG:', err);
+      showToast(err?.message || 'Failed to generate PNG badge.', 'error');
+    } finally {
+      setDownloadingBadgeId(null);
     }
   };
 
@@ -1417,94 +1220,6 @@ export function PeopleTab({ organization }: PeopleTabProps) {
 
   return (
     <>
-      {/* ======================================================== */}
-      {/* ======================================================== */}
-      {/* PART 3: PRINTABLE BADGES COMPONENT (Strictly Print Only) */}
-      {/* ======================================================== */}
-      <div className="hidden print:block bg-white text-black p-4 w-full">
-        <div className="mb-4 text-center border-b pb-2">
-          <h1 className="text-xl font-black uppercase tracking-wider text-black">
-            {organization.name}
-          </h1>
-          <p className="text-xs text-zinc-700 font-mono">
-            Official Judge Credentials & Badges • Org ID: {organization.org_id}
-          </p>
-        </div>
-
-        {/* 4 to 6 ID Cards per A4 Page Grid */}
-        <div className="grid grid-cols-2 gap-4">
-          {judges.map((j) => {
-            const qrPayload = getJudgeQrPayload(j);
-            return (
-              <div
-                key={j.id}
-                className="border-2 border-zinc-900 rounded-2xl p-4 flex flex-col justify-between bg-white text-black break-inside-avoid page-break-inside-avoid min-h-[300px]"
-              >
-                <div>
-                  {/* Top: Organisation Name */}
-                  <div className="text-center border-b border-zinc-200 pb-2">
-                    <span className="text-[11px] font-black uppercase tracking-widest text-zinc-600 block">
-                      {organization.name}
-                    </span>
-                    {/* Judge Name printed directly under Organisation Name */}
-                    <h3 className="text-lg font-black text-center text-zinc-950 mt-1 uppercase tracking-tight">
-                      {j.name}
-                    </h3>
-                    <p className="text-[10px] text-zinc-500 text-center uppercase tracking-wider font-semibold">
-                      Official Evaluator / Judge
-                    </p>
-                  </div>
-
-                  {/* Centered Large QR Code */}
-                  <div className="flex justify-center my-3">
-                    <div className="p-2 border border-zinc-300 rounded-xl bg-white shadow-xs">
-                      <QRCodeSVG value={qrPayload} size={128} level="M" />
-                    </div>
-                  </div>
-                  <p className="text-[9px] text-center text-zinc-500 font-medium">
-                    Scan with terminal camera for 1-tap authentication
-                  </p>
-                </div>
-
-                <div>
-                  {/* Manual Backup Credentials Strip */}
-                  <div className="mt-2 pt-2 border-t border-zinc-200 grid grid-cols-2 gap-2 text-center bg-zinc-50 p-1.5 rounded-lg">
-                    <div>
-                      <span className="text-[8px] text-zinc-500 uppercase block font-bold">
-                        Judge ID Code
-                      </span>
-                      <span className="text-xs font-mono font-black text-zinc-900">
-                        {j.judge_id || j.id.slice(0, 6)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[8px] text-zinc-500 uppercase block font-bold">
-                        4-Digit PIN
-                      </span>
-                      <span className="text-xs font-mono font-black text-amber-600">
-                        {j.pin}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Bottom: App Logo & App Name + Developer Branding */}
-                  <div className="mt-2.5 pt-2 border-t border-zinc-200 flex items-center justify-between text-[9px] text-zinc-600">
-                    <div className="flex items-center space-x-1.5 font-bold text-zinc-900">
-                      <div className="w-3.5 h-3.5 rounded bg-zinc-900 text-white flex items-center justify-center">
-                        <Scale className="w-2.5 h-2.5" />
-                      </div>
-                      <span className="uppercase tracking-wider font-black">Fair Judge</span>
-                    </div>
-                    <span className="text-[8px] font-mono text-zinc-500">
-                      Fair Judge Competition Systems
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
       {/* ======================================================== */}
       {/* SCREEN UI VIEW (Natural Native Scroll & Sticky Nav)      */}
@@ -1647,10 +1362,11 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <button
               type="button"
               onClick={handleTriggerPrint}
-              className="w-full min-h-[42px] md:min-h-[44px] px-4 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-orange-500/25 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer"
+              disabled={isExportingBadges}
+              className="w-full min-h-[42px] md:min-h-[44px] px-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-orange-500/25 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer"
             >
               <Printer className="w-4 h-4 stroke-[2.2]" />
-              <span>Export Judge Badges (PDF)</span>
+              <span>{isExportingBadges ? 'Preparing Badges...' : 'Export Judge Badges (PDF)'}</span>
             </button>
           </div>
         )}
@@ -1957,34 +1673,48 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                         </div>
 
                         <div className="flex items-center justify-between pt-2 border-t border-stone-100 dark:border-zinc-900">
-                          {/* Copy Credentials Button */}
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(
-                                  `Fair Judge Credentials\nOrg ID: ${organization.org_id}\nJudge ID: ${j.judge_id || j.id.slice(0, 6)}\nPIN: ${j.pin}\n\nScan QR or sign in with PIN.`
-                                );
-                                setCopiedJudgePin(j.id);
-                                setTimeout(() => setCopiedJudgePin(null), 2000);
-                              } catch {
-                                showToast('Clipboard unavailable.', 'warning');
-                              }
-                            }}
-                            className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400 flex items-center space-x-1 md:min-h-[44px] cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
-                          >
-                            {copiedJudgePin === j.id ? (
-                              <>
-                                <Check className="w-3.5 h-3.5" />
-                                <span>Copied</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3.5 h-3.5" />
-                                <span>Copy Credentials</span>
-                              </>
-                            )}
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {/* Copy Credentials Button */}
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(
+                                    `Fair Judge Credentials\nOrg ID: ${organization.org_id}\nJudge ID: ${j.judge_id || j.id.slice(0, 6)}\nPIN: ${j.pin}\n\nScan QR or sign in with PIN.`
+                                  );
+                                  setCopiedJudgePin(j.id);
+                                  setTimeout(() => setCopiedJudgePin(null), 2000);
+                                } catch {
+                                  showToast('Clipboard unavailable.', 'warning');
+                                }
+                              }}
+                              className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400 flex items-center space-x-1 md:min-h-[44px] cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
+                            >
+                              {copiedJudgePin === j.id ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5" />
+                                  <span>Copy Credentials</span>
+                                </>
+                              )}
+                            </button>
+
+                            {/* Download Badge PNG Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadJudgeBadge(j)}
+                              disabled={downloadingBadgeId !== null}
+                              className="p-1.5 md:min-w-[44px] md:min-h-[44px] flex items-center justify-center rounded-lg text-zinc-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-stone-100 dark:hover:bg-zinc-900 transition-colors cursor-pointer disabled:opacity-50"
+                              title="Download Judge Badge PNG"
+                              aria-label={`Download PNG badge for ${j.name}`}
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
 
                           <div className="flex items-center space-x-1">
                             {/* View Judge Details (Eye Icon) */}
@@ -2518,7 +2248,7 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       {/* ======================================================== */}
       {showQrModal && selectedJudgeForQr && (
         <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xs w-full p-6 text-center shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none">
+          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xs md:max-w-lg w-full p-6 text-center shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none">
             {/* Top: Judge's Name (Bold, Top) with Close X */}
             <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-zinc-800/80">
               <h3 className="text-base font-extrabold text-zinc-900 dark:text-white truncate">
@@ -2540,9 +2270,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
             <div className="flex justify-center p-3 bg-white rounded-2xl border border-stone-200 dark:border-zinc-800 shadow-xs">
               <QRCodeSVG
                 value={getJudgeQrPayload(selectedJudgeForQr)}
-                size={210}
+                size={420}
                 level="H"
                 includeMargin
+                className="w-[210px] h-[210px] md:w-[420px] md:h-[420px]"
               />
             </div>
 

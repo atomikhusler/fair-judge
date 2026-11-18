@@ -465,19 +465,17 @@ export function OrganiserDashboard({
       />
 
       {/* ======================================================== */}
-      {/* 3. THE ACCOUNT MODAL (Identity & Security)              */}
+      {/* 3. THE ACCOUNT SIDE PANEL (Identity & Security)          */}
       {/* ======================================================== */}
-      {isAccountModalOpen ? (
-        <AccountModal
-          isOpen={isAccountModalOpen}
-          onClose={() => setIsAccountModalOpen(false)}
-          organization={organization}
-          onUpdateOrganization={handleUpdateOrganization}
-          onLogout={onLogout}
-          mustChangePassword={mustChangePassword}
-          onPasswordChanged={onPasswordChanged}
-        />
-      ) : null}
+      <AccountModal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        organization={organization}
+        onUpdateOrganization={handleUpdateOrganization}
+        onLogout={onLogout}
+        mustChangePassword={mustChangePassword}
+        onPasswordChanged={onPasswordChanged}
+      />
 
       {orgLoadError && (
         <div className="shrink-0 max-w-4xl lg:max-w-[1100px] w-full mx-auto px-3 sm:px-4 pt-2 z-20">

@@ -283,11 +283,19 @@ export function ToastContainer() {
         duration,
       };
 
-      if (type === 'error' || type === 'warning' || type === 'info') {
+      const isSyncCompleteToast =
+        type === 'success' &&
+        payload.title === 'Synced to Cloud' &&
+        typeof payload.message === 'string' &&
+        payload.message.startsWith('Synchronized ');
+
+      if (type === 'error' || type === 'warning' || type === 'info' || isSyncCompleteToast) {
         const now = Date.now();
         if (lastSoundRef.current.msg !== msg || now - lastSoundRef.current.at > 800) {
           lastSoundRef.current = { msg, at: now };
-          playSound(type === 'info' ? 'notify' : 'warning');
+          const toastSound =
+            type === 'error' ? 'alert' : type === 'warning' ? 'warning' : 'notify';
+          playSound(toastSound);
         }
       }
 

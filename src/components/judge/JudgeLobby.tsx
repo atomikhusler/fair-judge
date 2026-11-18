@@ -503,7 +503,7 @@ export function JudgeLobby({
                   />
 
                   {/* Modal Dialog matching Settings Sheet surface tokens (C1) */}
-                  <div className="relative w-full max-w-sm bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden animate-spring-sheet select-none">
+                  <div className="relative w-full max-w-sm md:max-w-[600px] bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden animate-spring-sheet select-none">
                     {/* Modal Header */}
                     <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
                       <div className="flex items-center space-x-3">

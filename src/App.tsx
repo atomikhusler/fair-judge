@@ -268,9 +268,13 @@ export default function App() {
     let bootFadeTimer: number | undefined;
     let bootUnmountTimer: number | undefined;
 
-    unlockSoundEngine();
+    if (!detectProjectorRoute()) {
+      unlockSoundEngine();
+      if (bootMode !== 'skip') {
+        playSound('boot', { launch: true });
+      }
+    }
     if (bootMode !== 'skip') {
-      playSound('boot');
       bootFadeTimer = window.setTimeout(() => {
         setIsBootFading(true);
         bootUnmountTimer = window.setTimeout(() => {
@@ -533,7 +537,7 @@ export default function App() {
     const holdMs = prefersReducedMotion ? 350 : 1950;
     const fadeMs = prefersReducedMotion ? 150 : 450;
 
-    playSound('boot');
+    playSound('signin');
     setAuthSplash({ name: displayName, isFading: false });
 
     authSplashTimerRef.current.hold = window.setTimeout(() => {

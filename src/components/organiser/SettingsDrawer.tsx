@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, 
   Scale, 
@@ -18,6 +19,7 @@ import { Organization, TieBreakerMethod, CustomParticipantField, SupabaseEvent }
 import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
 import { useToast } from '../common/ToastProvider';
+import { SidePanel } from '../common/SidePanel';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
 import { getSoundLevel, setSoundLevel, playSound, SOUND_CHANGE_EVENT, SoundLevel } from '../../lib/sound';
 import { APP_VERSION } from '../../config/version';
@@ -164,8 +166,6 @@ export function SettingsDrawer({
 
   const [hapticSetting, setHapticSetting] = useState<HapticStrength>(getHapticStrength);
   const [soundSetting, setSoundSetting] = useState<SoundLevel>(() => getSoundLevel());
-  const [shouldRender, setShouldRender] = useState<boolean>(isOpen);
-  const [isClosing, setIsClosing] = useState<boolean>(false);
 
   // 5-Tap Intelligent Diagnostic State (EPIC 15.1)
   const [diagTapCount, setDiagTapCount] = useState(0);
@@ -259,8 +259,6 @@ export function SettingsDrawer({
 
   useEffect(() => {
     if (isOpen) {
-      setShouldRender(true);
-      setIsClosing(false);
       setHapticSetting(getHapticStrength());
       setSoundSetting(getSoundLevel());
       setConfirmRevokeId(null);
@@ -278,28 +276,8 @@ export function SettingsDrawer({
       return;
     }
 
-    if (!shouldRender) return;
-
-    const prefersReducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
-    if (prefersReducedMotion) {
-      setIsClosing(false);
-      setShouldRender(false);
-      setIsPairSheetOpen(false);
-      return;
-    }
-
-    setIsClosing(true);
-    const closeTimer = window.setTimeout(() => {
-      setIsClosing(false);
-      setShouldRender(false);
-      setIsPairSheetOpen(false);
-    }, 320);
-
-    return () => window.clearTimeout(closeTimer);
-  }, [isOpen, shouldRender, organization.org_id, loadProjectorPairings]);
+    setIsPairSheetOpen(false);
+  }, [isOpen, organization.org_id, loadProjectorPairings]);
 
   // Keep live dot & live count accurate every 5s while Settings is open
   useEffect(() => {
@@ -322,21 +300,15 @@ export function SettingsDrawer({
     };
   }, []);
 
-  useEffect(() => {
-    if (!shouldRender || !isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        if (isPairSheetOpen) {
-          setIsPairSheetOpen(false);
-        } else {
-          onClose();
-        }
+  const handleEscapeBeforeClose = useCallback(() => {
+    if (isPairSheetOpen) {
+      if (!isPairingSubmitting) {
+        setIsPairSheetOpen(false);
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shouldRender, isOpen, isPairSheetOpen, onClose]);
+      return true;
+    }
+    return false;
+  }, [isPairSheetOpen, isPairingSubmitting]);
 
 
   // 1. Toggle Tie-Breaker
@@ -677,67 +649,159 @@ export function SettingsDrawer({
     }
   };
 
-  if (!shouldRender) return null;
-
-  return (
-    <div
-      className={`fixed inset-0 z-50 flex ${isClosing ? 'pointer-events-none' : 'pointer-events-auto'}`}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Settings and Preferences"
-    >
-      {/* Solid Dark Backdrop */}
+  const pairSheetOverlay =
+    isOpen && isPairSheetOpen ? (
       <div
-        onClick={onClose}
-        className={`fixed inset-0 bg-black/60 ${
-          isClosing ? 'animate-backdrop-exit' : 'animate-in fade-in duration-300'
-        }`}
-      />
-
-      {/* Drawer Container (Symmetric Slide-In / Slide-Out from Left) */}
-      <div
-        className={`relative w-full max-w-md sm:max-w-lg bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border-r border-stone-200 dark:border-zinc-800/80 shadow-2xl h-full flex flex-col z-10 select-none ${
-          isClosing ? 'animate-spring-drawer-exit' : 'animate-spring-drawer'
-        }`}
+        className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pair a screen"
       >
-        
+        <div
+          onClick={() => !isPairingSubmitting && setIsPairSheetOpen(false)}
+          className="fixed inset-0 bg-black/60 animate-in fade-in duration-200 motion-reduce:animate-none"
+        />
 
-        {/* ========================================================== */}
-        {/* DRAWER HEADER (Typographic hierarchy, Framer aesthetics)   */}
-        {/* ========================================================== */}
-        <div className="px-5 pt-5 pb-4 shrink-0 flex items-center justify-between border-b border-stone-200/80 dark:border-zinc-800/80 bg-white dark:bg-zinc-950">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shadow-sm shadow-emerald-500/20">
-              <Sliders className="w-4.5 h-4.5 stroke-[2.2]" />
+        <div className="relative z-10 w-full sm:max-w-sm bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white border-t sm:border border-stone-200 dark:border-zinc-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden animate-spring-sheet motion-reduce:animate-none">
+          <div className="px-5 py-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
+                <Monitor className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-bold tracking-tight">Pair a screen</h3>
             </div>
-            <div>
-              <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-white">
-                Settings &amp; Preferences
-              </h2>
-              <p className="text-[11px] lg:text-sm text-zinc-500 font-mono">
-                {organization.name}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <ThemeToggleButton className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors duration-200 active:scale-[0.96] motion-reduce:transition-none shadow-sm flex items-center justify-center cursor-pointer" />
             <button
               type="button"
-              onClick={onClose}
-              className="w-11 h-11 rounded-xl text-zinc-400 hover:text-zinc-900 dark:hover:text-white bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-sm transition-colors duration-200 active:scale-[0.96] motion-reduce:transition-none flex items-center justify-center cursor-pointer"
-              title="Close Drawer"
-              aria-label="Close Drawer"
+              onClick={() => !isPairingSubmitting && setIsPairSheetOpen(false)}
+              className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center cursor-pointer transition-colors duration-150 motion-reduce:transition-none"
+              aria-label="Close"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-        </div>
 
-        {/* ========================================================== */}
-        {/* DRAWER CONTENT (Framer/iOS Inset Grouped Card Layout)      */}
-        {/* ========================================================== */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-stone-100/50 dark:bg-black overscroll-contain pb-20">
+          {pairedSuccessName ? (
+            <div className="p-5 space-y-4 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 mx-auto">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="text-base font-bold text-zinc-900 dark:text-white">
+                  Paired
+                </div>
+                <p className="text-xs lg:text-sm text-zinc-500 font-mono">
+                  {pairedSuccessName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPairSheetOpen(false)}
+                className="w-full min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+              >
+                Done
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmitPairScreen} className="p-5 space-y-4">
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="fj-pair-code"
+                  className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
+                >
+                  6-Digit Code
+                </label>
+                <input
+                  id="fj-pair-code"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoFocus
+                  maxLength={6}
+                  placeholder="000000"
+                  value={pairCode}
+                  onChange={(e) => {
+                    setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                    if (pairError) setPairError(null);
+                  }}
+                  className="w-full min-h-[52px] px-4 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl font-mono text-2xl font-black tracking-[0.3em] text-center text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 tabular-nums"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="fj-pair-event"
+                  className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
+                >
+                  Event Scope (Optional)
+                </label>
+                <select
+                  id="fj-pair-event"
+                  value={pairEventId}
+                  onChange={(e) => setPairEventId(e.target.value)}
+                  className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">All events</option>
+                  {orgEvents.map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="fj-pair-label"
+                  className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
+                >
+                  Screen Name (Optional)
+                </label>
+                <input
+                  id="fj-pair-label"
+                  type="text"
+                  maxLength={40}
+                  placeholder="e.g. Main Hall"
+                  value={pairLabel}
+                  onChange={(e) => setPairLabel(e.target.value)}
+                  className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {pairError && (
+                <p className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400">
+                  {pairError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={isPairingSubmitting || pairCode.length !== 6}
+                className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+              >
+                {isPairingSubmitting ? 'Pairing...' : 'Pair screen'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    ) : null;
+
+  return (
+    <>
+      <SidePanel
+        isOpen={isOpen}
+        onClose={onClose}
+        title="Settings & Preferences"
+        subtitle={organization.name}
+        ariaLabel="Settings and Preferences"
+        icon={<Sliders className="w-4.5 h-4.5 stroke-[2.2]" />}
+        headerActions={
+          <ThemeToggleButton className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors duration-200 active:scale-[0.96] motion-reduce:transition-none shadow-sm flex items-center justify-center cursor-pointer" />
+        }
+        closeAriaLabel="Close Drawer"
+        hasActiveOverlay={isPairSheetOpen}
+        onEscapeBeforeClose={handleEscapeBeforeClose}
+      >
 
           {/* -------------------------------------------------------- */}
           {/* SECTION 1: PREFERENCES                                  */}
@@ -1737,149 +1801,13 @@ export function SettingsDrawer({
           <div className="pt-3 pb-2">
             <SignatureHardware role="organiser" />
           </div>
+      </SidePanel>
 
-        </div>
-      </div>
-
-      {/* ========================================================== */}
-      {/* PAIR A SCREEN SHEET (No backdrop-filter, reduced-motion)   */}
-      {/* ========================================================== */}
-      {isPairSheetOpen && (
-        <div
-          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Pair a screen"
-        >
-          <div
-            onClick={() => !isPairingSubmitting && setIsPairSheetOpen(false)}
-            className="fixed inset-0 bg-black/60 animate-in fade-in duration-200 motion-reduce:animate-none"
-          />
-
-          <div className="relative z-10 w-full sm:max-w-sm bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white border-t sm:border border-stone-200 dark:border-zinc-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden animate-spring-sheet motion-reduce:animate-none">
-            <div className="px-5 py-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
-                  <Monitor className="w-4 h-4" />
-                </div>
-                <h3 className="text-sm font-bold tracking-tight">Pair a screen</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => !isPairingSubmitting && setIsPairSheetOpen(false)}
-                className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center cursor-pointer transition-colors duration-150 motion-reduce:transition-none"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {pairedSuccessName ? (
-              <div className="p-5 space-y-4 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 mx-auto">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-                <div className="space-y-1">
-                  <div className="text-base font-bold text-zinc-900 dark:text-white">
-                    Paired
-                  </div>
-                  <p className="text-xs lg:text-sm text-zinc-500 font-mono">
-                    {pairedSuccessName}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsPairSheetOpen(false)}
-                  className="w-full min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                >
-                  Done
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmitPairScreen} className="p-5 space-y-4">
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="fj-pair-code"
-                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                  >
-                    6-Digit Code
-                  </label>
-                  <input
-                    id="fj-pair-code"
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    autoFocus
-                    maxLength={6}
-                    placeholder="000000"
-                    value={pairCode}
-                    onChange={(e) => {
-                      setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6));
-                      if (pairError) setPairError(null);
-                    }}
-                    className="w-full min-h-[52px] px-4 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl font-mono text-2xl font-black tracking-[0.3em] text-center text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 tabular-nums"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="fj-pair-event"
-                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                  >
-                    Event Scope (Optional)
-                  </label>
-                  <select
-                    id="fj-pair-event"
-                    value={pairEventId}
-                    onChange={(e) => setPairEventId(e.target.value)}
-                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="">All events</option>
-                    {orgEvents.map((ev) => (
-                      <option key={ev.id} value={ev.id}>
-                        {ev.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="fj-pair-label"
-                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                  >
-                    Screen Name (Optional)
-                  </label>
-                  <input
-                    id="fj-pair-label"
-                    type="text"
-                    maxLength={40}
-                    placeholder="e.g. Main Hall"
-                    value={pairLabel}
-                    onChange={(e) => setPairLabel(e.target.value)}
-                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                {pairError && (
-                  <p className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400">
-                    {pairError}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isPairingSubmitting || pairCode.length !== 6}
-                  className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                >
-                  {isPairingSubmitting ? 'Pairing...' : 'Pair screen'}
-                </button>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+      {pairSheetOverlay &&
+        (typeof document !== 'undefined'
+          ? createPortal(pairSheetOverlay, document.body)
+          : pairSheetOverlay)}
+    </>
   );
 }
 

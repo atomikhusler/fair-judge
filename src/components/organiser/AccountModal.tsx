@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  X,
   User,
   Copy,
   Check,
@@ -37,6 +36,7 @@ import { formatSessionTimestamp } from '../../lib/deviceIdentity';
 import { eventBus } from '../../lib/eventBus';
 import { DB_TABLES } from '../../lib/dbTables';
 import { useToast } from '../common/ToastProvider';
+import { SidePanel } from '../common/SidePanel';
 import { BackupSheet } from './backup/BackupSheet';
 import { RestoreSheet } from './backup/RestoreSheet';
 import { triggerHaptic } from '../../lib/haptics';
@@ -139,10 +139,6 @@ export function AccountModal({
   const [showBackupSheet, setShowBackupSheet] = useState(false);
   const [showRestoreSheet, setShowRestoreSheet] = useState(false);
 
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const wasOpenRef = useRef(false);
-
   const verificationStatus = organization.verification_status || 'pending';
 
   // Keep internal edit form synchronized with organization prop
@@ -221,84 +217,44 @@ export function AccountModal({
     onClose();
   }, [onClose]);
 
-  // Modal Scroll Lock, Focus Restoration & Escape Handling
-  useEffect(() => {
-    if (!isOpen) {
-      if (wasOpenRef.current) {
-        wasOpenRef.current = false;
-        previousFocusRef.current?.focus();
-        previousFocusRef.current = null;
-      }
-      return;
+  // Delegate Escape key priority for nested confirmation dialogs while SidePanel manages close/focus/scroll-lock
+  const handleEscapeBeforeClose = useCallback(() => {
+    if (showDeleteConfirm) {
+      setShowDeleteConfirm(false);
+      setDeleteInput('');
+      return true;
     }
-
-    wasOpenRef.current = true;
-    previousFocusRef.current =
-      typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
-
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const focusTimer = window.setTimeout(() => {
-      closeBtnRef.current?.focus();
-    }, 20);
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // Let BackupSheet / RestoreSheet handle their own Escape when open
-      if (showBackupSheet || showRestoreSheet) return;
-
-      e.preventDefault();
-      if (showDeleteConfirm) {
-        setShowDeleteConfirm(false);
-        setDeleteInput('');
-        return;
-      }
-      if (showUndoResetPrompt) {
-        setShowUndoResetPrompt(false);
-        setUndoResetPassword('');
-        setUndoResetError('');
-        return;
-      }
-      if (showResetConfirm) {
-        setShowResetConfirm(false);
-        setResetSuccess(false);
-        setResetInput('');
-        setResetPassword('');
-        setResetError('');
-        return;
-      }
-      if (showLogoutConfirm) {
-        setShowLogoutConfirm(false);
-        return;
-      }
-      if (confirmTerminateTarget && !isTerminatingSession) {
-        setConfirmTerminateTarget(null);
-        return;
-      }
-      handleCloseModal();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.clearTimeout(focusTimer);
-      window.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = originalOverflow;
-    };
+    if (showUndoResetPrompt) {
+      setShowUndoResetPrompt(false);
+      setUndoResetPassword('');
+      setUndoResetError('');
+      return true;
+    }
+    if (showResetConfirm) {
+      setShowResetConfirm(false);
+      setResetSuccess(false);
+      setResetInput('');
+      setResetPassword('');
+      setResetError('');
+      return true;
+    }
+    if (showLogoutConfirm) {
+      setShowLogoutConfirm(false);
+      return true;
+    }
+    if (confirmTerminateTarget && !isTerminatingSession) {
+      setConfirmTerminateTarget(null);
+      return true;
+    }
+    return false;
   }, [
-    isOpen,
-    showBackupSheet,
-    showRestoreSheet,
     showDeleteConfirm,
-    showResetConfirm,
     showUndoResetPrompt,
+    showResetConfirm,
     showLogoutConfirm,
     confirmTerminateTarget,
     isTerminatingSession,
-    handleCloseModal,
   ]);
-
-  if (!isOpen) return null;
 
   const handleCopyOrgId = async () => {
     triggerHaptic('tick');
@@ -626,60 +582,38 @@ export function AccountModal({
     }
   };
 
-  const modalContent = (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="account-modal-title"
-    >
-      {/* Solid dark scrim — no backdrop-filter (C1) */}
-      <div
-        onClick={handleCloseModal}
-        className="fixed inset-0 bg-black/60 transition-opacity duration-200 motion-reduce:transition-none"
-      />
+  const hasNestedOverlay = Boolean(
+    showBackupSheet ||
+      showRestoreSheet ||
+      showDeleteConfirm ||
+      showUndoResetPrompt ||
+      showResetConfirm ||
+      showLogoutConfirm ||
+      confirmTerminateTarget
+  );
 
-      {/* Modal Dialog matching Settings Sheet tokens (C1) */}
-      <div className="relative w-full max-w-lg bg-stone-50 dark:bg-zinc-950 text-zinc-900 dark:text-white border border-stone-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-spring-sheet select-none">
-        {/* Modal Header */}
-        <div className="px-5 py-4 shrink-0 flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-          <div className="flex items-center space-x-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0">
-              <User className="w-5 h-5 stroke-[2.2]" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center space-x-1.5">
-                <h2
-                  id="account-modal-title"
-                  className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
-                >
-                  Account &amp; Security
-                </h2>
-                {verificationStatus === 'verified' && (
-                  <span title="Verified Organization" className="inline-flex">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] lg:text-sm text-zinc-600 dark:text-zinc-400 font-mono truncate">
-                {organization.name}
-              </p>
-            </div>
-          </div>
-
-          <button
-            ref={closeBtnRef}
-            type="button"
-            onClick={handleCloseModal}
-            className="w-11 h-11 flex items-center justify-center text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 transition-colors cursor-pointer shrink-0"
-            aria-label="Close modal"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Modal Body: Solid Inset Grouped Cards */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-stone-100 dark:bg-black overscroll-contain pb-16">
+  return (
+    <>
+      <SidePanel
+        isOpen={isOpen}
+        onClose={handleCloseModal}
+        title="Account & Security"
+        titleId="account-modal-title"
+        titleBadge={
+          verificationStatus === 'verified' ? (
+            <span title="Verified Organization" className="inline-flex">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            </span>
+          ) : undefined
+        }
+        subtitle={organization.name}
+        icon={<User className="w-5 h-5 stroke-[2.2]" />}
+        closeAriaLabel="Close account panel"
+        hasActiveOverlay={hasNestedOverlay}
+        disableEscapeClose={showBackupSheet || showRestoreSheet}
+        onEscapeBeforeClose={handleEscapeBeforeClose}
+        bodyClassName="bg-stone-100 dark:bg-black pb-16"
+      >
           {/* ======================================================== */}
           {/* TOP CARD 1A: SIGN OUT                                    */}
           {/* ======================================================== */}
@@ -1349,9 +1283,12 @@ export function AccountModal({
               Sahil Kumar Rout
             </span>
           </div>
-        </div>
-      </div>
+      </SidePanel>
 
+      {isOpen &&
+        (() => {
+          const overlays = (
+            <>
       {/* Double-Confirmation Pop-up: Sign Out (C2) */}
       {showLogoutConfirm && (
         <div
@@ -1873,8 +1810,12 @@ export function AccountModal({
           }
         }}
       />
-    </div>
+            </>
+          );
+          return typeof document !== 'undefined'
+            ? createPortal(overlays, document.body)
+            : overlays;
+        })()}
+    </>
   );
-
-  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 }
