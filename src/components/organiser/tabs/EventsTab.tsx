@@ -46,6 +46,7 @@ import { triggerHaptic } from '../../../lib/haptics';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
+import { setFormDirty } from '../../../lib/swUpdateManager';
 import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
 import { useTaskScreenBackGuard } from '../../common/useTaskScreenBackGuard';
 import {
@@ -721,6 +722,12 @@ export function EventsTab({
     setIsDirty(false);
     setShowDraftBanner(false);
   }, [isDirty]);
+
+  useEffect(() => {
+    const activeDirty = Boolean(isWizardOpen && isDirty);
+    setFormDirty('event-wizard', activeDirty);
+    return () => setFormDirty('event-wizard', false);
+  }, [isWizardOpen, isDirty]);
 
   const handleForceDiscardAndExit = () => {
     clearDraft();

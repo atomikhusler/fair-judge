@@ -44,6 +44,7 @@ import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
 import { TaskScreen, useModalAccessibility } from '../../common/TaskScreen';
 import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
+import { setFormDirty } from '../../../lib/swUpdateManager';
 import { useTaskScreenBackGuard } from '../../common/useTaskScreenBackGuard';
 import { exportJudgeBadgePng, exportJudgeBadgesPrint } from '../../../lib/judgeBadgeRenderer';
 import { 
@@ -1138,6 +1139,15 @@ export function PeopleTab({
     setShowParticipantModal(false);
   };
 
+  const isParticipantFormDirty =
+    showParticipantModal &&
+    JSON.stringify(participantForm) !== initialParticipantSnapshotRef.current;
+
+  useEffect(() => {
+    setFormDirty('participant-wizard', isParticipantFormDirty);
+    return () => setFormDirty('participant-wizard', false);
+  }, [isParticipantFormDirty]);
+
   useTaskScreenBackGuard({
     isOpen: showParticipantModal,
     onBack: handleCloseParticipantWizard,
@@ -1424,6 +1434,14 @@ export function PeopleTab({
     setIsJudgeUnsavedOpen(false);
     setShowJudgeModal(false);
   };
+
+  const isJudgeFormDirty =
+    showJudgeModal && JSON.stringify(judgeForm) !== initialJudgeSnapshotRef.current;
+
+  useEffect(() => {
+    setFormDirty('judge-wizard', isJudgeFormDirty);
+    return () => setFormDirty('judge-wizard', false);
+  }, [isJudgeFormDirty]);
 
   useTaskScreenBackGuard({
     isOpen: showJudgeModal,

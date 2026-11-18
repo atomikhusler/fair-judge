@@ -1057,7 +1057,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                     <div className="flex-1 min-h-0 overflow-y-auto pt-1.5 md:pt-[1.5cqw] pr-1 md:pr-[1cqw] space-y-2 md:space-y-[2cqw] font-mono text-xs md:text-[3.15cqw] select-text">
                       {role === 'organiser' && updateReady && (
                         <div className="rounded-lg border border-amber-500/45 bg-amber-950/40 px-2.5 md:px-[2.6cqw] py-2 md:py-[2cqw] text-amber-200 font-semibold">
-                          › Update ready: installs on next launch
+                          › Update ready: installs when you leave the app
                         </div>
                       )}
 

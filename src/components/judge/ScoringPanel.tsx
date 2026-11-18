@@ -21,6 +21,7 @@ import { triggerHaptic } from '../../lib/haptics';
 import { playSound } from '../../lib/sound';
 import { dbService, subscribeToDatabase, syncServerClockOffset, getServerNowMs } from '../../lib/supabase';
 import { registerSyncCadence, syncNow } from '../../lib/syncEngine';
+import { setFormDirty } from '../../lib/swUpdateManager';
 import { DB_TABLES, matchesDbTable } from '../../lib/dbTables';
 import {
   queueScoreLocally,
@@ -755,6 +756,15 @@ export function ScoringPanel({
       }
     };
   }, [scoresMap, viewMode, currentParticipant?.id, activeEvent.id, judge.id, getCompositeKey, getScoreDraftKey]);
+
+  const hasUnsavedScoringState =
+    (viewMode === 'scoring' && isDirtyRef.current) ||
+    Object.keys(unsavedBallotsByKey).length > 0;
+
+  useEffect(() => {
+    setFormDirty('scoring-panel', hasUnsavedScoringState);
+    return () => setFormDirty('scoring-panel', false);
+  }, [hasUnsavedScoringState]);
 
   // Helper to clear sliders cleanly BEFORE switching or opening another participant
   const prepareParticipantForm = useCallback(

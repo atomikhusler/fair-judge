@@ -1,4 +1,4 @@
-export const APP_VERSION = '16.9.6';
+export const APP_VERSION = '16.10.0';
 
 export function getRunningBuildId(): string {
   return typeof __APP_BUILD_ID__ !== 'undefined' && __APP_BUILD_ID__ ? __APP_BUILD_ID__ : APP_VERSION;
@@ -29,6 +29,7 @@ export function compareVersionsNumeric(a: string, b: string): number {
 
 let versionJsonUpdateReady = false;
 let swWaitingUpdateReady = false;
+let latestRemoteBuildId: string | null = null;
 const updateListeners = new Set<() => void>();
 
 function notifyUpdateListeners(): void {
@@ -41,6 +42,10 @@ function notifyUpdateListeners(): void {
 
 export function isSilentUpdateReady(): boolean {
   return versionJsonUpdateReady || swWaitingUpdateReady;
+}
+
+export function getLatestRemoteBuildId(): string | null {
+  return latestRemoteBuildId;
 }
 
 export function setSwWaitingReady(waiting: boolean): void {
@@ -56,25 +61,34 @@ export function subscribeSilentUpdateReady(cb: () => void): () => void {
   };
 }
 
-export async function checkVersionJsonForUpdate(): Promise<boolean> {
+export interface VersionJsonCheckResult {
+  updateReady: boolean;
+  remoteBuildId: string | null;
+  runningBuildId: string;
+}
+
+export async function checkVersionJsonForUpdate(): Promise<VersionJsonCheckResult> {
+  const runningBuildId = getRunningBuildId();
   if (typeof window === 'undefined' || typeof fetch !== 'function') {
-    return isSilentUpdateReady();
+    return { updateReady: isSilentUpdateReady(), remoteBuildId: latestRemoteBuildId, runningBuildId };
   }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return isSilentUpdateReady();
+    return { updateReady: isSilentUpdateReady(), remoteBuildId: latestRemoteBuildId, runningBuildId };
   }
   try {
     const res = await fetch('/version.json', { cache: 'no-store' });
-    if (!res.ok) return isSilentUpdateReady();
+    if (!res.ok) {
+      return { updateReady: isSilentUpdateReady(), remoteBuildId: latestRemoteBuildId, runningBuildId };
+    }
     const contentType = res.headers.get('content-type') || '';
     if (contentType && !contentType.includes('json')) {
-      return isSilentUpdateReady();
+      return { updateReady: isSilentUpdateReady(), remoteBuildId: latestRemoteBuildId, runningBuildId };
     }
     const data = (await res.json()) as { version?: unknown; build_id?: unknown } | null;
     const remoteBuildId = typeof data?.build_id === 'string' ? data.build_id.trim() : '';
-    const runningBuildId = getRunningBuildId();
-    if (remoteBuildId && remoteBuildId !== runningBuildId) {
-      if (!versionJsonUpdateReady) {
+    if (remoteBuildId) {
+      latestRemoteBuildId = remoteBuildId;
+      if (remoteBuildId !== runningBuildId && !versionJsonUpdateReady) {
         versionJsonUpdateReady = true;
         notifyUpdateListeners();
       }
@@ -82,5 +96,5 @@ export async function checkVersionJsonForUpdate(): Promise<boolean> {
   } catch {
     // Offline or non-JSON response: keep silent
   }
-  return isSilentUpdateReady();
+  return { updateReady: isSilentUpdateReady(), remoteBuildId: latestRemoteBuildId, runningBuildId };
 }

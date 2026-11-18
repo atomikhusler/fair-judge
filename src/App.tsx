@@ -37,8 +37,8 @@ import { resetLastTestResult, checkSwUpdateWaiting } from './lib/selfTest';
 import {
   APP_VERSION,
   compareVersionsNumeric,
-  checkVersionJsonForUpdate,
 } from './config/version';
+import { checkForAppUpdate, applyMinVersionUpdate } from './lib/swUpdateManager';
 import { playSound, unlockSoundEngine } from './lib/sound';
 import { RouteShellSkeleton } from './components/common/Skeletons';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -411,7 +411,7 @@ export default function App() {
     let cancelled = false;
 
     const runChecks = async () => {
-      void checkVersionJsonForUpdate();
+      void checkForAppUpdate();
       void checkSwUpdateWaiting();
 
       if (isProjectorRoute || !isSupabaseConfigured()) return;
@@ -1055,7 +1055,7 @@ export default function App() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => window.location.reload()}
+                  onClick={() => void applyMinVersionUpdate()}
                   className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider cursor-pointer active:scale-[0.98] transition-transform motion-reduce:transition-none"
                 >
                   Update now

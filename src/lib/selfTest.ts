@@ -7,6 +7,7 @@
 
 import { supabase, isSupabaseConfigured, dbService, getStoredSession } from './supabase';
 import { APP_VERSION, isSilentUpdateReady, setSwWaitingReady } from '../config/version';
+import { getSwRegistration } from './swUpdateManager';
 import { stampLocal, safeName, downloadJson } from './downloadUtils';
 import { 
   getOfflineDB,
@@ -875,7 +876,7 @@ async function probeNetworkBackend(): Promise<SelfTestCheckItem[]> {
 export async function checkSwUpdateWaiting(): Promise<boolean> {
   try {
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
+      const reg = (await getSwRegistration()) || (await navigator.serviceWorker.getRegistration());
       const hasWaiting = Boolean(reg && reg.waiting);
       setSwWaitingReady(hasWaiting);
       return hasWaiting;
@@ -1257,7 +1258,7 @@ async function probeStorageOffline(role: 'organiser' | 'judge'): Promise<SelfTes
         group: 'storage_offline',
         label: 'Update Status',
         status: 'notice',
-        plain: 'Update ready: installs on next launch',
+        plain: 'Update ready: installs when you leave the app',
         code: 'SW_UPDATE_WAITING',
       });
     } else {

@@ -5,6 +5,7 @@ import App from './App.tsx';
 import './index.css';
 import { blackBox } from './lib/blackBox';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { initSwUpdateManager } from './lib/swUpdateManager';
 
 // Install Black Box error recording before first render
 blackBox.install();
@@ -12,25 +13,7 @@ blackBox.install();
 // Register Service Worker only in production to prevent caching Vite dev dependencies
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   if (import.meta.env.PROD) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .then((reg) => {
-          reg.onupdatefound = () => {
-            const installingWorker = reg.installing;
-            if (installingWorker) {
-              installingWorker.onstatechange = () => {
-                if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('Fair Judge offline app shell ready.');
-                }
-              };
-            }
-          };
-        })
-        .catch((err) => {
-          console.warn('Service worker registration note:', err);
-        });
-    });
+    initSwUpdateManager();
   } else {
     // In dev mode, unregister any existing service worker and purge caches to prevent stale react chunk collisions
     navigator.serviceWorker
