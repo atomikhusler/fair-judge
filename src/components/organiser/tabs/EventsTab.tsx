@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Plus, 
@@ -242,7 +242,106 @@ export function EventsTab({
   const pendingFocusCriterionIdRef = useRef<string | null>(null);
   const [editingMarksText, setEditingMarksText] = useState<Record<string, string>>({});
   const [draggingCriterionId, setDraggingCriterionId] = useState<string | null>(null);
+  const [settlingCriterionId, setSettlingCriterionId] = useState<string | null>(null);
+  const criterionListRef = useRef<HTMLDivElement | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const dragSessionRef = useRef<{
+    criterionId: string;
+    originOffsetTop: number;
+    startPointerInContainerY: number;
+    currentPointerDeltaY: number;
+    currentTranslateY: number;
+  } | null>(null);
+  const pendingFlipTopsRef = useRef<Record<string, number> | null>(null);
+  const pendingDropSettleRef = useRef<{ criterionId: string; fromTranslateY: number } | null>(null);
+  const pendingRestoreFocusElRef = useRef<HTMLElement | null>(null);
+  const rowAnimCleanupsRef = useRef<Map<string, () => void>>(new Map());
+
+  const prefersReducedMotion = useCallback((): boolean => {
+    return (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+  }, []);
+
+  const cancelRowAnim = useCallback((id: string) => {
+    const existing = rowAnimCleanupsRef.current.get(id);
+    if (existing) {
+      rowAnimCleanupsRef.current.delete(id);
+      existing();
+    }
+  }, []);
+
+  const clearAllRowAnims = useCallback(() => {
+    rowAnimCleanupsRef.current.forEach((fn) => fn());
+    rowAnimCleanupsRef.current.clear();
+    Object.values(criterionRowRefs.current).forEach((el) => {
+      if (!el) return;
+      el.style.transition = '';
+      el.style.transform = '';
+      el.style.willChange = '';
+    });
+  }, []);
+
+  const startRowTransition = useCallback(
+    (
+      id: string,
+      el: HTMLDivElement,
+      fromTransform: string,
+      toTransform: string,
+      transitionValue: string,
+      fallbackMs: number,
+      onComplete?: () => void
+    ) => {
+      cancelRowAnim(id);
+      el.style.willChange = 'transform';
+      el.style.transition = 'none';
+      el.style.transform = fromTransform;
+      void el.offsetHeight;
+      el.style.transition = transitionValue;
+      el.style.transform = toTransform;
+
+      let done = false;
+      let timerId: number | null = null;
+      const finalize = (clearStyles: boolean) => {
+        if (done) return;
+        done = true;
+        el.removeEventListener('transitionend', onTransitionEnd);
+        if (timerId !== null) {
+          window.clearTimeout(timerId);
+          timerId = null;
+        }
+        rowAnimCleanupsRef.current.delete(id);
+        if (clearStyles) {
+          el.style.transition = '';
+          el.style.transform = '';
+          el.style.willChange = '';
+          onComplete?.();
+        }
+      };
+      const onTransitionEnd = (ev: TransitionEvent) => {
+        if (ev.target === el && ev.propertyName === 'transform') {
+          finalize(true);
+        }
+      };
+      el.addEventListener('transitionend', onTransitionEnd);
+      timerId = window.setTimeout(() => finalize(true), fallbackMs);
+      rowAnimCleanupsRef.current.set(id, () => finalize(false));
+    },
+    [cancelRowAnim]
+  );
+
+  const captureRowTops = useCallback((): Record<string, number> => {
+    const tops: Record<string, number> = {};
+    rubricCriteriaRef.current.forEach((c) => {
+      const el = criterionRowRefs.current[c.id];
+      if (el) {
+        tops[c.id] = el.getBoundingClientRect().top;
+      }
+    });
+    return tops;
+  }, []);
 
   const syncCriterionTextareaHeight = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -264,7 +363,13 @@ export function EventsTab({
     if (!isWizardOpen) {
       setEditingMarksText({});
       setDraggingCriterionId(null);
+      setSettlingCriterionId(null);
+      pendingFlipTopsRef.current = null;
+      pendingDropSettleRef.current = null;
+      pendingRestoreFocusElRef.current = null;
+      dragSessionRef.current = null;
       dragCleanupRef.current?.();
+      clearAllRowAnims();
       return;
     }
     const raf = window.requestAnimationFrame(() => {
@@ -273,13 +378,14 @@ export function EventsTab({
       });
     });
     return () => window.cancelAnimationFrame(raf);
-  }, [isWizardOpen, rubricCriteria, syncCriterionTextareaHeight]);
+  }, [isWizardOpen, rubricCriteria, syncCriterionTextareaHeight, clearAllRowAnims]);
 
   useEffect(() => {
     return () => {
       dragCleanupRef.current?.();
+      clearAllRowAnims();
     };
-  }, []);
+  }, [clearAllRowAnims]);
 
   // Org-derived Event Category suggestions, falling back to Senior/Junior/Classical when none exist
   const { categoryChips, defaultSuggestedCategory } = useMemo(() => {
@@ -1057,29 +1163,132 @@ export function EventsTab({
     });
   };
 
+  useLayoutEffect(() => {
+    const reduced = prefersReducedMotion();
+
+    // 1. FLIP neighbour (and keyboard-moved) rows from their pre-reorder visual top
+    const prevTops = pendingFlipTopsRef.current;
+    if (prevTops) {
+      pendingFlipTopsRef.current = null;
+      const activeDragId = dragSessionRef.current?.criterionId ?? null;
+      if (!reduced) {
+        rubricCriteria.forEach((item) => {
+          if (item.id === activeDragId) return;
+          const prevTop = prevTops[item.id];
+          const el = criterionRowRefs.current[item.id];
+          if (prevTop === undefined || !el) return;
+
+          cancelRowAnim(item.id);
+          el.style.transition = 'none';
+          el.style.transform = 'none';
+          const newTop = el.getBoundingClientRect().top;
+          const deltaY = prevTop - newTop;
+
+          if (Math.abs(deltaY) >= 0.5) {
+            startRowTransition(
+              item.id,
+              el,
+              `translate3d(0, ${deltaY}px, 0)`,
+              'translate3d(0, 0, 0)',
+              'transform 180ms ease-out, opacity 150ms ease-out',
+              220
+            );
+          } else {
+            el.style.transition = '';
+            el.style.transform = '';
+            el.style.willChange = '';
+          }
+        });
+      }
+    }
+
+    // 2. Compensate dragged row offset immediately when slots swap across differing row heights
+    const session = dragSessionRef.current;
+    if (session) {
+      const draggedEl = criterionRowRefs.current[session.criterionId];
+      if (draggedEl) {
+        const compensatedY = (session.originOffsetTop - draggedEl.offsetTop) + session.currentPointerDeltaY;
+        session.currentTranslateY = compensatedY;
+        draggedEl.style.willChange = 'transform';
+        draggedEl.style.transition = 'none';
+        draggedEl.style.transform = reduced
+          ? `translate3d(0, ${compensatedY}px, 0)`
+          : `translate3d(0, ${compensatedY}px, 0) scale(1.02)`;
+      }
+    }
+
+    // 3. Preserve keyboard focus on Alt+ArrowUp / Alt+ArrowDown DOM reorder
+    const focusEl = pendingRestoreFocusElRef.current;
+    if (focusEl) {
+      pendingRestoreFocusElRef.current = null;
+      if (focusEl.isConnected && document.activeElement !== focusEl) {
+        focusEl.focus({ preventScroll: true });
+      }
+    }
+
+    // 4. Drop settle: ease dropped row from its drop offset back to rest over 150ms
+    const dropSettle = pendingDropSettleRef.current;
+    if (dropSettle && draggingCriterionId === null) {
+      pendingDropSettleRef.current = null;
+      const { criterionId, fromTranslateY } = dropSettle;
+      const el = criterionRowRefs.current[criterionId];
+      if (el && !reduced) {
+        startRowTransition(
+          criterionId,
+          el,
+          `translate3d(0, ${fromTranslateY}px, 0) scale(1.02)`,
+          'translate3d(0, 0, 0) scale(1)',
+          'transform 150ms ease-out',
+          190,
+          () => {
+            setSettlingCriterionId((prev) => (prev === criterionId ? null : prev));
+          }
+        );
+      } else {
+        if (el) {
+          el.style.transition = '';
+          el.style.transform = '';
+          el.style.willChange = '';
+        }
+        setSettlingCriterionId((prev) => (prev === criterionId ? null : prev));
+      }
+    }
+  }, [rubricCriteria, draggingCriterionId, prefersReducedMotion, cancelRowAnim, startRowTransition]);
+
   const handleMoveCriterion = useCallback(
     (index: number, direction: -1 | 1) => {
       if (hasExistingScores) {
         showToast('Rubric schema is locked to preserve ledger integrity.');
         return;
       }
+      const prev = rubricCriteriaRef.current;
       const targetIdx = index + direction;
-      if (targetIdx < 0 || targetIdx >= rubricCriteria.length) return;
+      if (targetIdx < 0 || targetIdx >= prev.length) return;
+
+      const movedItem = prev[index];
+      const movedRowEl = movedItem ? criterionRowRefs.current[movedItem.id] : null;
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (movedRowEl && activeEl && movedRowEl.contains(activeEl)) {
+        pendingRestoreFocusElRef.current = activeEl;
+      }
+
+      pendingFlipTopsRef.current = captureRowTops();
       setIsDirty(true);
-      setRubricCriteria((prev) => {
-        const next = [...prev];
+      setRubricCriteria((curr) => {
+        const next = [...curr];
         const [moved] = next.splice(index, 1);
         next.splice(targetIdx, 0, moved);
+        rubricCriteriaRef.current = next;
         return next;
       });
       triggerHaptic('tick');
     },
-    [hasExistingScores, rubricCriteria.length, showToast]
+    [captureRowTops, hasExistingScores, showToast]
   );
 
   const handleCriterionPointerDown = useCallback(
     (criterionId: string, e: React.PointerEvent<HTMLElement>) => {
-      if (hasExistingScores || rubricCriteria.length <= 1) return;
+      if (hasExistingScores || rubricCriteriaRef.current.length <= 1) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
 
       // Ignore direct interactions on controls inside the row
@@ -1098,13 +1307,70 @@ export function EventsTab({
       const pointerId = e.pointerId;
       const startX = e.clientX;
       const startY = e.clientY;
+      let lastClientY = e.clientY;
       let holdTimer: number | null = null;
+      let rafId: number | null = null;
       let isDragActive = false;
+
+      const applyDragFrame = (clientY: number) => {
+        const session = dragSessionRef.current;
+        const containerEl = criterionListRef.current;
+        const draggedEl = criterionRowRefs.current[criterionId];
+        if (!session || session.criterionId !== criterionId || !containerEl || !draggedEl) return;
+
+        const containerRect = containerEl.getBoundingClientRect();
+        const pointerInContainerY = clientY - containerRect.top;
+        const pointerDeltaY = pointerInContainerY - session.startPointerInContainerY;
+        session.currentPointerDeltaY = pointerDeltaY;
+
+        const translateY = (session.originOffsetTop - draggedEl.offsetTop) + pointerDeltaY;
+        session.currentTranslateY = translateY;
+
+        const reduced = prefersReducedMotion();
+        draggedEl.style.willChange = 'transform';
+        draggedEl.style.transition = 'none';
+        draggedEl.style.transform = reduced
+          ? `translate3d(0, ${translateY}px, 0)`
+          : `translate3d(0, ${translateY}px, 0) scale(1.02)`;
+
+        const prev = rubricCriteriaRef.current;
+        const currentIdx = prev.findIndex((c) => c.id === criterionId);
+        if (currentIdx === -1) return;
+
+        let targetIdx = currentIdx;
+        for (let i = 0; i < prev.length; i++) {
+          if (i === currentIdx) continue;
+          const rowEl = criterionRowRefs.current[prev[i].id];
+          if (!rowEl) continue;
+          const midpoint = rowEl.offsetTop + rowEl.offsetHeight / 2;
+          if (i < currentIdx && pointerInContainerY < midpoint) {
+            targetIdx = i;
+            break;
+          }
+          if (i > currentIdx && pointerInContainerY > midpoint) {
+            targetIdx = i;
+          }
+        }
+
+        if (targetIdx === currentIdx) return;
+        pendingFlipTopsRef.current = captureRowTops();
+        const next = [...prev];
+        const [moved] = next.splice(currentIdx, 1);
+        next.splice(targetIdx, 0, moved);
+        rubricCriteriaRef.current = next;
+        setRubricCriteria(next);
+        setIsDirty(true);
+        triggerHaptic('tick');
+      };
 
       const finish = () => {
         if (holdTimer !== null) {
           window.clearTimeout(holdTimer);
           holdTimer = null;
+        }
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId);
+          rafId = null;
         }
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', finish);
@@ -1115,6 +1381,24 @@ export function EventsTab({
               captureEl.releasePointerCapture(pointerId);
             }
           } catch {}
+
+          const session = dragSessionRef.current;
+          const dropTranslateY = session && session.criterionId === criterionId ? session.currentTranslateY : 0;
+          dragSessionRef.current = null;
+
+          const draggedEl = criterionRowRefs.current[criterionId];
+          const reduced = prefersReducedMotion();
+          if (draggedEl && !reduced) {
+            pendingDropSettleRef.current = {
+              criterionId,
+              fromTranslateY: dropTranslateY,
+            };
+            setSettlingCriterionId(criterionId);
+          } else if (draggedEl) {
+            draggedEl.style.transition = '';
+            draggedEl.style.transform = '';
+            draggedEl.style.willChange = '';
+          }
           setDraggingCriterionId(null);
         }
         if (dragCleanupRef.current === finish) {
@@ -1124,45 +1408,52 @@ export function EventsTab({
 
       const onPointerMove = (moveEvt: PointerEvent) => {
         if (moveEvt.pointerId !== pointerId) return;
+        lastClientY = moveEvt.clientY;
         if (!isDragActive) {
           if (Math.abs(moveEvt.clientY - startY) > 8 || Math.abs(moveEvt.clientX - startX) > 8) {
             finish();
           }
           return;
         }
-
-        const prev = rubricCriteriaRef.current;
-        const currentIdx = prev.findIndex((c) => c.id === criterionId);
-        if (currentIdx === -1) return;
-
-        let targetIdx = currentIdx;
-        for (let i = 0; i < prev.length; i++) {
-          const rowEl = criterionRowRefs.current[prev[i].id];
-          if (!rowEl) continue;
-          const rect = rowEl.getBoundingClientRect();
-          const midpoint = rect.top + rect.height / 2;
-          if (i < currentIdx && moveEvt.clientY < midpoint) {
-            targetIdx = i;
-            break;
-          }
-          if (i > currentIdx && moveEvt.clientY > midpoint) {
-            targetIdx = i;
-          }
+        if (rafId === null) {
+          rafId = window.requestAnimationFrame(() => {
+            rafId = null;
+            applyDragFrame(lastClientY);
+          });
         }
-
-        if (targetIdx === currentIdx) return;
-        const next = [...prev];
-        const [moved] = next.splice(currentIdx, 1);
-        next.splice(targetIdx, 0, moved);
-        rubricCriteriaRef.current = next;
-        setRubricCriteria(next);
-        setIsDirty(true);
-        triggerHaptic('tick');
       };
 
       holdTimer = window.setTimeout(() => {
         holdTimer = null;
+        const containerEl = criterionListRef.current;
+        const draggedEl = criterionRowRefs.current[criterionId];
+        if (!containerEl || !draggedEl) {
+          finish();
+          return;
+        }
         isDragActive = true;
+        cancelRowAnim(criterionId);
+        setSettlingCriterionId((prev) => (prev === criterionId ? null : prev));
+
+        const containerRect = containerEl.getBoundingClientRect();
+        dragSessionRef.current = {
+          criterionId,
+          originOffsetTop: draggedEl.offsetTop,
+          startPointerInContainerY: lastClientY - containerRect.top,
+          currentPointerDeltaY: 0,
+          currentTranslateY: 0,
+        };
+
+        const reduced = prefersReducedMotion();
+        draggedEl.style.willChange = 'transform';
+        if (!reduced) {
+          draggedEl.style.transition = 'none';
+          draggedEl.style.transform = 'translate3d(0, 0px, 0) scale(1)';
+          void draggedEl.offsetHeight;
+          draggedEl.style.transition = 'transform 150ms ease-out';
+          draggedEl.style.transform = 'translate3d(0, 0px, 0) scale(1.02)';
+        }
+
         try {
           captureEl.setPointerCapture(pointerId);
         } catch {}
@@ -1175,7 +1466,7 @@ export function EventsTab({
       window.addEventListener('pointerup', finish);
       window.addEventListener('pointercancel', finish);
     },
-    [hasExistingScores, rubricCriteria.length]
+    [cancelRowAnim, captureRowTops, hasExistingScores, prefersReducedMotion]
   );
 
   const handleApplyPreset = (preset: typeof RUBRIC_PRESETS[0]) => {
@@ -2247,9 +2538,12 @@ export function EventsTab({
               )}
 
               {/* Single Container for All Criteria Rows */}
-              <div className="bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl divide-y divide-stone-200 dark:divide-zinc-800 overflow-hidden">
+              <div
+                ref={criterionListRef}
+                className="relative bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl divide-y divide-stone-200 dark:divide-zinc-800"
+              >
                 {/* Column Header Row (MARKS label once per list) */}
-                <div className="flex items-center gap-1.5 px-2 py-1.5 bg-stone-100/70 dark:bg-zinc-900/80">
+                <div className="flex items-center gap-1.5 px-2 py-1.5 bg-stone-100/70 dark:bg-zinc-900/80 rounded-t-xl">
                   <span className="w-6 shrink-0" />
                   <span className="flex-1 min-w-0 text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 px-1.5">
                     Criterion
@@ -2263,6 +2557,8 @@ export function EventsTab({
                 {rubricCriteria.map((item, index) => {
                   const isLastCriterion = index === rubricCriteria.length - 1;
                   const isDragging = draggingCriterionId === item.id;
+                  const isSettling = !isDragging && settlingCriterionId === item.id;
+                  const isDimmed = draggingCriterionId !== null && !isDragging;
                   const canReorder = !hasExistingScores && rubricCriteria.length > 1;
                   return (
                     <div
@@ -2271,6 +2567,11 @@ export function EventsTab({
                         criterionRowRefs.current[item.id] = el;
                       }}
                       onPointerDown={(e) => handleCriterionPointerDown(item.id, e)}
+                      onContextMenu={(e) => {
+                        if (draggingCriterionId !== null) {
+                          e.preventDefault();
+                        }
+                      }}
                       onKeyDown={(e) => {
                         if (!hasExistingScores && e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
                           e.preventDefault();
@@ -2279,8 +2580,12 @@ export function EventsTab({
                       }}
                       className={`min-h-[56px] flex items-center gap-1.5 px-2 py-2 ${
                         isDragging
-                          ? 'bg-emerald-50/80 dark:bg-emerald-500/15 ring-1 ring-emerald-500/40 relative z-10'
-                          : 'transition-colors motion-reduce:transition-none'
+                          ? 'relative z-20 bg-white dark:bg-zinc-950 rounded-xl shadow-lg dark:shadow-black/50 motion-reduce:shadow-none ring-1 ring-emerald-500/40 touch-none select-none'
+                          : isSettling
+                            ? 'relative z-20 bg-white dark:bg-zinc-950 rounded-xl ring-1 ring-stone-200/80 dark:ring-zinc-800'
+                            : isDimmed
+                              ? 'bg-stone-50 dark:bg-zinc-900 last:rounded-b-xl opacity-65 transition-opacity duration-150 ease-out motion-reduce:transition-none select-none'
+                              : 'bg-stone-50 dark:bg-zinc-900 last:rounded-b-xl transition-opacity duration-150 ease-out motion-reduce:transition-none'
                       }`}
                     >
                       {/* Index / Drag Handle (24px wide, >=44px tall, touch-none) */}
