@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
@@ -40,6 +41,7 @@ import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
+import { TaskScreen, useModalAccessibility } from '../../common/TaskScreen';
 import { exportJudgeBadgePng, exportJudgeBadgesPrint } from '../../../lib/judgeBadgeRenderer';
 import { 
   Organization, 
@@ -214,9 +216,15 @@ interface StagedParticipant {
 
 interface PeopleTabProps {
   organization: Organization;
+  createIntent?: { target: 'participant' | 'judge'; nonce: number } | null;
+  onConsumeCreateIntent?: () => void;
 }
 
-export function PeopleTab({ organization }: PeopleTabProps) {
+export function PeopleTab({
+  organization,
+  createIntent,
+  onConsumeCreateIntent,
+}: PeopleTabProps) {
   const [activeSubTab, setActiveSubTab] = useState<'participants' | 'judges'>('participants');
 
   // Dynamic Categorization Header Preference: 'Class/Grade' vs 'Age Group'
@@ -281,6 +289,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     mobile_number: '',
     custom_values: {} as Record<string, string>,
   });
+  const initialParticipantSnapshotRef = useRef<string>('');
+  const [isParticipantUnsavedOpen, setIsParticipantUnsavedOpen] = useState(false);
 
   // Judges State (Optimistically seeded from local cache)
   const [judges, setJudges] = useState<SupabaseJudge[]>(() =>
@@ -296,6 +306,8 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     judge_id: '',
     pin: '',
   });
+  const initialJudgeSnapshotRef = useRef<string>('');
+  const [isJudgeUnsavedOpen, setIsJudgeUnsavedOpen] = useState(false);
   const [copiedJudgePin, setCopiedJudgePin] = useState<string | null>(null);
   const [downloadingBadgeId, setDownloadingBadgeId] = useState<string | null>(null);
   const [isExportingBadges, setIsExportingBadges] = useState(false);
@@ -317,6 +329,98 @@ export function PeopleTab({ organization }: PeopleTabProps) {
     isOngoingWarning?: boolean;
     eventNames?: string[];
   } | null>(null);
+
+  const stagingDialogRef = useRef<HTMLDivElement>(null);
+  const conflictDialogRef = useRef<HTMLDivElement>(null);
+  const qrDialogRef = useRef<HTMLDivElement>(null);
+  const judgeDetailsDialogRef = useRef<HTMLDivElement>(null);
+  const deleteDialogRef = useRef<HTMLDivElement>(null);
+  const participantUnsavedDialogRef = useRef<HTMLDivElement>(null);
+  const judgeUnsavedDialogRef = useRef<HTMLDivElement>(null);
+
+  const isConflictPopupOpen = Boolean(activeConflictRow && activeConflictRow.conflictExisting);
+  const isDeleteModalOpen = Boolean(deleteModalState && deleteModalState.isOpen);
+  const isQrModalOpen = Boolean(showQrModal && selectedJudgeForQr);
+  const isJudgeDetailsModalOpen = Boolean(showJudgeDetailsModal && selectedJudgeForDetails);
+
+  useModalAccessibility({
+    isOpen: isConflictPopupOpen,
+    isTopmost: isConflictPopupOpen,
+    onClose: () => setActiveConflictRow(null),
+    containerRef: conflictDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: showStagingModal,
+    isTopmost: showStagingModal && !isConflictPopupOpen,
+    onClose: () => {
+      if (isImporting) return;
+      setShowStagingModal(false);
+      setStagedRows([]);
+      setActiveConflictRow(null);
+    },
+    containerRef: stagingDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: isParticipantUnsavedOpen,
+    isTopmost: isParticipantUnsavedOpen && !isConflictPopupOpen && !showStagingModal,
+    onClose: () => setIsParticipantUnsavedOpen(false),
+    containerRef: participantUnsavedDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: isJudgeUnsavedOpen,
+    isTopmost:
+      isJudgeUnsavedOpen && !isConflictPopupOpen && !showStagingModal && !isParticipantUnsavedOpen,
+    onClose: () => setIsJudgeUnsavedOpen(false),
+    containerRef: judgeUnsavedDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: isDeleteModalOpen,
+    isTopmost:
+      isDeleteModalOpen &&
+      !isConflictPopupOpen &&
+      !showStagingModal &&
+      !isParticipantUnsavedOpen &&
+      !isJudgeUnsavedOpen,
+    onClose: () => setDeleteModalState(null),
+    containerRef: deleteDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: isQrModalOpen,
+    isTopmost:
+      isQrModalOpen &&
+      !isConflictPopupOpen &&
+      !showStagingModal &&
+      !isParticipantUnsavedOpen &&
+      !isJudgeUnsavedOpen &&
+      !isDeleteModalOpen,
+    onClose: () => {
+      setShowQrModal(false);
+      setSelectedJudgeForQr(null);
+    },
+    containerRef: qrDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: isJudgeDetailsModalOpen,
+    isTopmost:
+      isJudgeDetailsModalOpen &&
+      !isConflictPopupOpen &&
+      !showStagingModal &&
+      !isParticipantUnsavedOpen &&
+      !isJudgeUnsavedOpen &&
+      !isDeleteModalOpen &&
+      !isQrModalOpen,
+    onClose: () => {
+      setShowJudgeDetailsModal(false);
+      setSelectedJudgeForDetails(null);
+    },
+    containerRef: judgeDetailsDialogRef,
+  });
 
   const [readError, setReadError] = useState<string | null>(null);
   const [isRetryingRead, setIsRetryingRead] = useState(false);
@@ -883,30 +987,50 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   const handleOpenAddParticipant = () => {
     setEditingParticipant(null);
     const draft = loadParticipantDraft();
-    if (draft) {
-      setParticipantForm(draft);
-    } else {
-      setParticipantForm({
-        name: '',
-        school: '',
-        class_or_age: '',
-        mobile_number: '',
-        custom_values: {},
-      });
-    }
+    const nextForm = draft
+      ? draft
+      : {
+          name: '',
+          school: '',
+          class_or_age: '',
+          mobile_number: '',
+          custom_values: {},
+        };
+    setParticipantForm(nextForm);
+    initialParticipantSnapshotRef.current = JSON.stringify(nextForm);
+    setIsParticipantUnsavedOpen(false);
     setShowParticipantModal(true);
   };
 
   const handleOpenEditParticipant = (p: SupabaseParticipant) => {
     setEditingParticipant(p);
-    setParticipantForm({
+    const nextForm = {
       name: p.name,
       school: p.school || '',
       class_or_age: p.class_or_age || '',
       mobile_number: p.mobile_number || '',
       custom_values: p.custom_values || {},
-    });
+    };
+    setParticipantForm(nextForm);
+    initialParticipantSnapshotRef.current = JSON.stringify(nextForm);
+    setIsParticipantUnsavedOpen(false);
     setShowParticipantModal(true);
+  };
+
+  const handleCloseParticipantWizard = () => {
+    if (JSON.stringify(participantForm) !== initialParticipantSnapshotRef.current) {
+      setIsParticipantUnsavedOpen(true);
+      return;
+    }
+    setShowParticipantModal(false);
+  };
+
+  const handleForceDiscardParticipant = () => {
+    if (!editingParticipant) {
+      clearParticipantDraft();
+    }
+    setIsParticipantUnsavedOpen(false);
+    setShowParticipantModal(false);
   };
 
   const handleSaveParticipant = async () => {
@@ -1059,22 +1183,58 @@ export function PeopleTab({ organization }: PeopleTabProps) {
   // ========================================================
   const handleOpenAddJudge = () => {
     setEditingJudge(null);
-    setJudgeForm({
+    const nextForm = {
       name: '',
       judge_id: generateJudgeId(),
       pin: generateJudgePin(),
-    });
+    };
+    setJudgeForm(nextForm);
+    initialJudgeSnapshotRef.current = JSON.stringify(nextForm);
+    setIsJudgeUnsavedOpen(false);
     setShowJudgeModal(true);
   };
 
+  const lastHandledCreateNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!createIntent || createIntent.nonce === lastHandledCreateNonceRef.current) {
+      return;
+    }
+    lastHandledCreateNonceRef.current = createIntent.nonce;
+    if (createIntent.target === 'participant') {
+      setActiveSubTab('participants');
+      handleOpenAddParticipant();
+    } else {
+      setActiveSubTab('judges');
+      handleOpenAddJudge();
+    }
+    onConsumeCreateIntent?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createIntent]);
+
   const handleOpenEditJudge = (j: SupabaseJudge) => {
     setEditingJudge(j);
-    setJudgeForm({
+    const nextForm = {
       name: j.name,
       judge_id: j.judge_id || j.id.slice(0, 6),
       pin: j.pin,
-    });
+    };
+    setJudgeForm(nextForm);
+    initialJudgeSnapshotRef.current = JSON.stringify(nextForm);
+    setIsJudgeUnsavedOpen(false);
     setShowJudgeModal(true);
+  };
+
+  const handleCloseJudgeWizard = () => {
+    if (JSON.stringify(judgeForm) !== initialJudgeSnapshotRef.current) {
+      setIsJudgeUnsavedOpen(true);
+      return;
+    }
+    setShowJudgeModal(false);
+  };
+
+  const handleForceDiscardJudge = () => {
+    setIsJudgeUnsavedOpen(false);
+    setShowJudgeModal(false);
   };
 
   const handleSaveJudge = async () => {
@@ -1779,11 +1939,29 @@ export function PeopleTab({ organization }: PeopleTabProps) {
       </div>
 
       {/* ======================================================== */}
-      {/* EXCEL STAGING PREVIEW MODAL (Directive 2 UI Overhaul)     */}
+      {/* EXCEL STAGING PREVIEW MODAL (Portaled, Directive 2)       */}
       {/* ======================================================== */}
-      {showStagingModal && (
-        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-3 sm:p-4 pointer-events-auto animate-in fade-in motion-reduce:animate-none">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-2xl lg:max-w-4xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 motion-reduce:animate-none">
+      {showStagingModal &&
+        (() => {
+          const stagingNode = (
+            <div
+              className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-3 sm:p-4 pointer-events-auto animate-in fade-in motion-reduce:animate-none"
+              onClick={() => {
+                if (isImporting) return;
+                setShowStagingModal(false);
+                setStagedRows([]);
+                setActiveConflictRow(null);
+              }}
+            >
+              <div
+                ref={stagingDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Review Excel Import"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-2xl lg:max-w-4xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 motion-reduce:animate-none focus:outline-none"
+              >
             {/* Sleek Sticky Rounded Header */}
             <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 p-4 sm:p-5 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
               <div>
@@ -1936,13 +2114,29 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               </button>
             </div>
           </div>
-        </div>
-      )}
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(stagingNode, document.body) : stagingNode;
+        })()}
 
-      {/* Partial Conflict Ergonomic Mini-Popup (Directive 2) */}
-      {activeConflictRow && activeConflictRow.conflictExisting && (
-        <div className="fixed inset-0 z-[250] bg-black/75 flex items-center justify-center p-4 animate-in fade-in motion-reduce:animate-none">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none">
+      {/* Partial Conflict Ergonomic Mini-Popup (Portaled, Directive 2) */}
+      {activeConflictRow &&
+        activeConflictRow.conflictExisting &&
+        (() => {
+          const conflictNode = (
+            <div
+              className="fixed inset-0 z-[250] bg-black/75 flex items-center justify-center p-4 animate-in fade-in motion-reduce:animate-none"
+              onClick={() => setActiveConflictRow(null)}
+            >
+              <div
+                ref={conflictDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Data Conflict Detected"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none focus:outline-none"
+              >
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-zinc-800">
               <div className="flex items-center gap-2.5">
                 <span className="w-6 h-6 rounded-full bg-amber-500 text-black font-black text-xs flex items-center justify-center shadow-xs shadow-amber-500/50">
@@ -2028,39 +2222,39 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               </button>
             </div>
           </div>
-        </div>
-      )}
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(conflictNode, document.body) : conflictNode;
+        })()}
 
       {/* ======================================================== */}
-      {/* FULL-SCREEN PARTICIPANT CREATION WIZARD                  */}
+      {/* FULL-SCREEN PARTICIPANT CREATION WIZARD (TaskScreen)     */}
       {/* ======================================================== */}
-      {showParticipantModal && (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
-          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
-          {/* Sticky Top Header */}
-          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800 md:shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowParticipantModal(false)}
-              className="text-xs lg:text-sm font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 md:min-h-[44px] rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <span className="text-[11px] lg:text-sm font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
-              {editingParticipant ? 'EDIT COMPETITOR' : 'NEW COMPETITOR'}
-            </span>
-            <button
-              type="button"
-              onClick={handleSaveParticipant}
-              className="min-h-[36px] md:min-h-[44px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold shadow-md shadow-indigo-600/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
-            >
-              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Save</span>
-            </button>
-          </div>
-
-          {/* Form Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6 md:min-h-0 md:overflow-y-auto">
+      <TaskScreen
+        isOpen={showParticipantModal}
+        title={editingParticipant ? 'Edit Competitor' : 'New Competitor'}
+        onBack={handleCloseParticipantWizard}
+        hasNestedOverlay={Boolean(
+          isParticipantUnsavedOpen ||
+            isConflictPopupOpen ||
+            showStagingModal ||
+            isDeleteModalOpen ||
+            isQrModalOpen ||
+            isJudgeDetailsModalOpen
+        )}
+        maxWidthClass="md:max-w-2xl"
+        secondaryAction={{
+          label: 'Cancel',
+          onClick: handleCloseParticipantWizard,
+        }}
+        primaryAction={{
+          label: 'Save',
+          onClick: handleSaveParticipant,
+          icon: <Check className="w-4 h-4 stroke-[2.5]" />,
+          variant: 'indigo',
+        }}
+      >
+        <div className="max-w-2xl w-full mx-auto space-y-6">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
               <label className="text-[11px] lg:text-sm font-bold text-indigo-600 dark:text-indigo-400 tracking-wider uppercase block">
@@ -2144,41 +2338,86 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 </div>
               ))}
             </div>
-          </div>
-          </div>
         </div>
-      )}
+      </TaskScreen>
+
+      {/* Participant Unsaved Changes Confirmation Modal (Portaled) */}
+      {isParticipantUnsavedOpen &&
+        (() => {
+          const modalNode = (
+            <div
+              className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+              onClick={() => setIsParticipantUnsavedOpen(false)}
+            >
+              <div
+                ref={participantUnsavedDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Discard Changes?"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl focus:outline-none"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
+                    <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
+                  </div>
+                </div>
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleForceDiscardParticipant}
+                    className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Discard &amp; Exit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsParticipantUnsavedOpen(false)}
+                    className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
+                  >
+                    Keep Editing
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
+        })()}
 
       {/* ======================================================== */}
-      {/* FULL-SCREEN JUDGE CREATION WIZARD                        */}
+      {/* FULL-SCREEN JUDGE CREATION WIZARD (TaskScreen)           */}
       {/* ======================================================== */}
-      {showJudgeModal && (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto flex flex-col pointer-events-auto animate-in fade-in duration-150 motion-reduce:animate-none md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
-          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
-          {/* Sticky Top Header */}
-          <div className="sticky top-0 z-10 bg-stone-50 dark:bg-black px-4 py-3.5 flex justify-between items-center border-b border-stone-200 dark:border-zinc-800 md:shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowJudgeModal(false)}
-              className="text-xs lg:text-sm font-bold text-stone-600 dark:text-zinc-400 hover:text-stone-900 dark:hover:text-white px-3 py-1.5 md:min-h-[44px] rounded-lg hover:bg-stone-200/50 dark:hover:bg-zinc-900 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <span className="text-[11px] lg:text-sm font-mono font-black uppercase tracking-wider text-stone-400 dark:text-zinc-500">
-              {editingJudge ? 'EDIT JUDGE PROFILE' : 'NEW JUDGE PROFILE'}
-            </span>
-            <button
-              type="button"
-              onClick={handleSaveJudge}
-              className="min-h-[36px] md:min-h-[44px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-black shadow-md shadow-amber-500/20 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform cursor-pointer flex items-center gap-1.5"
-            >
-              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Save</span>
-            </button>
-          </div>
-
-          {/* Form Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-6 md:min-h-0 md:overflow-y-auto">
+      <TaskScreen
+        isOpen={showJudgeModal}
+        title={editingJudge ? 'Edit Judge Profile' : 'New Judge Profile'}
+        onBack={handleCloseJudgeWizard}
+        hasNestedOverlay={Boolean(
+          isJudgeUnsavedOpen ||
+            isConflictPopupOpen ||
+            showStagingModal ||
+            isDeleteModalOpen ||
+            isQrModalOpen ||
+            isJudgeDetailsModalOpen
+        )}
+        maxWidthClass="md:max-w-2xl"
+        secondaryAction={{
+          label: 'Cancel',
+          onClick: handleCloseJudgeWizard,
+        }}
+        primaryAction={{
+          label: 'Save',
+          onClick: handleSaveJudge,
+          icon: <Check className="w-4 h-4 stroke-[2.5]" />,
+          variant: 'amber',
+        }}
+      >
+        <div className="max-w-2xl w-full mx-auto space-y-6">
             {/* Massive Borderless Name Input */}
             <div className="space-y-1">
               <label className="text-[11px] lg:text-sm font-bold text-amber-500 dark:text-amber-400 tracking-wider uppercase block">
@@ -2238,17 +2477,81 @@ export function PeopleTab({ organization }: PeopleTabProps) {
                 </div>
               </div>
             </div>
-          </div>
-          </div>
         </div>
-      )}
+      </TaskScreen>
+
+      {/* Judge Unsaved Changes Confirmation Modal (Portaled) */}
+      {isJudgeUnsavedOpen &&
+        (() => {
+          const modalNode = (
+            <div
+              className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+              onClick={() => setIsJudgeUnsavedOpen(false)}
+            >
+              <div
+                ref={judgeUnsavedDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Discard Changes?"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl focus:outline-none"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
+                    <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
+                  </div>
+                </div>
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleForceDiscardJudge}
+                    className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Discard &amp; Exit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsJudgeUnsavedOpen(false)}
+                    className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
+                  >
+                    Keep Editing
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
+        })()}
 
       {/* ======================================================== */}
-      {/* 1. CLEAN SHOW QR MODAL (Only Judge Name, QR, Branding)   */}
+      {/* 1. CLEAN SHOW QR MODAL (Portaled to document.body)       */}
       {/* ======================================================== */}
-      {showQrModal && selectedJudgeForQr && (
-        <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xs md:max-w-lg w-full p-6 text-center shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none">
+      {showQrModal &&
+        selectedJudgeForQr &&
+        (() => {
+          const qrNode = (
+            <div
+              className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none"
+              onClick={() => {
+                setShowQrModal(false);
+                setSelectedJudgeForQr(null);
+              }}
+            >
+              <div
+                ref={qrDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`${selectedJudgeForQr.name} QR Code`}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xs md:max-w-lg w-full p-6 text-center shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none focus:outline-none"
+              >
             {/* Top: Judge's Name (Bold, Top) with Close X */}
             <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-zinc-800/80">
               <h3 className="text-base font-extrabold text-zinc-900 dark:text-white truncate">
@@ -2304,15 +2607,34 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               Done
             </button>
           </div>
-        </div>
-      )}
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(qrNode, document.body) : qrNode;
+        })()}
 
       {/* ======================================================== */}
-      {/* 2. JUDGE DOSSIER & DETAILS MODAL (Eye Icon Triggered)    */}
+      {/* 2. JUDGE DOSSIER & DETAILS MODAL (Portaled)              */}
       {/* ======================================================== */}
-      {showJudgeDetailsModal && selectedJudgeForDetails && (
-        <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 text-left shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none">
+      {showJudgeDetailsModal &&
+        selectedJudgeForDetails &&
+        (() => {
+          const judgeDetailsNode = (
+            <div
+              className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none"
+              onClick={() => {
+                setShowJudgeDetailsModal(false);
+                setSelectedJudgeForDetails(null);
+              }}
+            >
+              <div
+                ref={judgeDetailsDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Judge Dossier"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 text-left shadow-2xl space-y-4 animate-in zoom-in-95 motion-reduce:animate-none focus:outline-none"
+              >
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-zinc-800">
               <div className="flex items-center space-x-3">
@@ -2455,15 +2777,33 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               </button>
             </div>
           </div>
-        </div>
-      )}
+            </div>
+          );
+          return typeof document !== 'undefined'
+            ? createPortal(judgeDetailsNode, document.body)
+            : judgeDetailsNode;
+        })()}
 
       {/* ======================================================== */}
-      {/* 3. STANDARDIZED DELETION CONFIRMATION MODAL (Directive 3) */}
+      {/* 3. STANDARDIZED DELETION CONFIRMATION MODAL (Portaled)   */}
       {/* ======================================================== */}
-      {deleteModalState && deleteModalState.isOpen && (
-        <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none">
+      {deleteModalState &&
+        deleteModalState.isOpen &&
+        (() => {
+          const deleteNode = (
+            <div
+              className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none"
+              onClick={() => setDeleteModalState(null)}
+            >
+              <div
+                ref={deleteDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label={deleteModalState.isOngoingWarning ? 'Active Roster Warning' : 'Confirm Deletion'}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none focus:outline-none"
+              >
             {deleteModalState.isOngoingWarning ? (
               <>
                 <div className="flex items-center space-x-3 text-amber-500">
@@ -2560,8 +2900,10 @@ export function PeopleTab({ organization }: PeopleTabProps) {
               </>
             )}
           </div>
-        </div>
-      )}
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(deleteNode, document.body) : deleteNode;
+        })()}
     </>
   );
 }

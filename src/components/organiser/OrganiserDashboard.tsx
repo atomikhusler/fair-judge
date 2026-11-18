@@ -58,6 +58,10 @@ export function OrganiserDashboard({
 }: OrganiserDashboardProps) {
   const [organization, setOrganization] = useState<Organization>(initialOrg);
   const [activeTab, setActiveTab] = useState<OrganiserNavTab>('live');
+  const [peopleCreateIntent, setPeopleCreateIntent] = useState<{
+    target: 'participant' | 'judge';
+    nonce: number;
+  } | null>(null);
 
   // Modals, Drawers & UI State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -521,12 +525,20 @@ export function OrganiserDashboard({
                 <EventsTab
                   organization={organization}
                   onNavigateToLiveControl={() => setActiveTab('live')}
+                  onNavigateToPeopleCreate={(target) => {
+                    setPeopleCreateIntent({ target, nonce: Date.now() });
+                    setActiveTab('people');
+                  }}
                 />
               )}
 
               {/* Tab 3: People View */}
               {activeTab === 'people' && (
-                <PeopleTab organization={organization} />
+                <PeopleTab
+                  organization={organization}
+                  createIntent={peopleCreateIntent}
+                  onConsumeCreateIntent={() => setPeopleCreateIntent(null)}
+                />
               )}
 
               {/* Tab 4: Insights View */}

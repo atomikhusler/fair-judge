@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Plus, 
   Search, 
@@ -15,7 +16,6 @@ import {
   Bookmark, 
   Sparkles,
   Eye,
-  ArrowLeft,
   UserPlus,
   ShieldCheck,
   Hash,
@@ -24,11 +24,11 @@ import {
   Calendar,
   Layers,
   ChevronRight,
-  GripVertical,
   ChevronUp,
   ChevronDown,
   Lock,
-  KeyRound
+  KeyRound,
+  Scale
 } from 'lucide-react';
 import { 
   Organization, 
@@ -44,11 +44,18 @@ import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { useToast } from '../../common/ToastProvider';
+import {
+  TaskScreen,
+  useModalAccessibility,
+  useVisualViewportOffset,
+  scrollFocusedInputIntoView,
+} from '../../common/TaskScreen';
 
 interface EventsTabProps {
   organization: Organization;
   onOpenPublicView?: (eventId?: string) => void;
   onNavigateToLiveControl?: (eventId: string) => void;
+  onNavigateToPeopleCreate?: (target: 'participant' | 'judge') => void;
 }
 
 type FilterStatus = 'all' | 'active' | 'upcoming' | 'draft' | 'ended' | 'archived';
@@ -97,6 +104,7 @@ export function EventsTab({
   organization,
   onOpenPublicView,
   onNavigateToLiveControl,
+  onNavigateToPeopleCreate,
 }: EventsTabProps) {
   // ========================================================
   // 1. MAIN EVENT LIBRARY STATE (Optimistically seeded from local cache)
@@ -215,50 +223,95 @@ export function EventsTab({
     return new Map(judges.map((j) => [j.id, j]));
   }, [judges]);
 
-  // Modal local search & enrollment sub-panels
+  // Modal local search, view mode & dedicated picker state
   const [participantSearch, setParticipantSearch] = useState('');
   const [judgeSearch, setJudgeSearch] = useState('');
-  const [isEnrollDrawerOpen, setIsEnrollDrawerOpen] = useState(false);
-  const [isAssignJudgeDrawerOpen, setIsAssignJudgeDrawerOpen] = useState(false);
+  const [participantViewMode, setParticipantViewMode] = useState<'lineup' | 'order'>('lineup');
 
-  // Lineup Builder Drag & Drop State
-  const [draggedParticipantIndex, setDraggedParticipantIndex] = useState<number | null>(null);
-  const [dragOverParticipantIndex, setDragOverParticipantIndex] = useState<number | null>(null);
+  const [isParticipantPickerOpen, setIsParticipantPickerOpen] = useState(false);
+  const [participantPickerSearch, setParticipantPickerSearch] = useState('');
+  const [selectedPickerParticipantIds, setSelectedPickerParticipantIds] = useState<string[]>([]);
+  const [isBatchEnrolling, setIsBatchEnrolling] = useState(false);
 
-  // Clean Modal Close Helpers (Resets sub-drawers & drag states)
+  const [isJudgePickerOpen, setIsJudgePickerOpen] = useState(false);
+  const [judgePickerSearch, setJudgePickerSearch] = useState('');
+  const [selectedPickerJudgeIds, setSelectedPickerJudgeIds] = useState<string[]>([]);
+  const [isBatchAssigningJudges, setIsBatchAssigningJudges] = useState(false);
+
+  const handleCloseParticipantPicker = useCallback(() => {
+    setIsParticipantPickerOpen(false);
+    setParticipantPickerSearch('');
+    setSelectedPickerParticipantIds([]);
+  }, []);
+
+  const handleCloseJudgePicker = useCallback(() => {
+    setIsJudgePickerOpen(false);
+    setJudgePickerSearch('');
+    setSelectedPickerJudgeIds([]);
+  }, []);
+
+  // Clean Modal Close Helpers
   const handleCloseParticipantsModal = useCallback(() => {
     setActiveParticipantsEventId(null);
-    setIsEnrollDrawerOpen(false);
     setParticipantSearch('');
-    setDraggedParticipantIndex(null);
-    setDragOverParticipantIndex(null);
+    setParticipantViewMode('lineup');
+    setIsParticipantPickerOpen(false);
+    setParticipantPickerSearch('');
+    setSelectedPickerParticipantIds([]);
   }, []);
 
   const handleCloseJudgesModal = useCallback(() => {
     setActiveJudgesEventId(null);
-    setIsAssignJudgeDrawerOpen(false);
     setJudgeSearch('');
+    setIsJudgePickerOpen(false);
+    setJudgePickerSearch('');
+    setSelectedPickerJudgeIds([]);
   }, []);
 
-  // Lock document body scroll whenever any full-screen modal or confirmation popup is active
-  const isAnyModalOpen = Boolean(
-    isWizardOpen ||
-    isUnsavedExitModalOpen ||
-    activeParticipantsModalEvent ||
-    activeJudgesModalEvent ||
-    dossierEvent ||
-    eventModalState?.isOpen
+  const handleCreateNewFromPicker = useCallback(
+    (target: 'participant' | 'judge') => {
+      if (target === 'participant') {
+        handleCloseParticipantsModal();
+      } else {
+        handleCloseJudgesModal();
+      }
+      onNavigateToPeopleCreate?.(target);
+    },
+    [handleCloseJudgesModal, handleCloseParticipantsModal, onNavigateToPeopleCreate]
   );
 
-  useEffect(() => {
-    if (isAnyModalOpen) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = prev;
-      };
-    }
-  }, [isAnyModalOpen]);
+  const unsavedExitDialogRef = useRef<HTMLDivElement>(null);
+  const dossierDialogRef = useRef<HTMLDivElement>(null);
+  const eventActionDialogRef = useRef<HTMLDivElement>(null);
+
+  const isEventActionModalOpen = Boolean(eventModalState && eventModalState.isOpen);
+  const eventActionKeyboardInset = useVisualViewportOffset(isEventActionModalOpen);
+
+  useModalAccessibility({
+    isOpen: isEventActionModalOpen,
+    isTopmost: isEventActionModalOpen,
+    onClose: () => {
+      setEventModalState(null);
+      setDeleteConfirmText('');
+      setMasterPasswordInput('');
+      setPasswordError(null);
+    },
+    containerRef: eventActionDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: isUnsavedExitModalOpen,
+    isTopmost: isUnsavedExitModalOpen && !isEventActionModalOpen,
+    onClose: () => setIsUnsavedExitModalOpen(false),
+    containerRef: unsavedExitDialogRef,
+  });
+
+  useModalAccessibility({
+    isOpen: Boolean(dossierEvent),
+    isTopmost: Boolean(dossierEvent) && !isEventActionModalOpen && !isUnsavedExitModalOpen,
+    onClose: () => setDossierEventId(null),
+    containerRef: dossierDialogRef,
+  });
 
   // Storage key for auto-save draft recovery
   const draftStorageKey = useMemo(
@@ -953,9 +1006,14 @@ export function EventsTab({
     }
   };
 
-  const handleEnrollParticipantToEvent = async (participantId: string) => {
-    if (!activeParticipantsModalEvent) return;
+  const handleBatchEnrollParticipantsToEvent = async (participantIds: string[]) => {
+    if (!activeParticipantsModalEvent || participantIds.length === 0 || isBatchEnrolling) return;
     const status = (activeParticipantsModalEvent.status || 'draft').toLowerCase();
+
+    if (activeParticipantsModalEvent.is_locked) {
+      showToast('Prohibited: Roster is locked.');
+      return;
+    }
 
     // RULE: once event is ended, no one can add participants
     if (status === 'ended' || status === 'archived') {
@@ -963,19 +1021,26 @@ export function EventsTab({
       return;
     }
 
-    // Live event CAN add participants while continuing!
-    try {
-      const currentAssigned = activeParticipantsModalEvent.assigned_participants || [];
-      if (currentAssigned.includes(participantId)) return;
+    const currentAssigned = activeParticipantsModalEvent.assigned_participants || [];
+    const currentAssignedSet = new Set(currentAssigned);
+    const toAdd = Array.from(new Set(participantIds)).filter(
+      (id) => activeParticipantIdSet.has(id) && !currentAssignedSet.has(id)
+    );
+    if (toAdd.length === 0) return;
 
-      const updatedList = [...currentAssigned, participantId];
+    setIsBatchEnrolling(true);
+    try {
+      const toAddSet = new Set(toAdd);
+      const updatedList = [...currentAssigned, ...toAdd];
       const updatedSerialMap: Record<string, string> = {};
       updatedList.forEach((id, idx) => {
         updatedSerialMap[id] = String(idx + 1).padStart(2, '0');
       });
 
-      const hasActiveP = updatedList.some((id) => id === participantId || activeParticipantIdSet.has(id));
-      const hasActiveJ = (activeParticipantsModalEvent.assigned_judges || []).some((id) => activeJudgeIdSet.has(id));
+      const hasActiveP = updatedList.some((id) => toAddSet.has(id) || activeParticipantIdSet.has(id));
+      const hasActiveJ = (activeParticipantsModalEvent.assigned_judges || []).some((id) =>
+        activeJudgeIdSet.has(id)
+      );
       const isNowReady = hasActiveP && hasActiveJ;
       let newStatus: EventStatus = activeParticipantsModalEvent.status;
       if (status !== 'active' && status !== 'ended' && status !== 'archived' && status !== 'paused') {
@@ -991,14 +1056,26 @@ export function EventsTab({
       setEvents((prev) =>
         prev.map((e) =>
           e.id === activeParticipantsModalEvent.id
-            ? { ...e, assigned_participants: updatedList, participant_sl_numbers: updatedSerialMap, status: newStatus }
+            ? {
+                ...e,
+                assigned_participants: updatedList,
+                participant_sl_numbers: updatedSerialMap,
+                status: newStatus,
+              }
             : e
         )
       );
-      showToast('Participant enrolled in event.');
+      handleCloseParticipantPicker();
+      showToast(
+        toAdd.length === 1
+          ? 'Participant enrolled in event.'
+          : `${toAdd.length} participants enrolled in event.`
+      );
     } catch (err) {
-      console.error('Failed to enroll participant:', err);
-      showToast('Error enrolling participant.');
+      console.error('Failed to enroll participants:', err);
+      showToast('Error enrolling participants.');
+    } finally {
+      setIsBatchEnrolling(false);
     }
   };
 
@@ -1099,6 +1176,75 @@ export function EventsTab({
     } catch (err) {
       console.error('Failed to update judges:', err);
       showToast('Error updating jury assignments.');
+    }
+  };
+
+  const handleBatchAssignJudgesToEvent = async (judgeIds: string[]) => {
+    if (!activeJudgesModalEvent || judgeIds.length === 0 || isBatchAssigningJudges) return;
+    const status = (activeJudgesModalEvent.status || 'draft').toLowerCase();
+
+    if (activeJudgesModalEvent.is_locked) {
+      showToast('Prohibited: Jury assignments are locked.');
+      return;
+    }
+
+    // RULE: no one can add or remove judge once event is live
+    if (status === 'active') {
+      showToast('Prohibited: Cannot add or remove judges while event is live.');
+      return;
+    }
+
+    // RULE: once event is ended or completed, no one can add or remove judge
+    if (status === 'ended' || status === 'archived') {
+      showToast('Prohibited: Cannot modify judges for an ended event.');
+      return;
+    }
+
+    const currentJudges = activeJudgesModalEvent.assigned_judges || [];
+    const currentJudgesSet = new Set(currentJudges);
+    const toAdd = Array.from(new Set(judgeIds)).filter(
+      (id) => activeJudgeIdSet.has(id) && !currentJudgesSet.has(id)
+    );
+    if (toAdd.length === 0) return;
+
+    setIsBatchAssigningJudges(true);
+    try {
+      const toAddSet = new Set(toAdd);
+      const updatedJudges = [...currentJudges, ...toAdd];
+
+      const hasActiveP = (activeJudgesModalEvent.assigned_participants || []).some((id) =>
+        activeParticipantIdSet.has(id)
+      );
+      const hasActiveJ = updatedJudges.some((id) => toAddSet.has(id) || activeJudgeIdSet.has(id));
+      const isNowReady = hasActiveP && hasActiveJ;
+      let newStatus: EventStatus = activeJudgesModalEvent.status;
+      if (status !== 'active' && status !== 'ended' && status !== 'archived' && status !== 'paused') {
+        newStatus = isNowReady ? 'ready' : 'draft';
+      }
+
+      await dbService.updateEvent(activeJudgesModalEvent.id, {
+        assigned_judges: updatedJudges,
+        status: newStatus,
+      });
+
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === activeJudgesModalEvent.id
+            ? { ...e, assigned_judges: updatedJudges, status: newStatus }
+            : e
+        )
+      );
+      handleCloseJudgePicker();
+      showToast(
+        toAdd.length === 1
+          ? 'Judge assigned to jury.'
+          : `${toAdd.length} judges assigned to jury.`
+      );
+    } catch (err) {
+      console.error('Failed to assign judges:', err);
+      showToast('Error updating jury assignments.');
+    } finally {
+      setIsBatchAssigningJudges(false);
     }
   };
 
@@ -1452,7 +1598,10 @@ export function EventsTab({
                         onClick={() => {
                           setActiveParticipantsEventId(evt.id);
                           setParticipantSearch('');
-                          setIsEnrollDrawerOpen(true);
+                          setParticipantViewMode('lineup');
+                          setParticipantPickerSearch('');
+                          setSelectedPickerParticipantIds([]);
+                          setIsParticipantPickerOpen(true);
                         }}
                         className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold border border-indigo-600 flex items-center gap-1.5 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
@@ -1465,12 +1614,15 @@ export function EventsTab({
                         onClick={() => {
                           setActiveParticipantsEventId(evt.id);
                           setParticipantSearch('');
-                          setIsEnrollDrawerOpen(false);
+                          setParticipantViewMode('lineup');
+                          setParticipantPickerSearch('');
+                          setSelectedPickerParticipantIds([]);
+                          setIsParticipantPickerOpen(false);
                         }}
                         className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs lg:text-sm font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Users className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>Participants {String(participantCount).padStart(2, '0')}</span>
+                        <span className="tabular-nums">Participants {String(participantCount).padStart(2, '0')}</span>
                       </button>
                     )}
 
@@ -1481,7 +1633,9 @@ export function EventsTab({
                         onClick={() => {
                           setActiveJudgesEventId(evt.id);
                           setJudgeSearch('');
-                          setIsAssignJudgeDrawerOpen(true);
+                          setJudgePickerSearch('');
+                          setSelectedPickerJudgeIds([]);
+                          setIsJudgePickerOpen(true);
                         }}
                         className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold border border-amber-500 flex items-center gap-1.5 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
@@ -1494,12 +1648,14 @@ export function EventsTab({
                         onClick={() => {
                           setActiveJudgesEventId(evt.id);
                           setJudgeSearch('');
-                          setIsAssignJudgeDrawerOpen(false);
+                          setJudgePickerSearch('');
+                          setSelectedPickerJudgeIds([]);
+                          setIsJudgePickerOpen(false);
                         }}
                         className="min-h-[38px] md:min-h-[44px] px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-850 text-stone-800 dark:text-zinc-200 text-xs lg:text-sm font-bold border border-stone-200/80 dark:border-zinc-800 flex items-center gap-2 transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Gavel className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Judges {String(judgeCount).padStart(2, '0')}</span>
+                        <span className="tabular-nums">Judges {String(judgeCount).padStart(2, '0')}</span>
                       </button>
                     )}
                   </div>
@@ -1511,39 +1667,37 @@ export function EventsTab({
       </div>
 
       {/* ======================================================== */}
-      {/* FULL-SCREEN CREATE / EDIT EVENT PAGE (Framer-grade UI)    */}
+      {/* FULL-SCREEN CREATE / EDIT EVENT PAGE (TaskScreen)        */}
       {/* ======================================================== */}
-      {isWizardOpen ? (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
-          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
-          {/* 1. Ultra-Minimal Header */}
-          <div className="sticky top-0 z-30 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800 px-4 py-3.5 flex items-center justify-between shrink-0">
-            {/* Top Left: Red [ Cancel ] button */}
-            <button
-              type="button"
-              onClick={handleCloseWizard}
-              className="min-h-[38px] md:min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-xs sm:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none cursor-pointer"
-            >
-              Cancel
-            </button>
-
-            <span className="text-[11px] lg:text-sm font-mono uppercase tracking-wider font-bold text-zinc-400">
-              {editingEventId ? 'Edit Event' : 'New Event'}
+      <TaskScreen
+        isOpen={isWizardOpen}
+        title={editingEventId ? 'Edit Event' : 'New Event'}
+        onBack={handleCloseWizard}
+        hasNestedOverlay={Boolean(isUnsavedExitModalOpen || isEventActionModalOpen)}
+        maxWidthClass="md:max-w-2xl"
+        footer={
+          <div className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-zinc-300 flex items-center gap-1.5">
+            <span>Total Marks:</span>
+            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base tabular-nums whitespace-nowrap">
+              {totalRubricMarks} pts
             </span>
-
-            {/* Top Right: Green [ Save ] button */}
-            <button
-              type="button"
-              disabled={!isFormValid || isSubmitting}
-              onClick={handleSaveEvent}
-              className="min-h-[38px] md:min-h-[44px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold active:scale-95 transition-transform duration-100 motion-reduce:transition-none disabled:opacity-40 shadow-xs cursor-pointer"
-            >
-              {isSubmitting ? 'Saving...' : 'Save'}
-            </button>
           </div>
-
-          {/* Scrollable Page Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6 space-y-8 md:min-h-0 md:overflow-y-auto">
+        }
+        secondaryAction={{
+          label: 'Cancel',
+          onClick: handleCloseWizard,
+          disabled: isSubmitting,
+        }}
+        primaryAction={{
+          label: 'Save',
+          loading: isSubmitting,
+          loadingLabel: 'Saving...',
+          disabled: !isFormValid || isSubmitting,
+          onClick: handleSaveEvent,
+          variant: 'emerald',
+        }}
+      >
+        <div className="max-w-2xl w-full mx-auto space-y-8">
             {/* Draft Recovery Banner */}
             {showDraftBanner && cachedDraft && !editingEventId && (
               <div className="p-3.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-2xl text-xs sm:text-sm font-medium flex flex-wrap items-center justify-between gap-2 animate-in fade-in motion-reduce:animate-none">
@@ -1686,617 +1840,1082 @@ export function EventsTab({
                 </button>
               )}
             </div>
-          </div>
-
-          {/* PART 2.3: STICKY TOTAL BAR */}
-          <div className="sticky bottom-0 z-30 bg-stone-50 dark:bg-black border-t border-stone-200 dark:border-zinc-800 px-4 py-3 pb-safe flex items-center justify-center shadow-xs shrink-0">
-            <div className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-zinc-300 flex items-center gap-1.5">
-              <span>Total Marks:</span>
-              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base tabular-nums whitespace-nowrap">
-                {totalRubricMarks} pts
-              </span>
-            </div>
-          </div>
-          </div>
         </div>
-      ) : null}
+      </TaskScreen>
 
-      {/* Unsaved Changes In-App Confirmation Modal */}
-      {isUnsavedExitModalOpen ? (
-        <div className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
-                <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
-              </div>
-            </div>
-            <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                onClick={handleForceDiscardAndExit}
-                className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
+      {/* Unsaved Changes In-App Confirmation Modal (Portaled) */}
+      {isUnsavedExitModalOpen &&
+        (() => {
+          const modalNode = (
+            <div
+              className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+              onClick={() => setIsUnsavedExitModalOpen(false)}
+            >
+              <div
+                ref={unsavedExitDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Discard Changes?"
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl focus:outline-none"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Discard &amp; Exit</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsUnsavedExitModalOpen(false)}
-                className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
-              >
-                Keep Editing
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* ======================================================== */}
-      {/* FULL-SCREEN PARTICIPANTS LIST MODAL (With Strict Rules)   */}
-      {/* ======================================================== */}
-      {activeParticipantsModalEvent ? (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
-          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
-          {/* Header */}
-          <div className="sticky top-0 z-30 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800 px-4 py-3.5 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                type="button"
-                onClick={handleCloseParticipantsModal}
-                className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-zinc-900 dark:text-white leading-tight truncate">
-                    {activeParticipantsModalEvent.name}
-                  </h2>
-                  <span className="text-[10px] lg:text-xs font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
-                    {(activeParticipantsModalEvent.assigned_participants || []).filter((id) => activeParticipantIdSet.has(id)).length} Enrolled
-                  </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Discard Changes?</h3>
+                    <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400">You have unsaved changes that will be lost.</p>
+                  </div>
                 </div>
-                <p className="text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400">
-                  Participant roster &amp; appearance sequence
-                </p>
-              </div>
-            </div>
-
-            {/* Add Participant action (Allowed when upcoming/draft OR LIVE continuing, unless locked) */}
-            {activeParticipantsModalEvent.status !== 'ended' &&
-              activeParticipantsModalEvent.status !== 'archived' &&
-              !activeParticipantsModalEvent.is_locked && (
-                <button
-                  type="button"
-                  onClick={() => setIsEnrollDrawerOpen(!isEnrollDrawerOpen)}
-                  className="min-h-[38px] md:min-h-[44px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold flex items-center gap-1.5 transition-colors motion-reduce:transition-none shadow-xs cursor-pointer shrink-0"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Enroll</span>
-                </button>
-              )}
-          </div>
-
-          {/* Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4 md:min-h-0 md:overflow-y-auto md:pb-6">
-            {/* Event Locked / Live / Sealed Banner */}
-            {activeParticipantsModalEvent.is_locked ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
-                <Lock className="w-4 h-4 text-amber-500 shrink-0" />
-                <span>
-                  Roster Locked: This event&apos;s roster is frozen. Participants and performance order cannot be changed.
-                </span>
-              </div>
-            ) : activeParticipantsModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs lg:text-sm font-medium flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
-                <span>
-                  Event is Live: You can add new participants while the competition continues. Participant removals are locked.
-                </span>
-              </div>
-            ) : activeParticipantsModalEvent.status === 'ended' || activeParticipantsModalEvent.status === 'archived' ? (
-              <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs lg:text-sm font-medium flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-zinc-500 shrink-0" />
-                <span>
-                  Event is Ended: Roster is permanently sealed. No participants can be added or removed.
-                </span>
-              </div>
-            ) : null}
-
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Filter enrolled participants by name or school..."
-                value={participantSearch}
-                onChange={(e) => setParticipantSearch(e.target.value)}
-                className="w-full min-h-[42px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-
-            {/* Available Participants to Enroll Drawer */}
-            {isEnrollDrawerOpen && (
-              <div className="p-4 rounded-2xl bg-white dark:bg-zinc-950 border border-emerald-500/40 shadow-md space-y-3 animate-in fade-in">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs lg:text-sm font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                    Enroll from Organization Roster
-                  </span>
+                <div className="space-y-2 pt-1">
                   <button
                     type="button"
-                    onClick={() => setIsEnrollDrawerOpen(false)}
-                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center cursor-pointer"
+                    onClick={handleForceDiscardAndExit}
+                    className="w-full min-h-[42px] md:min-h-[44px] bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs lg:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-98 transition-[transform,colors] duration-100 motion-reduce:transition-none"
                   >
-                    <X className="w-4 h-4" />
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Discard &amp; Exit</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsUnsavedExitModalOpen(false)}
+                    className="w-full min-h-[38px] md:min-h-[44px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs lg:text-sm font-semibold cursor-pointer"
+                  >
+                    Keep Editing
                   </button>
                 </div>
+              </div>
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
+        })()}
 
-                {participants.filter(
-                  (p) => p.is_active !== false && !(activeParticipantsModalEvent.assigned_participants || []).includes(p.id)
-                ).length === 0 ? (
-                  <p className="text-xs lg:text-sm text-zinc-500 text-center py-2">
-                    All registered participants in your organization are already enrolled.
-                  </p>
-                ) : (
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                    {participants
-                      .filter(
-                        (p) => p.is_active !== false && !(activeParticipantsModalEvent.assigned_participants || []).includes(p.id)
-                      )
-                      .map((p) => (
-                        <div
-                          key={p.id}
-                          className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800"
-                        >
-                          <div className="min-w-0 pr-2">
-                            <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block truncate">
-                              {p.name}
-                            </span>
-                            <span className="text-[10px] lg:text-sm text-zinc-500 truncate block">
-                              {p.school || 'General Institution'} {p.class_or_age ? `• ${p.class_or_age}` : ''}
-                            </span>
-                          </div>
+      {/* ======================================================== */}
+      {/* FULL-SCREEN PARTICIPANTS LINEUP (TaskScreen)             */}
+      {/* ======================================================== */}
+      <TaskScreen
+        isOpen={Boolean(activeParticipantsModalEvent)}
+        title={activeParticipantsModalEvent?.name || ''}
+        subtitle="Participant roster & appearance sequence"
+        onBack={handleCloseParticipantsModal}
+        hasNestedOverlay={Boolean(isEventActionModalOpen || isParticipantPickerOpen)}
+        maxWidthClass="md:max-w-2xl"
+        primaryAction={{
+          label: 'Done',
+          onClick: handleCloseParticipantsModal,
+          variant: 'neutral',
+        }}
+      >
+        {activeParticipantsModalEvent &&
+          (() => {
+            const eventStatus = (activeParticipantsModalEvent.status || 'draft').toLowerCase();
+            const isLocked = Boolean(activeParticipantsModalEvent.is_locked);
+            const canAddParticipants =
+              !isLocked && eventStatus !== 'ended' && eventStatus !== 'archived';
+            const isReorderLocked =
+              isLocked ||
+              eventStatus === 'active' ||
+              eventStatus === 'ended' ||
+              eventStatus === 'archived';
 
-                          <button
-                            type="button"
-                            onClick={() => handleEnrollParticipantToEvent(p.id)}
-                            className="min-h-[30px] md:min-h-[44px] md:min-w-[44px] px-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] lg:text-sm font-bold rounded-lg transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shrink-0"
+            const assignedIds = (activeParticipantsModalEvent.assigned_participants || []).filter(
+              (id) => activeParticipantIdSet.has(id)
+            );
+            const activeParticipantMap = new Map(
+              participants
+                .filter((p) => p.is_active !== false)
+                .map((p) => [p.id, p])
+            );
+            const enrolledList = assignedIds
+              .map((id) => activeParticipantMap.get(id))
+              .filter((p): p is SupabaseParticipant => Boolean(p));
+
+            const isFiltering = participantSearch.trim() !== '';
+            const searchLower = participantSearch.toLowerCase();
+            const filteredEnrolled = enrolledList.filter(
+              (p) =>
+                !isFiltering ||
+                p.name.toLowerCase().includes(searchLower) ||
+                (p.identity_id && p.identity_id.toLowerCase().includes(searchLower)) ||
+                (p.school && p.school.toLowerCase().includes(searchLower))
+            );
+
+            return (
+              <div className="max-w-2xl w-full mx-auto space-y-4">
+                {/* Event Status Banner */}
+                {isLocked ? (
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>
+                      Roster Locked: This event&apos;s roster is frozen. Participants and performance order cannot be changed.
+                    </span>
+                  </div>
+                ) : eventStatus === 'active' ? (
+                  <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>
+                      Event is Live: You can add new participants while the competition continues. Removals and order changes are locked.
+                    </span>
+                  </div>
+                ) : eventStatus === 'ended' || eventStatus === 'archived' ? (
+                  <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs lg:text-sm font-medium flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-zinc-500 shrink-0" />
+                    <span>
+                      Event is Ended: Roster is permanently sealed. No participants can be added or removed.
+                    </span>
+                  </div>
+                ) : null}
+
+                {/* Single Primary Action + Participants-Only Running Order Toggle */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-3">
+                    {canAddParticipants && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setParticipantPickerSearch('');
+                          setSelectedPickerParticipantIds([]);
+                          setIsParticipantPickerOpen(true);
+                        }}
+                        className="min-h-[44px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold flex items-center gap-2 active:scale-[0.98] transition-[transform,colors] duration-100 motion-reduce:transition-none shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        <UserPlus className="w-4 h-4 shrink-0" />
+                        <span>Add participants</span>
+                      </button>
+                    )}
+                    <span className="text-xs lg:text-sm font-semibold text-zinc-500 dark:text-zinc-400 tabular-nums">
+                      {enrolledList.length} {enrolledList.length === 1 ? 'participant' : 'participants'}
+                    </span>
+                  </div>
+
+                  {enrolledList.length > 0 && (
+                    <div
+                      role="tablist"
+                      aria-label="Participant view mode"
+                      className="flex items-center gap-1 p-1 bg-stone-200/70 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={participantViewMode === 'lineup'}
+                        onClick={() => setParticipantViewMode('lineup')}
+                        className={`min-h-[36px] px-3 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                          participantViewMode === 'lineup'
+                            ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        Roster
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={participantViewMode === 'order'}
+                        onClick={() => setParticipantViewMode('order')}
+                        className={`min-h-[36px] px-3 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                          participantViewMode === 'order'
+                            ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        Running Order
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Empty Roster */}
+                {enrolledList.length === 0 ? (
+                  <div className="p-8 text-center bg-white dark:bg-zinc-900 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl shadow-sm space-y-2">
+                    <Users className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700" />
+                    <h4 className="text-sm font-bold text-zinc-800 dark:text-white">
+                      No Participants Enrolled
+                    </h4>
+                    <p className="text-xs lg:text-sm text-zinc-500">
+                      {canAddParticipants
+                        ? 'Use "Add participants" above to select competitors from your organization.'
+                        : 'No competitors are enrolled in this event.'}
+                    </p>
+                  </div>
+                ) : participantViewMode === 'order' ? (
+                  /* RUNNING ORDER VIEW (Participants Only — Up/Down Buttons Only) */
+                  <div className="space-y-2.5">
+                    {isReorderLocked ? (
+                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs lg:text-sm font-semibold">
+                        <Lock className="w-4 h-4 shrink-0" />
+                        <span>
+                          Performance order is locked while the event is live, ended, or frozen.
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-xs lg:text-sm text-zinc-500 dark:text-zinc-400 px-0.5">
+                        Use the Up and Down buttons to adjust performance order.
+                      </p>
+                    )}
+
+                    <div className="space-y-2">
+                      {enrolledList.map((p, idx) => {
+                        const orderSerial =
+                          activeParticipantsModalEvent.participant_sl_numbers?.[p.id] ||
+                          String(idx + 1).padStart(2, '0');
+                        return (
+                          <div
+                            key={p.id}
+                            className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-3 flex items-center justify-between gap-3 shadow-xs"
                           >
-                            + Add
-                          </button>
-                        </div>
-                      ))}
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 border border-indigo-500/20 flex items-center justify-center font-mono font-bold text-xs lg:text-sm text-indigo-700 dark:text-indigo-300 tabular-nums shrink-0">
+                                #{orderSerial}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-bold text-zinc-900 dark:text-white truncate">
+                                  {p.name}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] lg:text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                  <span className="font-mono tabular-nums">
+                                    {p.identity_id || `P-${p.sl_no || '0000'}`}
+                                  </span>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="truncate">{p.school || 'General Institution'}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {!isReorderLocked && (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={() => handleReorderParticipant(idx, idx - 1)}
+                                  title="Move earlier in lineup"
+                                  aria-label={`Move ${p.name} up`}
+                                  className="min-w-[44px] min-h-[44px] rounded-xl border border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-950 flex items-center justify-center text-zinc-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-[transform,colors] duration-100 motion-reduce:transition-none"
+                                >
+                                  <ChevronUp className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={idx === enrolledList.length - 1}
+                                  onClick={() => handleReorderParticipant(idx, idx + 1)}
+                                  title="Move later in lineup"
+                                  aria-label={`Move ${p.name} down`}
+                                  className="min-w-[44px] min-h-[44px] rounded-xl border border-stone-200 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-950 flex items-center justify-center text-zinc-700 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-[transform,colors] duration-100 motion-reduce:transition-none"
+                                >
+                                  <ChevronDown className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  /* ROSTER VIEW */
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search enrolled participants by name, ID, or school..."
+                        value={participantSearch}
+                        onChange={(e) => setParticipantSearch(e.target.value)}
+                        className="w-full min-h-[44px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                      />
+                    </div>
+
+                    {filteredEnrolled.length === 0 ? (
+                      <div className="p-6 text-center text-xs lg:text-sm text-zinc-500">
+                        No enrolled participants match your search.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {filteredEnrolled.map((p) => {
+                          const originalIdx = enrolledList.findIndex((item) => item.id === p.id);
+                          const orderSerial =
+                            activeParticipantsModalEvent.participant_sl_numbers?.[p.id] ||
+                            String(originalIdx + 1).padStart(2, '0');
+                          return (
+                            <div
+                              key={p.id}
+                              className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-xs rounded-2xl p-3.5 flex items-center justify-between gap-2.5"
+                            >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <div className="w-9 h-9 rounded-xl bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700/80 flex items-center justify-center font-mono font-bold text-xs lg:text-sm text-zinc-800 dark:text-zinc-200 tabular-nums shrink-0">
+                                  #{orderSerial}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-bold text-zinc-900 dark:text-white truncate">
+                                    {p.name}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                    <span className="font-mono tabular-nums">
+                                      {p.identity_id || `P-${p.sl_no || '0000'}`}
+                                    </span>
+                                    <span aria-hidden="true">·</span>
+                                    <span>{p.school || 'General Institution'}</span>
+                                    {p.class_or_age && (
+                                      <>
+                                        <span aria-hidden="true">·</span>
+                                        <span>{p.class_or_age}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {!isLocked && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveParticipantFromEvent(p.id)}
+                                  title="Remove from this event"
+                                  aria-label={`Remove ${p.name} from event`}
+                                  className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
+            );
+          })()}
+      </TaskScreen>
 
-            {/* List of Enrolled Participants (Lineup Builder) */}
-            <div className="space-y-2">
-              {(() => {
-                const isLiveLocked =
-                  (activeParticipantsModalEvent.status || 'draft').toLowerCase() === 'active' ||
-                  Boolean(activeParticipantsModalEvent.is_locked);
-                const assignedIds = (activeParticipantsModalEvent.assigned_participants || []).filter((id) =>
-                  activeParticipantIdSet.has(id)
-                );
-                const participantMap = new Map(
-                  participants
-                    .filter((p) => p.is_active !== false)
-                    .map((p) => [p.id, p])
-                );
-                const enrolledList = assignedIds
-                  .map((id) => participantMap.get(id))
-                  .filter((p): p is SupabaseParticipant => Boolean(p));
+      {/* ======================================================== */}
+      {/* PARTICIPANTS PICKER (TaskScreen — Two-Pane on Laptop)    */}
+      {/* ======================================================== */}
+      <TaskScreen
+        isOpen={Boolean(activeParticipantsModalEvent && isParticipantPickerOpen)}
+        title="Add Participants"
+        subtitle={activeParticipantsModalEvent?.name || ''}
+        onBack={handleCloseParticipantPicker}
+        maxWidthClass="md:max-w-2xl lg:max-w-5xl"
+        secondaryAction={{
+          label: 'Cancel',
+          onClick: handleCloseParticipantPicker,
+          disabled: isBatchEnrolling,
+        }}
+        primaryAction={{
+          label:
+            selectedPickerParticipantIds.length > 0
+              ? `Add ${selectedPickerParticipantIds.length} ${
+                  selectedPickerParticipantIds.length === 1 ? 'participant' : 'participants'
+                }`
+              : 'Add participants',
+          loading: isBatchEnrolling,
+          loadingLabel: 'Adding...',
+          disabled:
+            isBatchEnrolling ||
+            selectedPickerParticipantIds.length === 0 ||
+            !activeParticipantsModalEvent ||
+            Boolean(activeParticipantsModalEvent.is_locked) ||
+            (activeParticipantsModalEvent.status || 'draft').toLowerCase() === 'ended' ||
+            (activeParticipantsModalEvent.status || 'draft').toLowerCase() === 'archived',
+          onClick: () => void handleBatchEnrollParticipantsToEvent(selectedPickerParticipantIds),
+          variant: 'indigo',
+        }}
+        footer={
+          <span className="text-xs lg:text-sm font-semibold text-zinc-600 dark:text-zinc-300 tabular-nums">
+            {selectedPickerParticipantIds.length > 0
+              ? `${selectedPickerParticipantIds.length} selected`
+              : 'Select participants to add'}
+          </span>
+        }
+      >
+        {activeParticipantsModalEvent &&
+          (() => {
+            const eventStatus = (activeParticipantsModalEvent.status || 'draft').toLowerCase();
+            const canAddParticipants =
+              !activeParticipantsModalEvent.is_locked &&
+              eventStatus !== 'ended' &&
+              eventStatus !== 'archived';
 
-                const isFiltering = participantSearch.trim() !== '';
-                const filtered = enrolledList.filter(
-                  (p) =>
-                    !isFiltering ||
-                    p.name.toLowerCase().includes(participantSearch.toLowerCase()) ||
-                    (p.identity_id && p.identity_id.toLowerCase().includes(participantSearch.toLowerCase())) ||
-                    (p.school && p.school.toLowerCase().includes(participantSearch.toLowerCase()))
-                );
+            const assignedSet = new Set(activeParticipantsModalEvent.assigned_participants || []);
+            const availableParticipants = participants.filter(
+              (p) => p.is_active !== false && !assignedSet.has(p.id)
+            );
+            const q = participantPickerSearch.trim().toLowerCase();
+            const filteredAvailable = availableParticipants.filter(
+              (p) =>
+                !q ||
+                p.name.toLowerCase().includes(q) ||
+                (p.identity_id && p.identity_id.toLowerCase().includes(q)) ||
+                (p.school && p.school.toLowerCase().includes(q)) ||
+                (p.class_or_age && p.class_or_age.toLowerCase().includes(q))
+            );
 
-                if (enrolledList.length === 0) {
-                  return (
-                    <div className="p-8 text-center bg-white dark:bg-zinc-900 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl shadow-sm">
-                      <Users className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700 mb-2" />
-                      <h4 className="text-sm font-bold text-zinc-800 dark:text-white">No Participants Enrolled</h4>
-                      <p className="text-xs lg:text-sm text-zinc-500 mt-1">
-                        Click &quot;Enroll&quot; above to add competitors to this event.
-                      </p>
+            const selectedSet = new Set(selectedPickerParticipantIds);
+            const selectedItems = availableParticipants.filter((p) => selectedSet.has(p.id));
+            const eligibleFilteredIds = canAddParticipants ? filteredAvailable.map((p) => p.id) : [];
+
+            const handleToggleParticipantPick = (id: string) => {
+              if (!canAddParticipants) return;
+              setSelectedPickerParticipantIds((prev) =>
+                prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+              );
+            };
+
+            const handleSelectAllFilteredParticipants = () => {
+              if (!canAddParticipants || eligibleFilteredIds.length === 0) return;
+              setSelectedPickerParticipantIds((prev) => {
+                const next = new Set(prev);
+                eligibleFilteredIds.forEach((id) => next.add(id));
+                return Array.from(next);
+              });
+            };
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-5 items-start">
+                {/* Left Pane (or Full Screen on Phone): Search + Toolbar + Roster Checklist */}
+                <div className="space-y-3 min-w-0">
+                  {!canAddParticipants && (
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                      <Lock className="w-4 h-4 shrink-0" />
+                      <span>
+                        Adding participants is blocked while this event is locked or ended.
+                      </span>
                     </div>
-                  );
-                }
+                  )}
 
-                if (filtered.length === 0) {
-                  return (
-                    <div className="p-6 text-center text-xs lg:text-sm text-zinc-500">
-                      No enrolled participants match your search.
-                    </div>
-                  );
-                }
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search unassigned participants by name, ID, or school..."
+                      value={participantPickerSearch}
+                      onChange={(e) => setParticipantPickerSearch(e.target.value)}
+                      className="w-full min-h-[44px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                    />
+                  </div>
 
-                return (
-                  <>
-                    {/* Active Lockout Notice */}
-                    {isLiveLocked ? (
-                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs lg:text-sm font-semibold">
-                        <Lock className="w-4 h-4 shrink-0" />
-                        <span>Performance Lineup Locked — Order cannot be changed while event is live.</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between px-1 text-[11px] lg:text-sm font-medium text-zinc-400 dark:text-zinc-500">
-                        <span>Drag grab handle <span className="font-mono">⋮⋮</span> to reorder performance sequence</span>
-                        <span>{enrolledList.length} Competitors</span>
-                      </div>
-                    )}
-
-                    {filtered.map((p) => {
-                      const originalIdx = enrolledList.findIndex((item) => item.id === p.id);
-                      const orderSerial =
-                        activeParticipantsModalEvent.participant_sl_numbers?.[p.id] ||
-                        String(originalIdx + 1).padStart(2, '0');
-
-                      const isDragging = draggedParticipantIndex === originalIdx;
-                      const isDragOver = dragOverParticipantIndex === originalIdx;
-
-                      return (
-                        <div
-                          key={p.id}
-                          draggable={!isLiveLocked && !isFiltering}
-                          onDragStart={(e) => {
-                            if (isLiveLocked || isFiltering) return;
-                            setDraggedParticipantIndex(originalIdx);
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', String(originalIdx));
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            if (isLiveLocked || isFiltering || draggedParticipantIndex === null) return;
-                            e.dataTransfer.dropEffect = 'move';
-                            if (dragOverParticipantIndex !== originalIdx) {
-                              setDragOverParticipantIndex(originalIdx);
-                            }
-                          }}
-                          onDragLeave={() => {
-                            if (dragOverParticipantIndex === originalIdx) {
-                              setDragOverParticipantIndex(null);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            if (isLiveLocked || isFiltering || draggedParticipantIndex === null) return;
-                            const from = draggedParticipantIndex;
-                            const to = originalIdx;
-                            setDraggedParticipantIndex(null);
-                            setDragOverParticipantIndex(null);
-                            if (from !== to) {
-                              handleReorderParticipant(from, to);
-                            }
-                          }}
-                          onDragEnd={() => {
-                            setDraggedParticipantIndex(null);
-                            setDragOverParticipantIndex(null);
-                          }}
-                          className={`bg-white dark:bg-zinc-900 border ${
-                            isDragOver
-                              ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/40 dark:bg-indigo-950/20'
-                              : 'border-stone-200 dark:border-zinc-800'
-                          } ${
-                            isDragging ? 'opacity-40 scale-[0.98]' : ''
-                          } shadow-sm rounded-2xl p-3.5 flex items-center justify-between gap-2.5 transition-[transform,opacity] duration-150 motion-reduce:transition-none`}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!canAddParticipants || eligibleFilteredIds.length === 0}
+                        onClick={handleSelectAllFilteredParticipants}
+                        className="min-h-[40px] px-3 rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-bold text-zinc-800 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors whitespace-nowrap shrink-0"
+                      >
+                        Select all
+                      </button>
+                      {selectedPickerParticipantIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPickerParticipantIds([])}
+                          className="min-h-[40px] px-3 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer whitespace-nowrap shrink-0"
                         >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            {/* Grab Handle: ONLY when event is NOT active */}
-                            {!isLiveLocked && (
-                              <div
-                                className="text-stone-400 hover:text-stone-700 dark:text-zinc-500 dark:hover:text-zinc-200 cursor-grab active:cursor-grabbing p-1 -ml-1 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800 shrink-0 touch-none transition-colors"
-                                title="Drag to reorder performance lineup"
-                              >
-                                <GripVertical className="w-4 h-4" />
-                              </div>
-                            )}
+                          Clear
+                        </button>
+                      )}
+                    </div>
 
-                            {/* Performance Order Serial Circle */}
-                            <div className="w-9 h-9 rounded-xl bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700/80 flex items-center justify-center font-mono font-bold text-xs lg:text-sm text-zinc-800 dark:text-zinc-200 shrink-0">
-                              #{orderSerial}
+                    <button
+                      type="button"
+                      onClick={() => handleCreateNewFromPicker('participant')}
+                      className="min-h-[40px] px-3 rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/70 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Create new</span>
+                    </button>
+                  </div>
+
+                  {availableParticipants.length === 0 ? (
+                    <div className="p-8 text-center bg-white dark:bg-zinc-900 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl space-y-3">
+                      <Users className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700" />
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
+                          No Unassigned Participants
+                        </h4>
+                        <p className="text-xs lg:text-sm text-zinc-500">
+                          All active participants in your organization are already enrolled in this event.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCreateNewFromPicker('participant')}
+                        className="min-h-[44px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs lg:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Create new participant</span>
+                      </button>
+                    </div>
+                  ) : filteredAvailable.length === 0 ? (
+                    <div className="p-6 text-center bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl space-y-2">
+                      <p className="text-xs lg:text-sm text-zinc-500">
+                        No unassigned participants match &quot;{participantPickerSearch}&quot;.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleCreateNewFromPicker('participant')}
+                        className="min-h-[40px] px-3 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
+                        Create new participant in People tab
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredAvailable.map((p) => {
+                        const isSelected = selectedSet.has(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={!canAddParticipants}
+                            aria-pressed={isSelected}
+                            onClick={() => handleToggleParticipantPick(p.id)}
+                            className={`w-full min-h-[58px] text-left p-3.5 rounded-2xl border flex items-center gap-3 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                              isSelected
+                                ? 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-400 dark:border-indigo-500/60'
+                                : 'bg-white dark:bg-zinc-900 border-stone-200 dark:border-zinc-800 hover:border-stone-300 dark:hover:border-zinc-700'
+                            }`}
+                          >
+                            <div
+                              className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-colors ${
+                                isSelected
+                                  ? 'bg-indigo-600 border-indigo-600 text-white'
+                                  : 'bg-stone-50 dark:bg-zinc-950 border-stone-300 dark:border-zinc-700'
+                              }`}
+                            >
+                              {isSelected && <Check className="w-4 h-4 stroke-[2.5]" />}
                             </div>
 
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold text-zinc-900 dark:text-white truncate">
-                                  {p.name}
-                                </span>
-                                {/* Global Identity ID badge */}
-                                <span className="px-1.5 py-0.5 rounded text-[10px] lg:text-xs font-mono font-bold bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700/60 shrink-0">
+                              <div className="text-sm font-bold text-zinc-900 dark:text-white truncate">
+                                {p.name}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] lg:text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                <span className="font-mono tabular-nums">
                                   {p.identity_id || `P-${p.sl_no || '0000'}`}
                                 </span>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
-                                <span>{p.school || 'General Institution'}</span>
-                                {p.class_or_age && <span>• Class/Age: {p.class_or_age}</span>}
+                                <span aria-hidden="true">·</span>
+                                <span className="truncate">{p.school || 'General Institution'}</span>
+                                {p.class_or_age && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span>{p.class_or_age}</span>
+                                  </>
+                                )}
                               </div>
                             </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Pane (Laptop 1024px+): Selected Review Panel */}
+                <aside className="hidden lg:flex lg:flex-col bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3 lg:sticky lg:top-0">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-stone-200 dark:border-zinc-800">
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white tabular-nums">
+                      Selected ({selectedItems.length})
+                    </h3>
+                    {selectedItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPickerParticipantIds([])}
+                        className="text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+
+                  {selectedItems.length === 0 ? (
+                    <p className="text-xs lg:text-sm text-zinc-500 py-6 text-center">
+                      Select participants from the roster to enroll them in one batch.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[42vh] overflow-y-auto pr-1">
+                      {selectedItems.map((p) => (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-950 border border-stone-200/80 dark:border-zinc-800"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-zinc-900 dark:text-white truncate">
+                              {p.name}
+                            </div>
+                            <div className="text-[11px] text-zinc-500 truncate">
+                              {p.school || 'General Institution'}
+                            </div>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleParticipantPick(p.id)}
+                            aria-label={`Deselect ${p.name}`}
+                            className="min-w-[32px] min-h-[32px] rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-200/70 dark:hover:bg-zinc-800 flex items-center justify-center cursor-pointer shrink-0"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </aside>
+              </div>
+            );
+          })()}
+      </TaskScreen>
 
-                          <div className="flex items-center gap-1 shrink-0">
-                            {/* Reorder Buttons */}
-                            {!isLiveLocked && !isFiltering && (
-                              <div className="flex flex-col gap-0.5 mr-1">
-                                <button
-                                  type="button"
-                                  disabled={originalIdx === 0}
-                                  onClick={() => handleReorderParticipant(originalIdx, originalIdx - 1)}
-                                  title="Move earlier in lineup"
-                                  className="p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                                >
-                                  <ChevronUp className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={originalIdx === enrolledList.length - 1}
-                                  onClick={() => handleReorderParticipant(originalIdx, originalIdx + 1)}
-                                  title="Move later in lineup"
-                                  className="p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                                >
-                                  <ChevronDown className="w-3.5 h-3.5" />
-                                </button>
+      {/* ======================================================== */}
+      {/* FULL-SCREEN JUDGES ASSIGNMENT (TaskScreen)               */}
+      {/* ======================================================== */}
+      <TaskScreen
+        isOpen={Boolean(activeJudgesModalEvent)}
+        title={activeJudgesModalEvent?.name || ''}
+        subtitle="Jury credentials & scoring authorization"
+        onBack={handleCloseJudgesModal}
+        hasNestedOverlay={Boolean(isEventActionModalOpen || isJudgePickerOpen)}
+        maxWidthClass="md:max-w-2xl"
+        primaryAction={{
+          label: 'Done',
+          onClick: handleCloseJudgesModal,
+          variant: 'neutral',
+        }}
+      >
+        {activeJudgesModalEvent &&
+          (() => {
+            const eventStatus = (activeJudgesModalEvent.status || 'draft').toLowerCase();
+            const isLocked = Boolean(activeJudgesModalEvent.is_locked);
+            const canModifyJudges =
+              !isLocked &&
+              eventStatus !== 'active' &&
+              eventStatus !== 'ended' &&
+              eventStatus !== 'archived';
+
+            const assignedIds = (activeJudgesModalEvent.assigned_judges || []).filter((id) =>
+              activeJudgeIdSet.has(id)
+            );
+            const assignedList = judges.filter(
+              (j) => j.is_active !== false && assignedIds.includes(j.id)
+            );
+            const q = judgeSearch.trim().toLowerCase();
+            const filteredAssigned = assignedList.filter(
+              (j) =>
+                !q ||
+                j.name.toLowerCase().includes(q) ||
+                (j.judge_id && j.judge_id.toLowerCase().includes(q))
+            );
+
+            return (
+              <div className="max-w-2xl w-full mx-auto space-y-4">
+                {/* Event Status Banner */}
+                {isLocked ? (
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>
+                      Roster Locked: Jury assignments are frozen in read-only mode. Judges cannot be assigned or unassigned.
+                    </span>
+                  </div>
+                ) : eventStatus === 'active' ? (
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>
+                      Event is Live: Jury assignments are locked to ensure score ballot integrity.
+                    </span>
+                  </div>
+                ) : eventStatus === 'ended' || eventStatus === 'archived' ? (
+                  <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs lg:text-sm font-medium flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-zinc-500 shrink-0" />
+                    <span>
+                      Event is Ended: Jury records are sealed. No judges can be modified.
+                    </span>
+                  </div>
+                ) : null}
+
+                {/* Single Primary Action + Count */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-3">
+                    {canModifyJudges && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJudgePickerSearch('');
+                          setSelectedPickerJudgeIds([]);
+                          setIsJudgePickerOpen(true);
+                        }}
+                        className="min-h-[44px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold flex items-center gap-2 active:scale-[0.98] transition-[transform,colors] duration-100 motion-reduce:transition-none shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span>Add judges</span>
+                      </button>
+                    )}
+                    <span className="text-xs lg:text-sm font-semibold text-zinc-500 dark:text-zinc-400 tabular-nums">
+                      {assignedList.length} {assignedList.length === 1 ? 'judge' : 'judges'}
+                    </span>
+                  </div>
+                </div>
+
+                {assignedList.length === 0 ? (
+                  <div className="p-8 text-center bg-white dark:bg-zinc-950 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl space-y-2">
+                    <Gavel className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700" />
+                    <h4 className="text-sm font-bold text-zinc-800 dark:text-white">
+                      No Judges Assigned
+                    </h4>
+                    <p className="text-xs lg:text-sm text-zinc-500">
+                      {canModifyJudges
+                        ? 'Use "Add judges" above to select judges for this event.'
+                        : 'No judges are assigned to this event.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search assigned judges by name or Judge ID..."
+                        value={judgeSearch}
+                        onChange={(e) => setJudgeSearch(e.target.value)}
+                        className="w-full min-h-[44px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                      />
+                    </div>
+
+                    {filteredAssigned.length === 0 ? (
+                      <div className="p-6 text-center text-xs lg:text-sm text-zinc-500">
+                        No assigned judges match your search.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {filteredAssigned.map((j) => (
+                          <div
+                            key={j.id}
+                            className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-xs"
+                          >
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0">
+                                <Scale className="w-4 h-4" />
                               </div>
-                            )}
 
-                            {/* Remove participant button (Hidden when roster locked) */}
-                            {!activeParticipantsModalEvent.is_locked && (
+                              <div className="min-w-0 flex-1">
+                                <span className="text-sm font-bold text-zinc-900 dark:text-white block truncate">
+                                  {j.name}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-[11px] lg:text-sm text-zinc-500 font-mono tabular-nums mt-0.5">
+                                  <span>ID: {j.judge_id || j.id.slice(0, 8)}</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>PIN: {j.pin || '****'}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {!isLocked && (
                               <button
                                 type="button"
-                                onClick={() => handleRemoveParticipantFromEvent(p.id)}
-                                title="Remove from this event"
-                                className="w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer"
+                                onClick={() => handleToggleJudgeInEvent(j.id)}
+                                title="Remove judge from event"
+                                aria-label={`Remove ${j.name} from event`}
+                                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </div>
-                        </div>
-                      );
-                    })}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* ======================================================== */}
-      {/* FULL-SCREEN JUDGES LIST MODAL (With Strict Rules)         */}
-      {/* ======================================================== */}
-      {activeJudgesModalEvent ? (
-        <div className="fixed inset-0 z-[120] bg-stone-50 dark:bg-black overflow-y-auto animate-in fade-in duration-200 motion-reduce:animate-none flex flex-col pointer-events-auto md:bg-black/75 md:dark:bg-black/75 md:items-center md:justify-center md:p-6 md:overflow-hidden">
-          <div className="contents md:flex md:flex-col md:w-full md:max-w-2xl md:max-h-[90dvh] md:bg-stone-50 md:dark:bg-black md:border md:border-stone-200 md:dark:border-zinc-800 md:rounded-2xl md:shadow-2xl md:overflow-hidden">
-          {/* Header */}
-          <div className="sticky top-0 z-30 bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800 px-4 py-3.5 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                type="button"
-                onClick={handleCloseJudgesModal}
-                className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-zinc-900 dark:text-white leading-tight truncate">
-                    {activeJudgesModalEvent.name}
-                  </h2>
-                  <span className="text-[10px] lg:text-xs font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
-                    {(activeJudgesModalEvent.assigned_judges || []).filter((id) => activeJudgeIdSet.has(id)).length} Judges
-                  </span>
-                </div>
-                <p className="text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400">
-                  Jury credentials &amp; scoring authorization
-                </p>
-              </div>
-            </div>
-
-            {/* Add / Toggle Judge button */}
-            {activeJudgesModalEvent.status !== 'active' &&
-              activeJudgesModalEvent.status !== 'ended' &&
-              activeJudgesModalEvent.status !== 'archived' &&
-              !activeJudgesModalEvent.is_locked && (
-                <button
-                  type="button"
-                  onClick={() => setIsAssignJudgeDrawerOpen(!isAssignJudgeDrawerOpen)}
-                  className="min-h-[38px] md:min-h-[44px] px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold border border-amber-500 flex items-center gap-1.5 transition-colors motion-reduce:transition-none shadow-xs cursor-pointer shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Assign</span>
-                </button>
-              )}
-          </div>
-
-          {/* Body */}
-          <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-4 pb-24 space-y-4 md:min-h-0 md:overflow-y-auto md:pb-6">
-            {/* Event Locked / Live / Sealed Warning */}
-            {activeJudgesModalEvent.is_locked ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
-                <Lock className="w-4 h-4 text-amber-500 shrink-0" />
-                <span>
-                  Roster Locked: Jury assignments are frozen in read-only mode. Judges cannot be assigned or unassigned.
-                </span>
-              </div>
-            ) : activeJudgesModalEvent.status === 'active' ? (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
-                <span>
-                  Event is Live: Jury assignments are locked to ensure score ballot integrity.
-                </span>
-              </div>
-            ) : activeJudgesModalEvent.status === 'ended' || activeJudgesModalEvent.status === 'archived' ? (
-              <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs lg:text-sm font-medium flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-zinc-500 shrink-0" />
-                <span>
-                  Event is Ended: Jury records are sealed. No judges can be modified.
-                </span>
-              </div>
-            ) : null}
-
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Filter judges by name or Judge ID..."
-                value={judgeSearch}
-                onChange={(e) => setJudgeSearch(e.target.value)}
-                className="w-full min-h-[42px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-              />
-            </div>
-
-            {/* Assign Unassigned Judges Drawer */}
-            {isAssignJudgeDrawerOpen && (
-              <div className="p-4 rounded-2xl bg-white dark:bg-zinc-950 border border-amber-500/40 shadow-md space-y-3 animate-in fade-in motion-reduce:animate-none">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs lg:text-sm font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                    Assign Registered Judges
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsAssignJudgeDrawerOpen(false)}
-                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {judges.filter(
-                  (j) => j.is_active !== false && !(activeJudgesModalEvent.assigned_judges || []).includes(j.id)
-                ).length === 0 ? (
-                  <p className="text-xs lg:text-sm text-zinc-500 text-center py-2">
-                    All registered judges are already assigned to this event.
-                  </p>
-                ) : (
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                    {judges
-                      .filter(
-                        (j) => j.is_active !== false && !(activeJudgesModalEvent.assigned_judges || []).includes(j.id)
-                      )
-                      .map((j) => (
-                        <div
-                          key={j.id}
-                          className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200/60 dark:border-zinc-800"
-                        >
-                          <div className="min-w-0 pr-2">
-                            <span className="text-xs lg:text-sm font-bold text-zinc-900 dark:text-white block truncate">
-                              {j.name}
-                            </span>
-                            <span className="text-[10px] lg:text-sm text-zinc-500 font-mono block">
-                              ID: {j.judge_id || j.id.slice(0, 8)}
-                            </span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleJudgeInEvent(j.id)}
-                            className="min-h-[30px] md:min-h-[44px] md:min-w-[44px] px-2.5 bg-amber-600 hover:bg-amber-500 text-white text-[11px] lg:text-sm font-bold rounded-lg transition-transform duration-100 motion-reduce:transition-none active:scale-95 cursor-pointer shrink-0"
-                          >
-                            Assign
-                          </button>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
+            );
+          })()}
+      </TaskScreen>
 
-            {/* List of Assigned Judges */}
-            <div className="space-y-2">
-              {(() => {
-                const assignedIds = (activeJudgesModalEvent.assigned_judges || []).filter((id) =>
-                  activeJudgeIdSet.has(id)
-                );
-                const assignedList = judges.filter((j) => j.is_active !== false && assignedIds.includes(j.id));
-                const filtered = assignedList.filter(
-                  (j) =>
-                    judgeSearch.trim() === '' ||
-                    j.name.toLowerCase().includes(judgeSearch.toLowerCase()) ||
-                    (j.judge_id && j.judge_id.toLowerCase().includes(judgeSearch.toLowerCase()))
-                );
+      {/* ======================================================== */}
+      {/* JUDGES PICKER (TaskScreen — Two-Pane on Laptop)          */}
+      {/* ======================================================== */}
+      <TaskScreen
+        isOpen={Boolean(activeJudgesModalEvent && isJudgePickerOpen)}
+        title="Add Judges"
+        subtitle={activeJudgesModalEvent?.name || ''}
+        onBack={handleCloseJudgePicker}
+        maxWidthClass="md:max-w-2xl lg:max-w-5xl"
+        secondaryAction={{
+          label: 'Cancel',
+          onClick: handleCloseJudgePicker,
+          disabled: isBatchAssigningJudges,
+        }}
+        primaryAction={{
+          label:
+            selectedPickerJudgeIds.length > 0
+              ? `Add ${selectedPickerJudgeIds.length} ${
+                  selectedPickerJudgeIds.length === 1 ? 'judge' : 'judges'
+                }`
+              : 'Add judges',
+          loading: isBatchAssigningJudges,
+          loadingLabel: 'Assigning...',
+          disabled:
+            isBatchAssigningJudges ||
+            selectedPickerJudgeIds.length === 0 ||
+            !activeJudgesModalEvent ||
+            Boolean(activeJudgesModalEvent.is_locked) ||
+            (activeJudgesModalEvent.status || 'draft').toLowerCase() === 'active' ||
+            (activeJudgesModalEvent.status || 'draft').toLowerCase() === 'ended' ||
+            (activeJudgesModalEvent.status || 'draft').toLowerCase() === 'archived',
+          onClick: () => void handleBatchAssignJudgesToEvent(selectedPickerJudgeIds),
+          variant: 'amber',
+        }}
+        footer={
+          <span className="text-xs lg:text-sm font-semibold text-zinc-600 dark:text-zinc-300 tabular-nums">
+            {selectedPickerJudgeIds.length > 0
+              ? `${selectedPickerJudgeIds.length} selected`
+              : 'Select judges to assign'}
+          </span>
+        }
+      >
+        {activeJudgesModalEvent &&
+          (() => {
+            const eventStatus = (activeJudgesModalEvent.status || 'draft').toLowerCase();
+            const canAddJudges =
+              !activeJudgesModalEvent.is_locked &&
+              eventStatus !== 'active' &&
+              eventStatus !== 'ended' &&
+              eventStatus !== 'archived';
 
-                if (assignedList.length === 0) {
-                  return (
-                    <div className="p-8 text-center bg-white dark:bg-zinc-950 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl">
-                      <Gavel className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700 mb-2" />
-                      <h4 className="text-sm font-bold text-zinc-800 dark:text-white">No Judges Assigned</h4>
-                      <p className="text-xs lg:text-sm text-zinc-500 mt-1">
-                        Click &quot;Assign&quot; above to select judges for this event.
-                      </p>
+            const assignedSet = new Set(activeJudgesModalEvent.assigned_judges || []);
+            const availableJudges = judges.filter(
+              (j) => j.is_active !== false && !assignedSet.has(j.id)
+            );
+            const q = judgePickerSearch.trim().toLowerCase();
+            const filteredAvailable = availableJudges.filter(
+              (j) =>
+                !q ||
+                j.name.toLowerCase().includes(q) ||
+                (j.judge_id && j.judge_id.toLowerCase().includes(q))
+            );
+
+            const selectedSet = new Set(selectedPickerJudgeIds);
+            const selectedItems = availableJudges.filter((j) => selectedSet.has(j.id));
+            const eligibleFilteredIds = canAddJudges ? filteredAvailable.map((j) => j.id) : [];
+
+            const handleToggleJudgePick = (id: string) => {
+              if (!canAddJudges) return;
+              setSelectedPickerJudgeIds((prev) =>
+                prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+              );
+            };
+
+            const handleSelectAllFilteredJudges = () => {
+              if (!canAddJudges || eligibleFilteredIds.length === 0) return;
+              setSelectedPickerJudgeIds((prev) => {
+                const next = new Set(prev);
+                eligibleFilteredIds.forEach((id) => next.add(id));
+                return Array.from(next);
+              });
+            };
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-5 items-start">
+                {/* Left Pane (or Full Screen on Phone): Search + Toolbar + Judge Checklist */}
+                <div className="space-y-3 min-w-0">
+                  {!canAddJudges && (
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                      <Lock className="w-4 h-4 shrink-0" />
+                      <span>
+                        Assigning judges is blocked while this event is live, ended, or locked.
+                      </span>
                     </div>
-                  );
-                }
+                  )}
 
-                if (filtered.length === 0) {
-                  return (
-                    <div className="p-6 text-center text-xs lg:text-sm text-zinc-500">
-                      No assigned judges match your search.
-                    </div>
-                  );
-                }
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search unassigned judges by name or Judge ID..."
+                      value={judgePickerSearch}
+                      onChange={(e) => setJudgePickerSearch(e.target.value)}
+                      className="w-full min-h-[44px] pl-9 pr-3 text-xs lg:text-sm bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    />
+                  </div>
 
-                return filtered.map((j) => (
-                  <div
-                    key={j.id}
-                    className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-xs"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center font-bold text-xs lg:text-sm shrink-0">
-                        ⚖️
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <span className="text-sm font-bold text-zinc-900 dark:text-white block truncate">
-                          {j.name}
-                        </span>
-                        <div className="flex items-center gap-2 text-[11px] lg:text-sm text-zinc-500 font-mono mt-0.5">
-                          <span>ID: {j.judge_id || j.id.slice(0, 8)}</span>
-                          <span>•</span>
-                          <span>PIN: {j.pin || '****'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Unassign Judge Button (Hidden when roster locked) */}
-                    {!activeJudgesModalEvent.is_locked && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleToggleJudgeInEvent(j.id)}
-                        title="Remove judge from event"
-                        className="w-8 h-8 md:w-11 md:h-11 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition-[transform,colors] duration-100 motion-reduce:transition-none cursor-pointer shrink-0"
+                        disabled={!canAddJudges || eligibleFilteredIds.length === 0}
+                        onClick={handleSelectAllFilteredJudges}
+                        className="min-h-[40px] px-3 rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-bold text-zinc-800 dark:text-zinc-200 hover:bg-stone-100 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors whitespace-nowrap shrink-0"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        Select all
+                      </button>
+                      {selectedPickerJudgeIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPickerJudgeIds([])}
+                          className="min-h-[40px] px-3 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCreateNewFromPicker('judge')}
+                      className="min-h-[40px] px-3 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50/70 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Create new</span>
+                    </button>
+                  </div>
+
+                  {availableJudges.length === 0 ? (
+                    <div className="p-8 text-center bg-white dark:bg-zinc-900 border border-dashed border-stone-200 dark:border-zinc-800 rounded-2xl space-y-3">
+                      <Gavel className="w-8 h-8 mx-auto text-zinc-300 dark:text-zinc-700" />
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
+                          No Unassigned Judges
+                        </h4>
+                        <p className="text-xs lg:text-sm text-zinc-500">
+                          All active judges in your organization are already assigned to this event.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCreateNewFromPicker('judge')}
+                        className="min-h-[44px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Create new judge</span>
+                      </button>
+                    </div>
+                  ) : filteredAvailable.length === 0 ? (
+                    <div className="p-6 text-center bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl space-y-2">
+                      <p className="text-xs lg:text-sm text-zinc-500">
+                        No unassigned judges match &quot;{judgePickerSearch}&quot;.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleCreateNewFromPicker('judge')}
+                        className="min-h-[40px] px-3 rounded-xl text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer"
+                      >
+                        Create new judge in People tab
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredAvailable.map((j) => {
+                        const isSelected = selectedSet.has(j.id);
+                        return (
+                          <button
+                            key={j.id}
+                            type="button"
+                            disabled={!canAddJudges}
+                            aria-pressed={isSelected}
+                            onClick={() => handleToggleJudgePick(j.id)}
+                            className={`w-full min-h-[58px] text-left p-3.5 rounded-2xl border flex items-center gap-3 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                              isSelected
+                                ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-400 dark:border-amber-500/60'
+                                : 'bg-white dark:bg-zinc-900 border-stone-200 dark:border-zinc-800 hover:border-stone-300 dark:hover:border-zinc-700'
+                            }`}
+                          >
+                            <div
+                              className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-colors ${
+                                isSelected
+                                  ? 'bg-amber-500 border-amber-500 text-black'
+                                  : 'bg-stone-50 dark:bg-zinc-950 border-stone-300 dark:border-zinc-700'
+                              }`}
+                            >
+                              {isSelected && <Check className="w-4 h-4 stroke-[2.5]" />}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-bold text-zinc-900 dark:text-white truncate">
+                                {j.name}
+                              </div>
+                              <div className="text-[11px] lg:text-xs text-zinc-500 font-mono tabular-nums mt-0.5">
+                                ID: {j.judge_id || j.id.slice(0, 8)}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Pane (Laptop 1024px+): Selected Review Panel */}
+                <aside className="hidden lg:flex lg:flex-col bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3 lg:sticky lg:top-0">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-stone-200 dark:border-zinc-800">
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white tabular-nums">
+                      Selected ({selectedItems.length})
+                    </h3>
+                    {selectedItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPickerJudgeIds([])}
+                        className="text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer"
+                      >
+                        Clear all
                       </button>
                     )}
                   </div>
-                ));
-              })()}
-            </div>
-          </div>
-          </div>
-        </div>
-      ) : null}
+
+                  {selectedItems.length === 0 ? (
+                    <p className="text-xs lg:text-sm text-zinc-500 py-6 text-center">
+                      Select judges from the roster to assign them in one batch.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[42vh] overflow-y-auto pr-1">
+                      {selectedItems.map((j) => (
+                        <div
+                          key={j.id}
+                          className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-stone-50 dark:bg-zinc-950 border border-stone-200/80 dark:border-zinc-800"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-zinc-900 dark:text-white truncate">
+                              {j.name}
+                            </div>
+                            <div className="text-[11px] text-zinc-500 font-mono tabular-nums truncate">
+                              ID: {j.judge_id || j.id.slice(0, 8)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleJudgePick(j.id)}
+                            aria-label={`Deselect ${j.name}`}
+                            className="min-w-[32px] min-h-[32px] rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-stone-200/70 dark:hover:bg-zinc-800 flex items-center justify-center cursor-pointer shrink-0"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </aside>
+              </div>
+            );
+          })()}
+      </TaskScreen>
 
       {/* ======================================================== */}
-      {/* EVENT DOSSIER MODAL (Triggered by Eye icon)              */}
+      {/* EVENT DOSSIER MODAL (Portaled, triggered by Eye icon)    */}
       {/* ======================================================== */}
-      {dossierEvent ? (
-        <div className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200 motion-reduce:animate-none pointer-events-auto">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 motion-reduce:animate-none">
+      {dossierEvent &&
+        (() => {
+          const dossierNode = (
+            <div
+              className="fixed inset-0 z-[120] bg-black/75 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200 motion-reduce:animate-none pointer-events-auto"
+              onClick={() => setDossierEventId(null)}
+            >
+              <div
+                ref={dossierDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label={dossierEvent.name}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 motion-reduce:animate-none focus:outline-none"
+              >
             {/* Header */}
             <div className="px-5 py-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
@@ -2438,15 +3057,49 @@ export function EventsTab({
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(dossierNode, document.body) : dossierNode;
+        })()}
 
       {/* ======================================================== */}
-      {/* CUSTOM CONFIRMATION MODAL (DELETE & DUPLICATE)           */}
+      {/* CUSTOM CONFIRMATION MODAL (DELETE & DUPLICATE, Portaled) */}
       {/* ======================================================== */}
-      {eventModalState && eventModalState.isOpen ? (
-        <div className="fixed inset-0 z-[140] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto">
-          <div className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none">
+      {eventModalState &&
+        eventModalState.isOpen &&
+        (() => {
+          const closeActionModal = () => {
+            setEventModalState(null);
+            setDeleteConfirmText('');
+            setMasterPasswordInput('');
+            setPasswordError(null);
+          };
+          const modalNode = (
+            <div
+              className="fixed inset-0 z-[140] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+              style={
+                eventActionKeyboardInset > 0
+                  ? { paddingBottom: `${eventActionKeyboardInset}px` }
+                  : undefined
+              }
+              onClick={closeActionModal}
+            >
+              <div
+                ref={eventActionDialogRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label={
+                  eventModalState.type === 'delete_draft'
+                    ? 'Delete Event?'
+                    : eventModalState.type === 'delete_ended'
+                    ? 'Delete Ended Event'
+                    : 'Duplicate as Draft?'
+                }
+                onClick={(e) => e.stopPropagation()}
+                onFocusCapture={(e) => scrollFocusedInputIntoView(e.target)}
+                className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-3xl max-w-sm w-full max-h-full overflow-y-auto p-6 space-y-4 shadow-2xl animate-in zoom-in-95 motion-reduce:animate-none focus:outline-none"
+              >
             {eventModalState.type === 'delete_draft' ? (
               <>
                 <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
@@ -2616,8 +3269,10 @@ export function EventsTab({
               </>
             )}
           </div>
-        </div>
-      ) : null}
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
+        })()}
 
       {/* ======================================================== */}
       {/* FLOATING ACTION BUTTON (FAB) FOR "+ CREATE EVENT"        */}

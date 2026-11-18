@@ -20,6 +20,7 @@ import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
 import { useToast } from '../common/ToastProvider';
 import { SidePanel } from '../common/SidePanel';
+import { useVisualViewportOffset, scrollFocusedInputIntoView } from '../common/TaskScreen';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
 import { getSoundLevel, setSoundLevel, playSound, SOUND_CHANGE_EVENT, SoundLevel } from '../../lib/sound';
 import { APP_VERSION } from '../../config/version';
@@ -124,6 +125,10 @@ export function SettingsDrawer({
   const [orgEvents, setOrgEvents] = useState<SupabaseEvent[]>(() =>
     dbService.getCachedEvents(organization.org_id).filter((e) => e.status !== 'archived' && !e.is_archived)
   );
+  const pairSheetRef = useRef<HTMLDivElement>(null);
+  const pairTriggerBtnRef = useRef<HTMLButtonElement>(null);
+  const wasPairSheetOpenRef = useRef<boolean>(false);
+  const pairKeyboardInset = useVisualViewportOffset(isOpen && isPairSheetOpen);
 
   // Broadcast Controls synced with organization server fields + local fallback
   const [blindMode, setBlindMode] = useState<boolean>(() => {
@@ -309,6 +314,62 @@ export function SettingsDrawer({
     }
     return false;
   }, [isPairSheetOpen, isPairingSubmitting]);
+
+  useEffect(() => {
+    if (isOpen && isPairSheetOpen) {
+      wasPairSheetOpenRef.current = true;
+      const timer = window.setTimeout(() => {
+        const sheet = pairSheetRef.current;
+        if (!sheet || sheet.contains(document.activeElement)) return;
+        const autoFocused = sheet.querySelector<HTMLElement>('[autofocus], input, select, button');
+        if (autoFocused) {
+          autoFocused.focus();
+        } else {
+          sheet.focus();
+        }
+      }, 20);
+
+      const handleTabKey = (e: KeyboardEvent) => {
+        if (e.key !== 'Tab' || !pairSheetRef.current) return;
+        const candidates = Array.from(
+          pairSheetRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => el.offsetParent !== null || el.getClientRects().length > 0);
+        if (candidates.length === 0) return;
+        const first = candidates[0];
+        const last = candidates[candidates.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (!active || !pairSheetRef.current.contains(active)) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+          return;
+        }
+        if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      };
+
+      window.addEventListener('keydown', handleTabKey);
+      return () => {
+        window.clearTimeout(timer);
+        window.removeEventListener('keydown', handleTabKey);
+      };
+    }
+
+    if (wasPairSheetOpenRef.current) {
+      wasPairSheetOpenRef.current = false;
+      if (isOpen && pairTriggerBtnRef.current?.isConnected) {
+        window.requestAnimationFrame(() => {
+          pairTriggerBtnRef.current?.focus();
+        });
+      }
+    }
+  }, [isOpen, isPairSheetOpen]);
 
 
   // 1. Toggle Tie-Breaker
@@ -653,6 +714,7 @@ export function SettingsDrawer({
     isOpen && isPairSheetOpen ? (
       <div
         className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4"
+        style={pairKeyboardInset > 0 ? { paddingBottom: `${pairKeyboardInset}px` } : undefined}
         role="dialog"
         aria-modal="true"
         aria-label="Pair a screen"
@@ -662,8 +724,12 @@ export function SettingsDrawer({
           className="fixed inset-0 bg-black/60 animate-in fade-in duration-200 motion-reduce:animate-none"
         />
 
-        <div className="relative z-10 w-full sm:max-w-sm bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white border-t sm:border border-stone-200 dark:border-zinc-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden animate-spring-sheet motion-reduce:animate-none">
-          <div className="px-5 py-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
+        <div
+          ref={pairSheetRef}
+          tabIndex={-1}
+          className="relative z-10 w-full sm:max-w-sm max-h-full sm:max-h-[calc(100dvh-2rem)] flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white border-t sm:border border-stone-200 dark:border-zinc-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden animate-spring-sheet motion-reduce:animate-none focus:outline-none"
+        >
+          <div className="shrink-0 px-5 py-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
                 <Monitor className="w-4 h-4" />
@@ -681,7 +747,7 @@ export function SettingsDrawer({
           </div>
 
           {pairedSuccessName ? (
-            <div className="p-5 space-y-4 text-center">
+            <div className="p-5 space-y-4 text-center overflow-y-auto">
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 mx-auto">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
@@ -702,84 +768,95 @@ export function SettingsDrawer({
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmitPairScreen} className="p-5 space-y-4">
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="fj-pair-code"
-                  className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                >
-                  6-Digit Code
-                </label>
-                <input
-                  id="fj-pair-code"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoFocus
-                  maxLength={6}
-                  placeholder="000000"
-                  value={pairCode}
-                  onChange={(e) => {
-                    setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6));
-                    if (pairError) setPairError(null);
-                  }}
-                  className="w-full min-h-[52px] px-4 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl font-mono text-2xl font-black tracking-[0.3em] text-center text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 tabular-nums"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="fj-pair-event"
-                  className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                >
-                  Event Scope (Optional)
-                </label>
-                <select
-                  id="fj-pair-event"
-                  value={pairEventId}
-                  onChange={(e) => setPairEventId(e.target.value)}
-                  className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="">All events</option>
-                  {orgEvents.map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="fj-pair-label"
-                  className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                >
-                  Screen Name (Optional)
-                </label>
-                <input
-                  id="fj-pair-label"
-                  type="text"
-                  maxLength={40}
-                  placeholder="e.g. Main Hall"
-                  value={pairLabel}
-                  onChange={(e) => setPairLabel(e.target.value)}
-                  className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {pairError && (
-                <p className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400">
-                  {pairError}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={isPairingSubmitting || pairCode.length !== 6}
-                className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+            <form onSubmit={handleSubmitPairScreen} className="flex flex-col flex-1 min-h-0">
+              <div
+                onFocusCapture={(e) => scrollFocusedInputIntoView(e.target)}
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4"
               >
-                {isPairingSubmitting ? 'Pairing...' : 'Pair screen'}
-              </button>
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="fj-pair-code"
+                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
+                  >
+                    6-Digit Code
+                  </label>
+                  <input
+                    id="fj-pair-code"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoFocus
+                    maxLength={6}
+                    placeholder="000000"
+                    value={pairCode}
+                    onChange={(e) => {
+                      setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      if (pairError) setPairError(null);
+                    }}
+                    className="w-full min-h-[52px] px-4 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl font-mono text-2xl font-black tracking-[0.3em] text-center text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 tabular-nums"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="fj-pair-event"
+                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
+                  >
+                    Event Scope (Optional)
+                  </label>
+                  <select
+                    id="fj-pair-event"
+                    value={pairEventId}
+                    onChange={(e) => setPairEventId(e.target.value)}
+                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="">All events</option>
+                    {orgEvents.map((ev) => (
+                      <option key={ev.id} value={ev.id}>
+                        {ev.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="fj-pair-label"
+                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
+                  >
+                    Screen Name (Optional)
+                  </label>
+                  <input
+                    id="fj-pair-label"
+                    type="text"
+                    maxLength={40}
+                    placeholder="e.g. Main Hall"
+                    value={pairLabel}
+                    onChange={(e) => setPairLabel(e.target.value)}
+                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div
+                className={`shrink-0 px-5 pt-3 border-t border-stone-100 dark:border-zinc-800/80 bg-white dark:bg-zinc-950 space-y-2 ${
+                  pairKeyboardInset > 0 ? 'pb-3' : 'pb-5 pb-safe'
+                }`}
+              >
+                {pairError && (
+                  <p className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400">
+                    {pairError}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isPairingSubmitting || pairCode.length !== 6}
+                  className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
+                >
+                  {isPairingSubmitting ? 'Pairing...' : 'Pair screen'}
+                </button>
+              </div>
             </form>
           )}
         </div>
@@ -1745,6 +1822,7 @@ export function SettingsDrawer({
 
               <div className="p-3.5 bg-stone-50/50 dark:bg-zinc-900 space-y-2">
                 <button
+                  ref={pairTriggerBtnRef}
                   type="button"
                   onClick={handleOpenPairSheet}
                   className="w-full min-h-[44px] bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs lg:text-sm flex items-center justify-center gap-2 transition-transform duration-150 motion-reduce:transition-none active:scale-[0.98] cursor-pointer shadow-sm"
