@@ -17,18 +17,19 @@ import {
   TrendingUp,
   TrendingDown,
   ShieldCheck,
-  ShieldAlert,
   UserX,
   Sliders,
   Sparkles,
-  Award
+  Award,
+  Info
 } from 'lucide-react';
 import { 
   Organization, 
   SupabaseEvent, 
   SupabaseJudge, 
   SupabaseParticipant, 
-  SupabaseScore 
+  SupabaseScore,
+  TieBreakerMethod
 } from '../../../lib/supabaseTypes';
 import { dbService, subscribeToDatabase } from '../../../lib/supabase';
 import { registerSyncCadence } from '../../../lib/syncEngine';
@@ -37,6 +38,11 @@ import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { showToast } from '../../common/ToastProvider';
 import { printDocument } from '../../../lib/fileActions';
+import {
+  buildDeduplicatedEventData,
+  computeEventTieBreakerSuggestions,
+  type TieBreakerSuggestionItem,
+} from '../../../lib/rules';
 
 interface InsightsTabProps {
   organization: Organization;
@@ -207,25 +213,35 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   const judgeMap = useMemo(() => new Map(judges.map((j) => [j.id, j])), [judges]);
   const participantMap = useMemo(() => new Map(participants.map((p) => [p.id, p])), [participants]);
 
-  // --- DERIVED EVENT STANDINGS WITH EQUAL TIE-BREAKER LOGIC ---
+  // --- DEDUPLICATED ACTIVE-ONLY EVENT DATA & EXISTING ORG SETTINGS ---
+  const blindJudgingEnabled = Boolean(organization.blind_judging_enabled);
+  const tieBreakerEnabled = Boolean(organization.tie_breaker_enabled);
+  const tieBreakerMethod: TieBreakerMethod = organization.tie_breaker_method || 'olympic';
+
+  const dedupedEvents = useMemo(
+    () => buildDeduplicatedEventData(events, judges, participants, allScores),
+    [events, judges, participants, allScores]
+  );
+
+  const dedupedEventMap = useMemo(
+    () => new Map(dedupedEvents.map((d) => [d.event.id, d])),
+    [dedupedEvents]
+  );
+
+  // --- DERIVED EVENT STANDINGS (Active-only, Deduplicated, Absent-excluded) ---
   const eventStandings = useMemo(() => {
-    return events.map((ev) => {
-      const evScores = allScores.filter((s) => s.event_id === ev.id);
-      const byParticipant = new Map<string, SupabaseScore[]>();
+    return dedupedEvents.map((ed) => {
+      const { event: ev, activeJudges, activeParticipantById, scoresByParticipant, deduplicatedScores } = ed;
 
-      evScores.forEach((s) => {
-        const list = byParticipant.get(s.participant_id) || [];
-        list.push(s);
-        byParticipant.set(s.participant_id, list);
-      });
-
-      // Step 1: calculate raw totals and averages
-      const unranked: Array<Omit<ParticipantStanding, 'rank' | 'isTied'>> = Array.from(byParticipant.entries())
+      // Step 1: calculate raw totals and averages from deduplicated valid ballots only
+      const unranked: Array<Omit<ParticipantStanding, 'rank' | 'isTied'>> = Array.from(
+        scoresByParticipant.entries()
+      )
         .map(([pId, scores]) => {
-          const p = participantMap.get(pId);
-          if (!p) return null;
-          const rawTotal = scores.reduce((sum, s) => sum + (s.total_score || 0), 0);
-          const averageScore = scores.length > 0 ? rawTotal / scores.length : 0;
+          const p = activeParticipantById.get(pId);
+          if (!p || scores.length === 0) return null;
+          const rawTotal = scores.reduce((sum, s) => sum + (Number(s.total_score) || 0), 0);
+          const averageScore = rawTotal / scores.length;
           return {
             participant: p,
             ballotCount: scores.length,
@@ -236,7 +252,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         .filter((item): item is Omit<ParticipantStanding, 'rank' | 'isTied'> => item !== null)
         .sort((a, b) => b.averageScore - a.averageScore || b.rawTotal - a.rawTotal);
 
-      // Step 2: Strict Competition Ranking with Shared Tie Ranks
+      // Step 2: Strict Competition Ranking with Shared Tie Ranks (never auto-mutated)
       const standings: ParticipantStanding[] = [];
       for (let i = 0; i < unranked.length; i++) {
         const current = unranked[i];
@@ -254,14 +270,32 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         standings.push({ ...current, rank, isTied });
       }
 
+      // Step 3: Read-only tie-breaker suggestions linked to existing organisation settings
+      const statusLower = String(ev.status || '').toLowerCase();
+      const isConcluded = statusLower === 'ended' || statusLower === 'archived';
+      const hasTies = standings.some((s) => s.isTied);
+      const tieBreakerSuggestions: TieBreakerSuggestionItem[] =
+        tieBreakerEnabled && isConcluded && hasTies
+          ? computeEventTieBreakerSuggestions({
+              event: ev,
+              standings,
+              deduplicatedEventScores: deduplicatedScores,
+              activeAssignedJudgesCount: activeJudges.length,
+              tieBreakerEnabled,
+              tieBreakerMethod,
+              blindJudgingEnabled,
+            })
+          : [];
+
       return {
         event: ev,
         standings,
+        tieBreakerSuggestions,
       };
     });
-  }, [events, allScores, participantMap]);
+  }, [dedupedEvents, tieBreakerEnabled, tieBreakerMethod, blindJudgingEnabled]);
 
-  // --- SECTION C DERIVATIONS: ABSENTEES ---
+  // --- SECTION C DERIVATIONS: ABSENTEES (Aligned with Phase 4: ended/archived + 0 valid ballots) ---
   const absenteesList = useMemo(() => {
     const list: Array<{
       event: SupabaseEvent;
@@ -269,51 +303,48 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       reason: string;
     }> = [];
 
-    // Checked participants in ended events
-    events.filter((e) => e.status === 'ended').forEach((ev) => {
-      const assignedIds: string[] = (ev as any).assigned_participants || [];
-      const evScores = allScores.filter((s) => s.event_id === ev.id);
+    dedupedEvents.forEach(({ event: ev, activeParticipants, scoresByParticipant }) => {
+      const statusLower = String(ev.status || '').toLowerCase();
+      if (statusLower !== 'ended' && statusLower !== 'archived') return;
 
-      assignedIds.forEach((pId) => {
-        const pScores = evScores.filter((s) => s.participant_id === pId);
-        const p = participantMap.get(pId);
-        if (!p) return;
-
-        if (pScores.length === 0) {
+      activeParticipants.forEach((p) => {
+        const pScores = scoresByParticipant.get(p.id);
+        if (!pScores || pScores.length === 0) {
           list.push({
             event: ev,
             participant: p,
             reason: 'Never Evaluated (No Ballots Submitted)',
           });
-        } else {
-          const totalPoints = pScores.reduce((sum, s) => sum + (s.total_score || 0), 0);
-          if (totalPoints === 0) {
-            list.push({
-              event: ev,
-              participant: p,
-              reason: 'Zero Marks Recorded Across All Ballots',
-            });
-          }
         }
       });
     });
 
     return list;
-  }, [events, allScores, participantMap]);
+  }, [dedupedEvents]);
 
-  // --- SECTION C DERIVATIONS: JUDGE BIAS METER ---
+  // --- SECTION C DERIVATIONS: JUDGE BIAS METER (Active judges, deduplicated valid ballots, no absentees) ---
+  const validDedupedScores = useMemo(
+    () => dedupedEvents.flatMap((d) => d.deduplicatedScores),
+    [dedupedEvents]
+  );
+
   const globalMean = useMemo(() => {
-    if (allScores.length === 0) return 0;
-    return allScores.reduce((sum, s) => sum + (s.total_score || 0), 0) / allScores.length;
-  }, [allScores]);
+    if (validDedupedScores.length === 0) return 0;
+    return (
+      validDedupedScores.reduce((sum, s) => sum + (Number(s.total_score) || 0), 0) /
+      validDedupedScores.length
+    );
+  }, [validDedupedScores]);
 
   const judgeBiasMetrics = useMemo(() => {
     if (globalMean === 0) return [];
-    return judges
+    const activeJudges = judges.filter((j) => j.is_active !== false);
+    return activeJudges
       .map((j) => {
-        const jScores = allScores.filter((s) => s.judge_id === j.id);
+        const jScores = validDedupedScores.filter((s) => s.judge_id === j.id);
         if (jScores.length === 0) return null;
-        const jMean = jScores.reduce((sum, s) => sum + (s.total_score || 0), 0) / jScores.length;
+        const jMean =
+          jScores.reduce((sum, s) => sum + (Number(s.total_score) || 0), 0) / jScores.length;
         const variancePct = ((jMean - globalMean) / globalMean) * 100;
         return {
           judge: j,
@@ -330,63 +361,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       })
       .filter((item): item is NonNullable<typeof item> => item !== null)
       .sort((a, b) => Math.abs(b.variancePct) - Math.abs(a.variancePct));
-  }, [judges, allScores, globalMean]);
-
-  // --- SECTION C DERIVATIONS: CONSENSUS ANOMALIES ---
-  const consensusAnomalies = useMemo(() => {
-    const flags: Array<{
-      id: string;
-      event: SupabaseEvent;
-      participant: SupabaseParticipant;
-      highJudge: SupabaseJudge;
-      lowJudge: SupabaseJudge;
-      highScore: number;
-      lowScore: number;
-      delta: number;
-    }> = [];
-
-    const grouped = new Map<string, SupabaseScore[]>();
-    allScores.forEach((s) => {
-      const key = `${s.event_id}__${s.participant_id}`;
-      const arr = grouped.get(key) || [];
-      arr.push(s);
-      grouped.set(key, arr);
-    });
-
-    grouped.forEach((scores) => {
-      if (scores.length < 2) return;
-      const sorted = [...scores].sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
-      const highest = sorted[0];
-      const lowest = sorted[sorted.length - 1];
-
-      const highScore = highest.total_score || 0;
-      const lowScore = lowest.total_score || 0;
-      const delta = highScore - lowScore;
-
-      // Discrepancy threshold: difference >= 15 pts or relative deviation >= 30%
-      if (delta >= 15 || (lowScore > 0 && delta / lowScore >= 0.35)) {
-        const ev = eventMap.get(highest.event_id);
-        const p = participantMap.get(highest.participant_id);
-        const jHigh = judgeMap.get(highest.judge_id);
-        const jLow = judgeMap.get(lowest.judge_id);
-
-        if (ev && p && jHigh && jLow && jHigh.id !== jLow.id) {
-          flags.push({
-            id: `${highest.id}_${lowest.id}`,
-            event: ev,
-            participant: p,
-            highJudge: jHigh,
-            lowJudge: jLow,
-            highScore,
-            lowScore,
-            delta,
-          });
-        }
-      }
-    });
-
-    return flags.sort((a, b) => b.delta - a.delta);
-  }, [allScores, eventMap, participantMap, judgeMap]);
+  }, [judges, validDedupedScores, globalMean]);
 
   // --- SECTION D DERIVATIONS: FILTERED LOGS ---
   const filteredScores = useMemo(() => {
@@ -858,6 +833,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
   // 3. ANALYTICS EXPORT
   const handleExportAnalyticsPDF = (forceInApp: boolean = false) => {
+    const esc = (str: string) =>
+      String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
     const absenteesHtml = absenteesList.length === 0
       ? '<p style="font-size: 11px; color: #71717a;">Zero absentees recorded across all completed events.</p>'
       : `
@@ -876,11 +858,11 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               .map(
                 (a) => `
               <tr>
-                <td>${a.event.name}</td>
-                <td style="font-family: monospace;">${a.participant.identity_id || `P-${a.participant.sl_no}`}</td>
-                <td style="font-weight: 700;">${a.participant.name}</td>
-                <td>${a.participant.school}</td>
-                <td style="color: #dc2626;">${a.reason}</td>
+                <td>${esc(a.event.name)}</td>
+                <td style="font-family: monospace;">${esc(a.participant.identity_id || `P-${a.participant.sl_no}`)}</td>
+                <td style="font-weight: 700;">${esc(a.participant.name)}</td>
+                <td>${esc(a.participant.school)}</td>
+                <td style="color: #dc2626;">${esc(a.reason)}</td>
               </tr>
             `
               )
@@ -908,8 +890,8 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               .map(
                 (b) => `
               <tr>
-                <td style="font-family: monospace;">${b.judge.judge_id || b.judge.id.slice(0, 6)}</td>
-                <td style="font-weight: 700;">${b.judge.name}</td>
+                <td style="font-family: monospace;">${esc(b.judge.judge_id || b.judge.id.slice(0, 6))}</td>
+                <td style="font-weight: 700;">${esc(b.judge.name)}</td>
                 <td>${b.ballotCount}</td>
                 <td style="font-family: monospace;">${b.mean.toFixed(2)} pts</td>
                 <td style="font-family: monospace; font-weight: bold; color: ${b.variancePct >= 10 ? '#d97706' : b.variancePct <= -10 ? '#2563eb' : '#059669'};">
@@ -924,49 +906,14 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         </table>
       `;
 
-    const anomaliesHtml = consensusAnomalies.length === 0
-      ? '<p style="font-size: 11px; color: #71717a;">Zero consensus discrepancies detected.</p>'
-      : `
-        <table>
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Competitor</th>
-              <th>Higher Evaluation</th>
-              <th>Lower Evaluation</th>
-              <th>Delta Difference</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${consensusAnomalies
-              .map(
-                (anom) => `
-              <tr>
-                <td>${anom.event.name}</td>
-                <td style="font-weight: 700;">${anom.participant.name} (${anom.participant.identity_id || `P-${anom.participant.sl_no}`})</td>
-                <td>${anom.highJudge.name}: <strong>${anom.highScore} pts</strong></td>
-                <td>${anom.lowJudge.name}: <strong>${anom.lowScore} pts</strong></td>
-                <td style="color: #ea580c; font-weight: bold; font-family: monospace;">+${anom.delta.toFixed(1)} pts gap</td>
-              </tr>
-            `
-              )
-              .join('')}
-          </tbody>
-        </table>
-      `;
-
     const content = `
       <div class="section-block">
         <div class="section-title">1. Absentee Competitor Ledger</div>
         ${absenteesHtml}
       </div>
       <div class="section-block">
-        <div class="section-title">2. Jury Bias &amp; Scoring Calibration Analysis</div>
+        <div class="section-title">2. Jury Calibration &amp; Bias Meter</div>
         ${biasHtml}
-      </div>
-      <div class="section-block">
-        <div class="section-title">3. Consensus Scoring Anomalies</div>
-        ${anomaliesHtml}
       </div>
     `;
 
@@ -994,7 +941,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         a.event.name,
         a.participant.name,
         a.reason,
-        '0 pts',
+        '0 ballots',
         'ABSENT',
       ]);
     });
@@ -1009,19 +956,6 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         b.judge.name,
         `${b.mean.toFixed(2)} pts (Mean)`,
         `${b.variancePct >= 0 ? '+' : ''}${b.variancePct.toFixed(1)}% (${b.classification})`,
-      ]);
-    });
-
-    // Anomalies
-    consensusAnomalies.forEach((c) => {
-      rows.push([
-        'Consensus Anomaly',
-        c.participant.identity_id || `P-${c.participant.sl_no || ''}`,
-        c.event.name,
-        c.participant.name,
-        `${c.highJudge.name} (${c.highScore}) vs ${c.lowJudge.name} (${c.lowScore})`,
-        `${c.delta.toFixed(1)} pts`,
-        'DISCREPANCY',
       ]);
     });
 
@@ -1107,6 +1041,70 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     });
 
     exportToExcelWithMasterHeader('FairJudge_Ledger_Logs', 'Cryptographic_Logs', headers, rows);
+  };
+
+  // --- READ-ONLY TIE-BREAKER SUGGESTION RENDERER (Results & Stats concluded events) ---
+  const renderTieBreakerSuggestions = (suggestions: TieBreakerSuggestionItem[]) => {
+    if (!tieBreakerEnabled || suggestions.length === 0) return null;
+
+    const showsParticipantNames = suggestions.some(
+      (s) =>
+        (s.resolution === 'olympic' || s.resolution === 'precision_4dp') &&
+        s.entries.length > 0
+    );
+
+    return (
+      <div className="rounded-xl border border-sky-500/25 bg-sky-50/70 dark:bg-sky-950/25 p-3 sm:p-3.5 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs lg:text-sm font-bold text-sky-900 dark:text-sky-200">
+            <Info className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+            <span>Tie-breaker suggestion</span>
+          </div>
+          <span className="text-[10px] lg:text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+            Suggestion only — ranking unchanged
+          </span>
+        </div>
+
+        {blindJudgingEnabled && showsParticipantNames && (
+          <div className="p-2 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[11px] lg:text-xs text-sky-900 dark:text-sky-200 flex items-start gap-1.5">
+            <Info className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+            <span>
+              Blind judging is on. Participant names are masked until blind judging is turned off.
+            </span>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          {suggestions.map((sug) => {
+            let copy = '';
+            if (sug.resolution === 'olympic') {
+              const orderedList = sug.entries
+                .map((e) => `${e.suggestedRank}. ${e.displayName} (${e.suggestedScore.toFixed(2)} pts)`)
+                .join(', ');
+              copy = `Tie at Rank #${sug.rank} (${sug.tiedAverageScore.toFixed(2)} pts). Olympic trim (dropping highest and lowest mark) suggests: ${orderedList}. Official rankings do not change automatically.`;
+            } else if (sug.resolution === 'precision_4dp') {
+              const orderedList = sug.entries
+                .map((e) => `${e.suggestedRank}. ${e.displayName} (${e.suggestedScore.toFixed(4)})`)
+                .join(', ');
+              copy = `Tie at Rank #${sug.rank} (${sug.tiedAverageScore.toFixed(2)} pts). Exact 4-decimal average suggests: ${orderedList}. Official rankings do not change automatically.`;
+            } else if (sug.resolution === 'shared') {
+              copy = `Tie at Rank #${sug.rank} (${sug.tiedAverageScore.toFixed(2)} pts). Tied participants share this rank. No suggested order.`;
+            } else {
+              copy = `Tie at Rank #${sug.rank} (${sug.tiedAverageScore.toFixed(2)} pts). Chief Judge decision required.`;
+            }
+
+            return (
+              <p
+                key={sug.id}
+                className="text-xs lg:text-sm text-sky-950/90 dark:text-sky-100/90 leading-relaxed"
+              >
+                {copy}
+              </p>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1228,7 +1226,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             ) : (
               eventStandings
                 .filter((es) => es.event.status === 'ended' || es.event.status === 'archived')
-                .map(({ event, standings }) => {
+                .map(({ event, standings, tieBreakerSuggestions }) => {
                   const podiumWinners = standings.filter((s) => s.rank <= 3);
 
                   return (
@@ -1323,6 +1321,8 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                           })}
                         </div>
                       )}
+
+                      {renderTieBreakerSuggestions(tieBreakerSuggestions)}
                     </div>
                   );
                 })
@@ -1369,10 +1369,15 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
             {/* Collapsible Event Accordions */}
             <div className="space-y-3">
-              {eventStandings.map(({ event, standings }) => {
+              {eventStandings.map(({ event, standings, tieBreakerSuggestions }) => {
                 const isExpanded = !!expandedEvents[event.id];
-                const evScores = allScores.filter((s) => s.event_id === event.id);
-                const evJudges = judges.filter((j) => evScores.some((s) => s.judge_id === j.id));
+                const deduped = dedupedEventMap.get(event.id);
+                const evScores = deduped ? deduped.deduplicatedScores : [];
+                const evJudges = deduped
+                  ? deduped.activeJudges.filter((j) => evScores.some((s) => s.judge_id === j.id))
+                  : [];
+                const isConcludedEvent =
+                  event.status === 'ended' || event.status === 'archived';
 
                 return (
                   <div
@@ -1440,6 +1445,8 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                             </div>
                           )}
                         </div>
+
+                        {isConcludedEvent && renderTieBreakerSuggestions(tieBreakerSuggestions)}
 
                         {/* Bottom: Horizontal-Scrolling Master Score Table */}
                         <div className="border border-stone-200 dark:border-zinc-800 rounded-xl overflow-x-auto bg-white dark:bg-zinc-950">
@@ -1691,78 +1698,6 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               )}
             </div>
 
-            {/* 3. Consensus Anomalies */}
-            <div className="bg-white dark:bg-zinc-950 border border-amber-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <ShieldAlert className="w-4 h-4 text-orange-500" />
-                  <h3 className="text-sm font-bold text-stone-900 dark:text-white">
-                    Consensus Scoring Anomalies
-                  </h3>
-                </div>
-                <span className="text-[10px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-                  {consensusAnomalies.length} Flagged
-                </span>
-              </div>
-
-              {consensusAnomalies.length === 0 ? (
-                <div className="p-4 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs lg:text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <span>Jury consensus is high across all stages with zero severe score discrepancies.</span>
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {consensusAnomalies.map((anom) => (
-                    <div
-                      key={anom.id}
-                      className="p-3.5 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-orange-500/30 space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between text-xs lg:text-sm">
-                        <span className="font-bold text-stone-900 dark:text-white truncate">
-                          {anom.participant.name}{' '}
-                          <span className="font-mono text-[10px] lg:text-xs font-normal text-stone-400">
-                            [ID: {anom.participant.identity_id || `P-${anom.participant.sl_no}`}]
-                          </span>
-                        </span>
-                        <span className="text-xs lg:text-sm font-mono font-black text-orange-600 dark:text-orange-400 tabular-nums whitespace-nowrap">
-                          Δ {anom.delta.toFixed(1)} pts Discrepancy
-                        </span>
-                      </div>
-
-                      <p className="text-[11px] lg:text-sm text-stone-500 dark:text-zinc-400">
-                        {anom.event.name}
-                      </p>
-
-                      <div className="grid grid-cols-2 gap-2 text-xs lg:text-sm pt-1">
-                        <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                          <span className="text-[10px] lg:text-xs text-emerald-700 dark:text-emerald-400 uppercase font-bold block">
-                            High Ballot
-                          </span>
-                          <span className="font-bold text-stone-900 dark:text-white">
-                            {anom.highJudge.name}
-                          </span>
-                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 float-right tabular-nums whitespace-nowrap">
-                            {anom.highScore} pts
-                          </span>
-                        </div>
-
-                        <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20">
-                          <span className="text-[10px] lg:text-xs text-rose-700 dark:text-rose-400 uppercase font-bold block">
-                            Low Ballot
-                          </span>
-                          <span className="font-bold text-stone-900 dark:text-white">
-                            {anom.lowJudge.name}
-                          </span>
-                          <span className="font-mono font-bold text-rose-600 dark:text-rose-400 float-right tabular-nums whitespace-nowrap">
-                            {anom.lowScore} pts
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         )}
 

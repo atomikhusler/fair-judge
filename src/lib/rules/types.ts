@@ -3,6 +3,7 @@ import type {
   SupabaseJudge,
   SupabaseParticipant,
   SupabaseScore,
+  TieBreakerMethod,
 } from '../supabaseTypes';
 
 export type RuleLevel = 'block' | 'warn' | 'info';
@@ -22,7 +23,8 @@ export type RuleId =
   | 'preflight_missing_school_class'
   | 'preflight_judge_unassigned'
   | 'end_unscored_participants'
-  | 'end_partial_participants';
+  | 'end_partial_participants'
+  | 'tie_breaker_suggestion';
 
 export interface RuleResult<TMeta = Record<string, unknown>> {
   id: RuleId;
@@ -252,6 +254,57 @@ export interface EventProgressSummary {
   counts: EventProgressCounts;
 }
 
+export interface DedupedEventData {
+  event: SupabaseEvent;
+  activeJudges: SupabaseJudge[];
+  activeParticipants: SupabaseParticipant[];
+  activeJudgeById: Map<string, SupabaseJudge>;
+  activeParticipantById: Map<string, SupabaseParticipant>;
+  deduplicatedScores: SupabaseScore[];
+  scoresByParticipant: Map<string, SupabaseScore[]>;
+}
+
+export type TieBreakerResolutionMethod =
+  | 'olympic'
+  | 'precision_4dp'
+  | 'shared'
+  | 'manual_required';
+
+export interface TieBreakerStandingInput {
+  participant: SupabaseParticipant;
+  ballotCount: number;
+  averageScore: number;
+  rank: number;
+  isTied: boolean;
+}
+
+export interface TieBreakerContext {
+  event: SupabaseEvent;
+  standings: TieBreakerStandingInput[];
+  deduplicatedEventScores: SupabaseScore[];
+  activeAssignedJudgesCount: number;
+  tieBreakerEnabled: boolean;
+  tieBreakerMethod?: TieBreakerMethod;
+  blindJudgingEnabled?: boolean;
+}
+
+export interface TieBreakerSuggestedEntry {
+  participant: SupabaseParticipant;
+  displayName: string;
+  suggestedRank: number;
+  suggestedScore: number;
+}
+
+export interface TieBreakerSuggestionItem {
+  id: string;
+  eventId: string;
+  rank: number;
+  tiedAverageScore: number;
+  resolution: TieBreakerResolutionMethod;
+  entries: TieBreakerSuggestedEntry[];
+  level: 'info';
+}
+
 export type EvaluateEnrollmentRules = (ctx: EnrollmentBatchContext) => RuleEvaluation;
 export type EvaluateParticipantSaveRules = (ctx: ParticipantSaveContext) => RuleEvaluation;
 export type EvaluateImportBatchRules = (ctx: ImportBatchContext) => ImportBatchEvaluation;
@@ -259,3 +312,6 @@ export type EvaluateParticipantRowRules = (ctx: ParticipantRowContext) => RuleRe
 export type EvaluatePreFlightRules = (ctx: PreFlightContext) => RuleEvaluation;
 export type EvaluateEndEventRules = (ctx: EndEventCheckContext) => EndEventCheckEvaluation;
 export type ComputeEventProgress = (ctx: EventProgressContext) => EventProgressSummary;
+export type ComputeEventTieBreakerSuggestions = (
+  ctx: TieBreakerContext
+) => TieBreakerSuggestionItem[];

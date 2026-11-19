@@ -39,6 +39,11 @@ import {
   preflightRubricInvalidRule,
   preflightZeroCriteriaMarksRule,
 } from './eventRules';
+import {
+  buildDeduplicatedEventData,
+  computeEventTieBreakerSuggestions,
+  formatFairnessParticipantLabel,
+} from './fairnessRules';
 
 export function runRules<TContext>(
   context: TContext,
@@ -118,4 +123,7 @@ export {
   preflightJudgeUnassignedRule,
   evaluateEndEvent,
   computeEventProgress,
+  buildDeduplicatedEventData,
+  computeEventTieBreakerSuggestions,
+  formatFairnessParticipantLabel,
 };
