@@ -174,12 +174,12 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
   const isInfo = item.type === 'info';
 
   const badgeTheme = isError
-    ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.2)]'
+    ? 'bg-rose-50 text-rose-600 border-rose-200 shadow-none dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30 dark:shadow-[0_0_12px_rgba(244,63,94,0.2)]'
     : isWarning
-    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+    ? 'bg-amber-50 text-amber-600 border-amber-200 shadow-none dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30 dark:shadow-[0_0_12px_rgba(245,158,11,0.2)]'
     : isInfo
-    ? 'bg-sky-500/10 text-sky-400 border-sky-500/30 shadow-[0_0_12px_rgba(14,165,233,0.2)]'
-    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.2)]';
+    ? 'bg-sky-50 text-sky-600 border-sky-200 shadow-none dark:bg-sky-500/10 dark:text-sky-400 dark:border-sky-500/30 dark:shadow-[0_0_12px_rgba(14,165,233,0.2)]'
+    : 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-none dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30 dark:shadow-[0_0_12px_rgba(16,185,129,0.2)]';
 
   // Compute GPU translation & opacity
   let translateXStyle = `${dragX}px`;
@@ -215,8 +215,8 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
           : 'transform 260ms cubic-bezier(0.32, 0.72, 0, 1), opacity 200ms cubic-bezier(0.32, 0.72, 0, 1)',
         willChange: 'transform, opacity',
       }}
-      className={`absolute bottom-0 left-0 right-0 w-full max-w-sm mx-auto select-none rounded-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 shadow-[0_16px_40px_rgba(0,0,0,0.7)] p-3.5 flex items-center gap-3.5 motion-reduce:transition-none ${
-        isFront ? 'cursor-grab active:cursor-grabbing hover:border-zinc-700' : 'cursor-default'
+      className={`absolute bottom-0 left-0 right-0 w-full max-w-sm mx-auto select-none rounded-2xl bg-[var(--card-main)] dark:bg-zinc-950 border border-[var(--border-main)] dark:border-zinc-800 shadow-[0_12px_32px_rgba(15,23,42,0.12)] dark:shadow-[0_16px_40px_rgba(0,0,0,0.7)] p-3.5 flex items-center gap-3.5 motion-reduce:transition-none ${
+        isFront ? 'cursor-grab active:cursor-grabbing hover:border-stone-300 dark:hover:border-zinc-700' : 'cursor-default'
       }`}
     >
       {/* Visual Accent Glowing Icon Pill */}
@@ -234,7 +234,7 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
 
       {/* Message Text with High Legibility Micro-Typography */}
       <div className="flex-1 min-w-0 pr-1">
-        <p className="text-xs font-semibold text-zinc-100 dark:text-zinc-100 leading-snug break-words line-clamp-2">
+        <p className="text-xs font-semibold text-[var(--text-primary)] dark:text-zinc-100 leading-snug break-words line-clamp-2">
           {item.message}
         </p>
       </div>
@@ -250,7 +250,7 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
             item.action?.onClick();
             onDismiss(item.id);
           }}
-          className="shrink-0 min-h-[44px] -my-2 px-3 rounded-lg text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 active:scale-95 transition-colors cursor-pointer"
+          className="shrink-0 min-h-[44px] -my-2 px-3 rounded-lg text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:bg-emerald-500/10 dark:text-emerald-400 dark:hover:text-emerald-300 dark:hover:bg-emerald-500/10 active:scale-95 transition-colors cursor-pointer"
         >
           {item.action.label}
         </button>
@@ -264,7 +264,7 @@ function StackedToastCard({ item, index, onDismiss }: StackedToastCardProps) {
             onDismiss(item.id);
           }}
           title="Dismiss"
-          className="shrink-0 w-5 h-5 rounded-full bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-400 hover:text-zinc-200 flex items-center justify-center text-[10px] cursor-pointer transition-colors active:scale-90"
+          className="shrink-0 w-5 h-5 rounded-full bg-stone-100 hover:bg-stone-200 text-zinc-500 hover:text-zinc-800 dark:bg-zinc-800/60 dark:hover:bg-zinc-700/80 dark:text-zinc-400 dark:hover:text-zinc-200 flex items-center justify-center text-[10px] cursor-pointer transition-colors active:scale-90"
         >
           ×
         </div>

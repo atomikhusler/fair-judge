@@ -104,6 +104,10 @@ export function AccountModal({
 
   // Danger Zone Shutter & Confirmation States (C8 + Stage 2 Master Reset)
   const [isDangerShutterOpen, setIsDangerShutterOpen] = useState(false);
+  const [showLiveResetWarning, setShowLiveResetWarning] = useState(false);
+  const [liveEventsForResetWarning, setLiveEventsForResetWarning] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetInput, setResetInput] = useState('');
   const [resetPassword, setResetPassword] = useState('');
@@ -184,6 +188,8 @@ export function AccountModal({
       setConfirmTerminateTarget(null);
       setIsTerminatingSession(false);
       setSessionsError(null);
+      setShowLiveResetWarning(false);
+      setLiveEventsForResetWarning([]);
       setShowResetConfirm(false);
       setResetSuccess(false);
       setShowDeleteConfirm(false);
@@ -206,6 +212,8 @@ export function AccountModal({
     setIsDangerShutterOpen(false);
     setShowLogoutConfirm(false);
     setConfirmTerminateTarget(null);
+    setShowLiveResetWarning(false);
+    setLiveEventsForResetWarning([]);
     setShowResetConfirm(false);
     setResetSuccess(false);
     setResetPassword('');
@@ -238,6 +246,11 @@ export function AccountModal({
       setResetError('');
       return true;
     }
+    if (showLiveResetWarning) {
+      setShowLiveResetWarning(false);
+      setLiveEventsForResetWarning([]);
+      return true;
+    }
     if (showLogoutConfirm) {
       setShowLogoutConfirm(false);
       return true;
@@ -251,6 +264,7 @@ export function AccountModal({
     showDeleteConfirm,
     showUndoResetPrompt,
     showResetConfirm,
+    showLiveResetWarning,
     showLogoutConfirm,
     confirmTerminateTarget,
     isTerminatingSession,
@@ -406,9 +420,12 @@ export function AccountModal({
     }
   };
 
-  // Danger Zone: Open Master Reset modal with live counts preview
+  // Danger Zone: Open Master Reset modal with live counts preview (warns first if any event is live)
   const handleOpenMasterReset = () => {
     const evts = dbService.getCachedEvents(organization.org_id);
+    const activeEvts = evts
+      .filter((e) => (e.status || '').toLowerCase() === 'active')
+      .map((e) => ({ id: e.id, name: e.name }));
     const judges = dbService.getCachedJudges(organization.org_id);
     const parts = dbService.getCachedParticipants(organization.org_id);
     const scores = dbService.getCachedScores(organization.org_id);
@@ -430,7 +447,15 @@ export function AccountModal({
     setShowUndoResetPrompt(false);
     setUndoResetPassword('');
     setUndoResetError('');
-    setShowResetConfirm(true);
+
+    if (activeEvts.length > 0) {
+      setLiveEventsForResetWarning(activeEvts);
+      setShowLiveResetWarning(true);
+    } else {
+      setLiveEventsForResetWarning([]);
+      setShowLiveResetWarning(false);
+      setShowResetConfirm(true);
+    }
   };
 
   // Danger Zone: Execute Master Reset (requires RESET + master password + internet)
@@ -588,6 +613,7 @@ export function AccountModal({
       showDeleteConfirm ||
       showUndoResetPrompt ||
       showResetConfirm ||
+      showLiveResetWarning ||
       showLogoutConfirm ||
       confirmTerminateTarget
   );
@@ -1413,6 +1439,87 @@ export function AccountModal({
                       ? 'Terminate'
                       : 'Terminate all'}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Centered Warning Modal: Live Events Active Before Master Reset */}
+      {showLiveResetWarning && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="live-reset-warning-title"
+          onClick={() => {
+            setShowLiveResetWarning(false);
+            setLiveEventsForResetWarning([]);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-zinc-950 border border-amber-500/40 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 motion-reduce:animate-none max-h-[90dvh] overflow-y-auto"
+          >
+            <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-400">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h3
+                  id="live-reset-warning-title"
+                  className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                >
+                  {liveEventsForResetWarning.length === 1
+                    ? 'Live Event in Progress'
+                    : 'Live Events in Progress'}
+                </h3>
+                <p className="text-xs lg:text-sm text-amber-700 dark:text-amber-400 font-mono">
+                  {liveEventsForResetWarning.length === 1
+                    ? '1 active session will be wiped'
+                    : `${liveEventsForResetWarning.length} active sessions will be wiped`}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              The following {liveEventsForResetWarning.length === 1 ? 'event is' : 'events are'} currently live. Resetting now will immediately wipe all live scores and end active judging sessions.
+            </p>
+
+            <ul className="space-y-1.5 max-h-40 overflow-y-auto p-2.5 rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800">
+              {liveEventsForResetWarning.map((evt) => (
+                <li
+                  key={evt.id}
+                  className="flex items-center gap-2 text-xs lg:text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{evt.name}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  setShowLiveResetWarning(false);
+                  setLiveEventsForResetWarning([]);
+                }}
+                className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs lg:text-sm font-bold rounded-xl border border-stone-300 dark:border-zinc-700 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLiveResetWarning(false);
+                  setLiveEventsForResetWarning([]);
+                  setShowResetConfirm(true);
+                }}
+                className="min-h-[44px] bg-red-700 hover:bg-red-800 dark:bg-red-700/90 dark:hover:bg-red-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <span>Reset anyway</span>
               </button>
             </div>
           </div>

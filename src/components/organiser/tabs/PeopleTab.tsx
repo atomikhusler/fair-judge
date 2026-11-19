@@ -54,47 +54,14 @@ import {
   CustomParticipantField,
   SupabaseEvent
 } from '../../../lib/supabaseTypes';
-
-// ========================================================
-// ALGORITHM #5: LEVENSHTEIN DISTANCE & FUZZY MATCH ENGINE
-// ========================================================
-function levenshteinDistance(s1: string, s2: string): number {
-  const a = s1.toLowerCase().trim();
-  const b = s2.toLowerCase().trim();
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-
-  const matrix = Array.from({ length: a.length + 1 }, () =>
-    new Array(b.length + 1).fill(0)
-  );
-
-  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
-  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
-
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,      // deletion
-        matrix[i][j - 1] + 1,      // insertion
-        matrix[i - 1][j - 1] + cost // substitution
-      );
-    }
-  }
-
-  return matrix[a.length][b.length];
-}
-
-function calculateSimilarity(s1: string, s2: string): number {
-  const a = s1.toLowerCase().trim();
-  const b = s2.toLowerCase().trim();
-  if (a === b) return 1.0;
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 1.0;
-  const dist = levenshteinDistance(a, b);
-  return 1.0 - dist / maxLen;
-}
+import {
+  calculateSimilarity,
+  evaluateImportBatchRules,
+  evaluateParticipantRowRules,
+  evaluateParticipantSaveRules,
+  type DuplicateMatchItem,
+  type DuplicateParticipantMeta,
+} from '../../../lib/rules';
 
 // Canonical Aliases for Fuzzy Auto-Mapping
 const FIELD_ALIASES = {
@@ -211,6 +178,7 @@ function generateJudgePin(): string {
 
 interface StagedParticipant {
   id: string;
+  rowNumber: number;
   name: string;
   school: string;
   class_or_age: string;
@@ -288,6 +256,39 @@ export function PeopleTab({
   const [isImporting, setIsImporting] = useState(false);
   const [skippedExactMatches, setSkippedExactMatches] = useState(0);
   const [activeConflictRow, setActiveConflictRow] = useState<StagedParticipant | null>(null);
+  const [pendingDuplicateSave, setPendingDuplicateSave] = useState<{
+    matches: DuplicateMatchItem[];
+  } | null>(null);
+
+  const stagedImportEvaluation = useMemo(() => {
+    if (!showStagingModal || stagedRows.length === 0) return null;
+    const rowsForRules = stagedRows
+      .filter((r) => r.isValid && !r.isConflict)
+      .map((r) => ({
+        rowNumber: r.rowNumber,
+        name: r.name,
+        school: r.school,
+        class_or_age: r.class_or_age,
+      }));
+    return evaluateImportBatchRules({
+      rows: rowsForRules,
+      existingParticipants: participants,
+      categoryLabel,
+    });
+  }, [showStagingModal, stagedRows, participants, categoryLabel]);
+
+  useEffect(() => {
+    if (!pendingDuplicateSave) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingDuplicateSave(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [pendingDuplicateSave]);
 
   // Add / Edit Participant Modal
   const [showParticipantModal, setShowParticipantModal] = useState(false);
@@ -800,7 +801,7 @@ export function PeopleTab({
 
         const autoSanitizeSchool = (val: any): string => {
           const text = autoSanitize(val);
-          if (!text) return 'General';
+          if (!text) return '';
           if (text === text.toLowerCase()) {
             return text
               .split(' ')
@@ -850,18 +851,11 @@ export function PeopleTab({
             }
           });
 
-          // Mandatory validation: Name and School
+          // Mandatory validation: Name (blank school is kept blank and surfaced in pre-import warnings)
           const hasName = Boolean(nameVal);
-          const hasSchool = Boolean(schoolVal);
-          const isValid = hasName && hasSchool;
-          let validationError = '';
-          if (!hasName && !hasSchool) {
-            validationError = 'Missing Name and School';
-          } else if (!hasName) {
-            validationError = 'Missing Full Name';
-          } else if (!hasSchool) {
-            validationError = 'Missing School / Institution';
-          }
+          const isValid = hasName;
+          const validationError = !hasName ? 'Missing Full Name' : '';
+          const excelRowNumber = i + 1;
 
           if (isValid) {
             // Composite Key: Name + Class/Age + Institution
@@ -897,6 +891,7 @@ export function PeopleTab({
                 // Tier 2: Partial Conflict -> Flag with pulsing orange dot
                 staged.push({
                   id: generateUUID(),
+                  rowNumber: excelRowNumber,
                   name: nameVal,
                   school: schoolVal,
                   class_or_age: catVal,
@@ -913,11 +908,12 @@ export function PeopleTab({
             }
           }
 
-          // Tier 3: New clean addition
+          // Tier 3: New clean addition (blank school stays blank)
           staged.push({
             id: generateUUID(),
+            rowNumber: excelRowNumber,
             name: nameVal,
-            school: schoolVal || 'General',
+            school: schoolVal,
             class_or_age: catVal,
             mobile_number: mobVal,
             custom_values: customVals,
@@ -1151,27 +1147,17 @@ export function PeopleTab({
   useTaskScreenBackGuard({
     isOpen: showParticipantModal,
     onBack: handleCloseParticipantWizard,
-    hasNestedOverlay: isParticipantUnsavedOpen,
-    onCloseNested: () => setIsParticipantUnsavedOpen(false),
+    hasNestedOverlay: Boolean(isParticipantUnsavedOpen || pendingDuplicateSave),
+    onCloseNested: () => {
+      if (pendingDuplicateSave) {
+        setPendingDuplicateSave(null);
+      } else {
+        setIsParticipantUnsavedOpen(false);
+      }
+    },
   });
 
-  const handleSaveParticipant = async () => {
-    setParticipantSaveAttempted(true);
-    if (!participantForm.name.trim()) {
-      showToast('Full Name is required.', 'warning');
-      return;
-    }
-    if (!participantForm.school.trim()) {
-      showToast('School / Institution is required.', 'warning');
-      return;
-    }
-    for (const cf of requiredCustomFields) {
-      if (!(participantForm.custom_values[cf.id] || '').trim()) {
-        showToast(`${cf.name} is required.`, 'warning');
-        return;
-      }
-    }
-
+  const commitSaveParticipant = async () => {
     try {
       if (editingParticipant) {
         await dbService.updateParticipant(editingParticipant.id, {
@@ -1191,12 +1177,51 @@ export function PeopleTab({
         });
         clearParticipantDraft();
       }
+      setPendingDuplicateSave(null);
       setShowParticipantModal(false);
       await loadData(true);
     } catch (err: any) {
       console.error('Failed to save participant:', err);
       showToast(err?.message || 'Failed to save competitor.', 'error');
     }
+  };
+
+  const handleSaveParticipant = async () => {
+    setParticipantSaveAttempted(true);
+    if (!participantForm.name.trim()) {
+      showToast('Full Name is required.', 'warning');
+      return;
+    }
+    if (!participantForm.school.trim()) {
+      showToast('School / Institution is required.', 'warning');
+      return;
+    }
+    for (const cf of requiredCustomFields) {
+      if (!(participantForm.custom_values[cf.id] || '').trim()) {
+        showToast(`${cf.name} is required.`, 'warning');
+        return;
+      }
+    }
+
+    // Warn on fuzzy/exact duplicate only on manual add (never on edit of the same record)
+    if (!editingParticipant) {
+      const evalRes = evaluateParticipantSaveRules({
+        candidate: {
+          name: participantForm.name.trim(),
+          school: participantForm.school.trim(),
+          class_or_age: participantForm.class_or_age.trim(),
+        },
+        existingParticipants: participants,
+      });
+      const dupWarn = evalRes.warnings.find((w) => w.id === 'duplicate_participant_org');
+      const matches = (dupWarn?.meta as DuplicateParticipantMeta | undefined)?.matches || [];
+      if (matches.length > 0) {
+        setPendingDuplicateSave({ matches });
+        return;
+      }
+    }
+
+    await commitSaveParticipant();
   };
 
   // -------------------------------------------------------------
@@ -1964,14 +1989,29 @@ export function PeopleTab({
                           </div>
                           <div className="flex items-center space-x-1.5 text-xs lg:text-sm text-zinc-500 truncate mt-0.5">
                             <Building className="w-3 h-3 text-zinc-400 shrink-0" />
-                            <span className="truncate">{p.school}</span>
+                            <span className="truncate">
+                              {p.school ? (
+                                p.school
+                              ) : (
+                                <span className="italic text-zinc-400">No school</span>
+                              )}
+                            </span>
                           </div>
-                          {p.class_or_age && (
+                          {p.class_or_age?.trim() ? (
                             <div className="flex items-center space-x-1.5 text-[11px] lg:text-sm text-zinc-400 truncate mt-0.5 font-mono">
                               <GraduationCap className="w-3 h-3 text-zinc-400 shrink-0" />
                               <span>{categoryLabel}: {p.class_or_age}</span>
                             </div>
-                          )}
+                          ) : evaluateParticipantRowRules({
+                              participant: p,
+                              categoryLabel,
+                            }).some((r) => r.id === 'missing_class_row') ? (
+                            <div className="mt-1">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 border border-stone-200/80 dark:border-zinc-700/60">
+                                No class
+                              </span>
+                            </div>
+                          ) : null}
                           {p.mobile_number && (
                             <div className="flex items-center space-x-1.5 text-[11px] lg:text-sm text-zinc-400 truncate mt-0.5 font-mono">
                               <Phone className="w-3 h-3 text-zinc-400 shrink-0" />
@@ -2214,8 +2254,8 @@ export function PeopleTab({
             </div>
 
             {/* Staging Body Table */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              <div className="text-xs lg:text-sm text-zinc-500 mb-2 flex items-center justify-between">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="text-xs lg:text-sm text-zinc-500 flex items-center justify-between">
                 <span>Review imported participants before committing to the database.</span>
                 {skippedExactMatches > 0 && (
                   <span className="text-[11px] lg:text-sm font-mono text-emerald-600 dark:text-emerald-400">
@@ -2224,10 +2264,62 @@ export function PeopleTab({
                 )}
               </div>
 
+              {stagedImportEvaluation && stagedImportEvaluation.rowWarnings.length > 0 && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs lg:text-sm font-bold text-amber-800 dark:text-amber-300">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>
+                        Pre-Import Warnings ({stagedImportEvaluation.rowWarnings.length})
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+                      {stagedImportEvaluation.missingSchoolCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-200/70 dark:bg-amber-500/20 text-amber-900 dark:text-amber-200">
+                          {stagedImportEvaluation.missingSchoolCount} missing school
+                        </span>
+                      )}
+                      {stagedImportEvaluation.missingClassCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-200/70 dark:bg-amber-500/20 text-amber-900 dark:text-amber-200">
+                          {stagedImportEvaluation.missingClassCount} missing {categoryLabel.toLowerCase()}
+                        </span>
+                      )}
+                      {stagedImportEvaluation.duplicateCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-200/70 dark:bg-amber-500/20 text-amber-900 dark:text-amber-200">
+                          {stagedImportEvaluation.duplicateCount} possible {stagedImportEvaluation.duplicateCount === 1 ? 'duplicate' : 'duplicates'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <ul className="max-h-36 overflow-y-auto divide-y divide-amber-200/60 dark:divide-amber-500/15 rounded-xl bg-white/80 dark:bg-zinc-950/60 border border-amber-200/70 dark:border-amber-500/20 px-2.5">
+                    {stagedImportEvaluation.rowWarnings.map((w, idx) => (
+                      <li
+                        key={`${w.rowNumber}-${w.field}-${idx}`}
+                        className="py-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[11px] lg:text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-mono font-bold text-amber-800 dark:text-amber-300 shrink-0">
+                            Row {w.rowNumber}
+                          </span>
+                          <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                            {w.name}
+                          </span>
+                        </div>
+                        <span className="text-zinc-600 dark:text-zinc-400 truncate">
+                          <strong className="text-amber-800 dark:text-amber-300">{w.fieldLabel}:</strong>{' '}
+                          {w.detail}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="border border-stone-200 dark:border-zinc-800 rounded-2xl overflow-x-auto">
                 <table className="w-full text-left text-xs lg:text-sm">
                   <thead className="bg-stone-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-bold border-b border-stone-200 dark:border-zinc-800">
                     <tr>
+                      <th className="p-3">Row</th>
                       <th className="p-3">Status</th>
                       <th className="p-3">Full Name</th>
                       <th className="p-3">School / Team</th>
@@ -2248,6 +2340,9 @@ export function PeopleTab({
                             : 'hover:bg-stone-50 dark:hover:bg-zinc-900/50'
                         }
                       >
+                        <td className="p-3 font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
+                          {row.rowNumber}
+                        </td>
                         <td className="p-3">
                           {row.isConflict ? (
                             <div className="flex items-center gap-2">
@@ -2281,10 +2376,16 @@ export function PeopleTab({
                           {row.name || <span className="italic text-red-500">Missing</span>}
                         </td>
                         <td className="p-3 text-zinc-600 dark:text-zinc-400">
-                          {row.school || <span className="italic text-red-500">Missing</span>}
+                          {row.school || (
+                            <span className="italic text-amber-600 dark:text-amber-400">No school</span>
+                          )}
                         </td>
                         <td className="p-3 text-zinc-600 dark:text-zinc-400">
-                          {row.class_or_age || '—'}
+                          {row.class_or_age || (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 border border-stone-200/80 dark:border-zinc-700/60">
+                              No class
+                            </span>
+                          )}
                         </td>
                         <td className="p-3 text-zinc-600 dark:text-zinc-400 font-mono">
                           {row.mobile_number || '—'}
@@ -2452,6 +2553,91 @@ export function PeopleTab({
           return typeof document !== 'undefined' ? createPortal(conflictNode, document.body) : conflictNode;
         })()}
 
+      {/* Duplicate Participant Warning Dialog on Manual Add (Portaled) */}
+      {pendingDuplicateSave &&
+        (() => {
+          const dupNode = (
+            <div
+              className="fixed inset-0 z-[250] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="duplicate-participant-warn-title"
+              onClick={() => setPendingDuplicateSave(null)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-amber-500/40 rounded-3xl max-w-sm w-full max-h-[90dvh] overflow-y-auto p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
+              >
+                <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-400">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3
+                      id="duplicate-participant-warn-title"
+                      className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                    >
+                      Possible Duplicate Participant
+                    </h3>
+                    <p className="text-xs lg:text-sm text-amber-700 dark:text-amber-400 font-mono">
+                      {pendingDuplicateSave.matches.length === 1
+                        ? '1 existing match found'
+                        : `${pendingDuplicateSave.matches.length} existing matches found`}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                  A participant with the same or very similar name and school already exists in your organisation roster:
+                </p>
+
+                <ul className="space-y-2 max-h-44 overflow-y-auto p-2.5 rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800">
+                  {pendingDuplicateSave.matches.map((m, idx) => (
+                    <li
+                      key={`${m.existingId || m.existingName}-${idx}`}
+                      className="text-xs space-y-0.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                          {m.existingName}
+                        </span>
+                        {m.existingIdentityId && (
+                          <span className="px-1.5 py-0.5 rounded bg-stone-200/80 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-mono text-[10px] shrink-0">
+                            {m.existingIdentityId}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                        {m.existingSchool || 'No school'}
+                        {m.existingClassOrAge ? ` · ${m.existingClassOrAge}` : ' · No class'}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => setPendingDuplicateSave(null)}
+                    className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs lg:text-sm font-bold rounded-xl border border-stone-300 dark:border-zinc-700 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-500"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void commitSaveParticipant()}
+                    className="min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+                  >
+                    Add anyway
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(dupNode, document.body) : dupNode;
+        })()}
+
       {/* ======================================================== */}
       {/* FULL-SCREEN PARTICIPANT CREATION WIZARD (TaskScreen)     */}
       {/* ======================================================== */}
@@ -2476,6 +2662,7 @@ export function PeopleTab({
             onBack={handleCloseParticipantWizard}
             hasNestedOverlay={Boolean(
               isParticipantUnsavedOpen ||
+                pendingDuplicateSave ||
                 isConflictPopupOpen ||
                 showStagingModal ||
                 isDeleteModalOpen ||

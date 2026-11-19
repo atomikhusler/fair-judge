@@ -55,6 +55,14 @@ import {
   useVisualViewportOffset,
   scrollFocusedInputIntoView,
 } from '../../common/TaskScreen';
+import {
+  evaluateEnrollmentRules,
+  isCategoryMatch,
+  isUncategorizedEventCategory,
+  type CategoryMismatchMeta,
+  type DuplicateMatchItem,
+  type DuplicateParticipantMeta,
+} from '../../../lib/rules';
 
 interface EventsTabProps {
   organization: Organization;
@@ -470,16 +478,65 @@ export function EventsTab({
   const [participantPickerSearch, setParticipantPickerSearch] = useState('');
   const [selectedPickerParticipantIds, setSelectedPickerParticipantIds] = useState<string[]>([]);
   const [isBatchEnrolling, setIsBatchEnrolling] = useState(false);
+  const [pickerMatchingOnly, setPickerMatchingOnly] = useState(false);
+  const [ignoredCategoryWarningEventIds, setIgnoredCategoryWarningEventIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [pendingEnrollWarning, setPendingEnrollWarning] = useState<{
+    eventId: string;
+    participantIds: string[];
+    categoryMismatch: CategoryMismatchMeta | null;
+    duplicateMatches: DuplicateMatchItem[];
+  } | null>(null);
 
   const [isJudgePickerOpen, setIsJudgePickerOpen] = useState(false);
   const [judgePickerSearch, setJudgePickerSearch] = useState('');
   const [selectedPickerJudgeIds, setSelectedPickerJudgeIds] = useState<string[]>([]);
   const [isBatchAssigningJudges, setIsBatchAssigningJudges] = useState(false);
 
+  // Clear per-event "Ignore all" state whenever an event becomes ended/archived
+  useEffect(() => {
+    setIgnoredCategoryWarningEventIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of prev) {
+        const evt = events.find((e) => e.id === id);
+        const st = (evt?.status || '').toLowerCase();
+        if (!evt || st === 'ended' || st === 'archived') {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [events]);
+
+  // Clear per-event "Ignore all" state on organization switch
+  useEffect(() => {
+    setIgnoredCategoryWarningEventIds(new Set());
+    setPendingEnrollWarning(null);
+  }, [organization.org_id]);
+
+  // Escape dismisses only the enrolment warning dialog
+  useEffect(() => {
+    if (!pendingEnrollWarning) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setPendingEnrollWarning(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [pendingEnrollWarning]);
+
   const handleCloseParticipantPicker = useCallback(() => {
     setIsParticipantPickerOpen(false);
     setParticipantPickerSearch('');
     setSelectedPickerParticipantIds([]);
+    setPendingEnrollWarning(null);
   }, []);
 
   const handleCloseJudgePicker = useCallback(() => {
@@ -490,13 +547,23 @@ export function EventsTab({
 
   // Clean Modal Close Helpers
   const handleCloseParticipantsModal = useCallback(() => {
+    if (activeParticipantsEventId) {
+      setIgnoredCategoryWarningEventIds((prev) => {
+        if (!prev.has(activeParticipantsEventId)) return prev;
+        const next = new Set(prev);
+        next.delete(activeParticipantsEventId);
+        return next;
+      });
+    }
     setActiveParticipantsEventId(null);
     setParticipantSearch('');
     setParticipantViewMode('lineup');
     setIsParticipantPickerOpen(false);
     setParticipantPickerSearch('');
     setSelectedPickerParticipantIds([]);
-  }, []);
+    setPickerMatchingOnly(false);
+    setPendingEnrollWarning(null);
+  }, [activeParticipantsEventId]);
 
   const handleCloseJudgesModal = useCallback(() => {
     setActiveJudgesEventId(null);
@@ -1627,7 +1694,7 @@ export function EventsTab({
     }
   };
 
-  const handleBatchEnrollParticipantsToEvent = async (participantIds: string[]) => {
+  const commitBatchEnrollParticipants = async (participantIds: string[]) => {
     if (!activeParticipantsModalEvent || participantIds.length === 0 || isBatchEnrolling) return;
     const status = (activeParticipantsModalEvent.status || 'draft').toLowerCase();
 
@@ -1636,7 +1703,6 @@ export function EventsTab({
       return;
     }
 
-    // RULE: once event is ended, no one can add participants
     if (status === 'ended' || status === 'archived') {
       showToast('Prohibited: Cannot add participants to an ended event.');
       return;
@@ -1698,6 +1764,60 @@ export function EventsTab({
     } finally {
       setIsBatchEnrolling(false);
     }
+  };
+
+  const handleBatchEnrollParticipantsToEvent = async (participantIds: string[]) => {
+    if (!activeParticipantsModalEvent || participantIds.length === 0 || isBatchEnrolling) return;
+    const status = (activeParticipantsModalEvent.status || 'draft').toLowerCase();
+
+    if (activeParticipantsModalEvent.is_locked) {
+      showToast('Prohibited: Roster is locked.');
+      return;
+    }
+
+    // RULE: once event is ended, no one can add participants
+    if (status === 'ended' || status === 'archived') {
+      showToast('Prohibited: Cannot add participants to an ended event.');
+      return;
+    }
+
+    const currentAssigned = activeParticipantsModalEvent.assigned_participants || [];
+    const currentAssignedSet = new Set(currentAssigned);
+    const toAdd = Array.from(new Set(participantIds)).filter(
+      (id) => activeParticipantIdSet.has(id) && !currentAssignedSet.has(id)
+    );
+    if (toAdd.length === 0) return;
+
+    const selectedParticipants = toAdd
+      .map((id) => participantMap.get(id))
+      .filter((p): p is SupabaseParticipant => Boolean(p));
+    const alreadyEnrolledParticipants = currentAssigned
+      .map((id) => participantMap.get(id))
+      .filter((p): p is SupabaseParticipant => Boolean(p));
+
+    const evaluation = evaluateEnrollmentRules({
+      event: activeParticipantsModalEvent,
+      selectedParticipants,
+      alreadyEnrolledParticipants,
+      ignoreCategoryWarnings: ignoredCategoryWarningEventIds.has(activeParticipantsModalEvent.id),
+    });
+
+    const catWarn = evaluation.warnings.find((w) => w.id === 'category_mismatch');
+    const dupWarn = evaluation.warnings.find((w) => w.id === 'duplicate_participant_event');
+    const categoryMismatch = (catWarn?.meta as CategoryMismatchMeta | undefined) || null;
+    const duplicateMatches = ((dupWarn?.meta as DuplicateParticipantMeta | undefined)?.matches || []);
+
+    if (categoryMismatch || duplicateMatches.length > 0) {
+      setPendingEnrollWarning({
+        eventId: activeParticipantsModalEvent.id,
+        participantIds: toAdd,
+        categoryMismatch,
+        duplicateMatches,
+      });
+      return;
+    }
+
+    await commitBatchEnrollParticipants(toAdd);
   };
 
   // Reorder performance lineup with auto-renumbering and active lockout
@@ -2724,7 +2844,9 @@ export function EventsTab({
         title={activeParticipantsModalEvent?.name || ''}
         subtitle="Participant roster & appearance sequence"
         onBack={handleCloseParticipantsModal}
-        hasNestedOverlay={Boolean(isEventActionModalOpen || isParticipantPickerOpen)}
+        hasNestedOverlay={Boolean(
+          isEventActionModalOpen || isParticipantPickerOpen || pendingEnrollWarning
+        )}
         maxWidthClass="md:max-w-2xl"
         primaryAction={{
           label: 'Done',
@@ -2792,6 +2914,13 @@ export function EventsTab({
                   </div>
                 ) : null}
 
+                {ignoredCategoryWarningEventIds.has(activeParticipantsModalEvent.id) && (
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>Category warnings are off for this event</span>
+                  </div>
+                )}
+
                 {/* Single Primary Action + Participants-Only Running Order Toggle */}
                 <div className="flex flex-wrap items-center justify-between gap-2.5">
                   <div className="flex items-center gap-3">
@@ -2799,6 +2928,18 @@ export function EventsTab({
                       <button
                         type="button"
                         onClick={() => {
+                          const assignedSetForOpen = new Set(
+                            activeParticipantsModalEvent.assigned_participants || []
+                          );
+                          const unassignedForOpen = participants.filter(
+                            (p) => p.is_active !== false && !assignedSetForOpen.has(p.id)
+                          );
+                          const hasMatchingCategory =
+                            !isUncategorizedEventCategory(activeParticipantsModalEvent.category) &&
+                            unassignedForOpen.some((p) =>
+                              isCategoryMatch(activeParticipantsModalEvent.category, p.class_or_age)
+                            );
+                          setPickerMatchingOnly(hasMatchingCategory);
                           setParticipantPickerSearch('');
                           setSelectedPickerParticipantIds([]);
                           setIsParticipantPickerOpen(true);
@@ -2902,7 +3043,9 @@ export function EventsTab({
                                     {p.identity_id || `P-${p.sl_no || '0000'}`}
                                   </span>
                                   <span aria-hidden="true">·</span>
-                                  <span className="truncate">{p.school || 'General Institution'}</span>
+                                  <span className="truncate">
+                                    {p.school ? p.school : <span className="italic text-zinc-400">No school</span>}
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -2979,12 +3122,18 @@ export function EventsTab({
                                       {p.identity_id || `P-${p.sl_no || '0000'}`}
                                     </span>
                                     <span aria-hidden="true">·</span>
-                                    <span>{p.school || 'General Institution'}</span>
-                                    {p.class_or_age && (
+                                    <span>
+                                      {p.school ? p.school : <span className="italic text-zinc-400">No school</span>}
+                                    </span>
+                                    {p.class_or_age?.trim() ? (
                                       <>
                                         <span aria-hidden="true">·</span>
                                         <span>{p.class_or_age}</span>
                                       </>
+                                    ) : (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 border border-stone-200/80 dark:border-zinc-700/60">
+                                        No class
+                                      </span>
                                     )}
                                   </div>
                                 </div>
@@ -3021,6 +3170,7 @@ export function EventsTab({
         title="Add Participants"
         subtitle={activeParticipantsModalEvent?.name || ''}
         onBack={handleCloseParticipantPicker}
+        hasNestedOverlay={Boolean(pendingEnrollWarning)}
         maxWidthClass="md:max-w-2xl lg:max-w-5xl"
         secondaryAction={{
           label: 'Cancel',
@@ -3066,8 +3216,19 @@ export function EventsTab({
             const availableParticipants = participants.filter(
               (p) => p.is_active !== false && !assignedSet.has(p.id)
             );
+            const hasEventCategory = !isUncategorizedEventCategory(
+              activeParticipantsModalEvent.category
+            );
+            const matchingAvailable = hasEventCategory
+              ? availableParticipants.filter((p) =>
+                  isCategoryMatch(activeParticipantsModalEvent.category, p.class_or_age)
+                )
+              : availableParticipants;
+            const matchingCount = matchingAvailable.length;
+            const effectiveMatchingOnly = hasEventCategory && pickerMatchingOnly;
+            const poolForSearch = effectiveMatchingOnly ? matchingAvailable : availableParticipants;
             const q = participantPickerSearch.trim().toLowerCase();
-            const filteredAvailable = availableParticipants.filter(
+            const filteredAvailable = poolForSearch.filter(
               (p) =>
                 !q ||
                 p.name.toLowerCase().includes(q) ||
@@ -3109,6 +3270,13 @@ export function EventsTab({
                     </div>
                   )}
 
+                  {ignoredCategoryWarningEventIds.has(activeParticipantsModalEvent.id) && (
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs lg:text-sm font-medium flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span>Category warnings are off for this event</span>
+                    </div>
+                  )}
+
                   <div className="relative">
                     <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
@@ -3121,7 +3289,39 @@ export function EventsTab({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {hasEventCategory && (
+                        <div
+                          role="group"
+                          aria-label="Filter by event category"
+                          className="inline-flex rounded-xl border border-stone-200 dark:border-zinc-800 bg-stone-100/80 dark:bg-zinc-900 p-0.5"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setPickerMatchingOnly(true)}
+                            aria-pressed={effectiveMatchingOnly}
+                            className={`min-h-[36px] px-2.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                              effectiveMatchingOnly
+                                ? 'bg-white dark:bg-zinc-800 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                            }`}
+                          >
+                            Matching ({matchingCount})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPickerMatchingOnly(false)}
+                            aria-pressed={!effectiveMatchingOnly}
+                            className={`min-h-[36px] px-2.5 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                              !effectiveMatchingOnly
+                                ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs'
+                                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                            }`}
+                          >
+                            All ({availableParticipants.length})
+                          </button>
+                        </div>
+                      )}
                       <button
                         type="button"
                         disabled={!canAddParticipants || eligibleFilteredIds.length === 0}
@@ -3220,12 +3420,18 @@ export function EventsTab({
                                   {p.identity_id || `P-${p.sl_no || '0000'}`}
                                 </span>
                                 <span aria-hidden="true">·</span>
-                                <span className="truncate">{p.school || 'General Institution'}</span>
-                                {p.class_or_age && (
+                                <span className="truncate">
+                                  {p.school ? p.school : <span className="italic text-zinc-400">No school</span>}
+                                </span>
+                                {p.class_or_age?.trim() ? (
                                   <>
                                     <span aria-hidden="true">·</span>
                                     <span>{p.class_or_age}</span>
                                   </>
+                                ) : (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 border border-stone-200/80 dark:border-zinc-700/60">
+                                    No class
+                                  </span>
                                 )}
                               </div>
                             </div>
@@ -3269,7 +3475,7 @@ export function EventsTab({
                               {p.name}
                             </div>
                             <div className="text-[11px] text-zinc-500 truncate">
-                              {p.school || 'General Institution'}
+                              {p.school || 'No school'}
                             </div>
                           </div>
                           <button
@@ -3860,7 +4066,7 @@ export function EventsTab({
                             </span>
                           </div>
                           <span className="text-[10px] lg:text-sm text-zinc-500 truncate max-w-[120px]">
-                            {pObj?.school || 'General'}
+                            {pObj?.school || 'No school'}
                           </span>
                         </div>
                       );
@@ -4096,6 +4302,187 @@ export function EventsTab({
             </div>
           );
           return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
+        })()}
+
+      {/* ======================================================== */}
+      {/* ENROLMENT RULE WARNING DIALOGS (Category / Duplicate)    */}
+      {/* ======================================================== */}
+      {pendingEnrollWarning &&
+        (() => {
+          const warnNode = (
+            <div
+              className="fixed inset-0 z-[145] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="enroll-rule-warning-title"
+              onClick={() => setPendingEnrollWarning(null)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-zinc-950 border border-amber-500/40 rounded-3xl max-w-sm w-full max-h-[90dvh] overflow-y-auto p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 motion-reduce:animate-none"
+              >
+                {pendingEnrollWarning.categoryMismatch ? (
+                  <>
+                    <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-400">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                        <AlertTriangle className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3
+                          id="enroll-rule-warning-title"
+                          className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                        >
+                          Category Mismatch
+                        </h3>
+                        <p className="text-xs lg:text-sm text-amber-700 dark:text-amber-400 font-mono truncate">
+                          Event: {pendingEnrollWarning.categoryMismatch.eventCategory}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                      {pendingEnrollWarning.categoryMismatch.mismatchedParticipants.length === 1
+                        ? 'This participant has a different class or category from the event:'
+                        : `${pendingEnrollWarning.categoryMismatch.mismatchedParticipants.length} selected participants have a different class or category from the event:`}
+                    </p>
+
+                    <ul className="space-y-1.5 max-h-40 overflow-y-auto p-2.5 rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800">
+                      {pendingEnrollWarning.categoryMismatch.mismatchedParticipants.map((m) => (
+                        <li
+                          key={m.id}
+                          className="flex items-center justify-between gap-2 text-xs lg:text-sm"
+                        >
+                          <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                            {m.name}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-300 font-mono text-[11px] shrink-0">
+                            {m.class_or_age}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="space-y-2 pt-1">
+                      <button
+                        type="button"
+                        autoFocus
+                        onClick={() => setPendingEnrollWarning(null)}
+                        className="w-full min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs lg:text-sm font-bold rounded-xl border border-stone-300 dark:border-zinc-700 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-500"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const { participantIds, duplicateMatches } = pendingEnrollWarning;
+                          if (duplicateMatches.length > 0) {
+                            setPendingEnrollWarning({
+                              ...pendingEnrollWarning,
+                              categoryMismatch: null,
+                            });
+                          } else {
+                            setPendingEnrollWarning(null);
+                            void commitBatchEnrollParticipants(participantIds);
+                          }
+                        }}
+                        className="w-full min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+                      >
+                        Ignore once
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const { eventId, participantIds, duplicateMatches } = pendingEnrollWarning;
+                          setIgnoredCategoryWarningEventIds((prev) => {
+                            const next = new Set(prev);
+                            next.add(eventId);
+                            return next;
+                          });
+                          if (duplicateMatches.length > 0) {
+                            setPendingEnrollWarning({
+                              ...pendingEnrollWarning,
+                              categoryMismatch: null,
+                            });
+                          } else {
+                            setPendingEnrollWarning(null);
+                            void commitBatchEnrollParticipants(participantIds);
+                          }
+                        }}
+                        className="w-full min-h-[44px] rounded-xl text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-xs lg:text-sm font-semibold transition-colors cursor-pointer"
+                      >
+                        Ignore all for this event
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-400">
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                        <AlertTriangle className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3
+                          id="enroll-rule-warning-title"
+                          className="text-base font-bold text-zinc-900 dark:text-white leading-tight"
+                        >
+                          Possible Duplicate in Event
+                        </h3>
+                        <p className="text-xs lg:text-sm text-amber-700 dark:text-amber-400 font-mono">
+                          {pendingEnrollWarning.duplicateMatches.length === 1
+                            ? '1 close match found'
+                            : `${pendingEnrollWarning.duplicateMatches.length} close matches found`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="text-xs lg:text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                      A participant with a matching or very similar name and school is already in this event or selection:
+                    </p>
+
+                    <ul className="space-y-2 max-h-44 overflow-y-auto p-2.5 rounded-2xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800">
+                      {pendingEnrollWarning.duplicateMatches.map((m, idx) => (
+                        <li key={`${m.existingId || m.existingName}-${idx}`} className="text-xs space-y-0.5">
+                          <div className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                            {m.candidateName}{' '}
+                            <span className="font-normal text-zinc-500">matches</span>{' '}
+                            {m.existingName}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                            {m.existingIdentityId ? `${m.existingIdentityId} · ` : ''}
+                            {m.existingSchool || 'No school'}
+                            {m.existingClassOrAge ? ` · ${m.existingClassOrAge}` : ''}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <button
+                        type="button"
+                        autoFocus
+                        onClick={() => setPendingEnrollWarning(null)}
+                        className="min-h-[44px] bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs lg:text-sm font-bold rounded-xl border border-stone-300 dark:border-zinc-700 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-500"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const { participantIds } = pendingEnrollWarning;
+                          setPendingEnrollWarning(null);
+                          void commitBatchEnrollParticipants(participantIds);
+                        }}
+                        className="min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white text-xs lg:text-sm font-bold rounded-xl shadow-sm transition-colors cursor-pointer"
+                      >
+                        Add anyway
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(warnNode, document.body) : warnNode;
         })()}
 
       {/* ======================================================== */}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Play, 
   Square, 
@@ -17,7 +18,8 @@ import {
   ShieldCheck,
   Lock,
   Unlock,
-  Megaphone
+  Megaphone,
+  Eye
 } from 'lucide-react';
 import { 
   Organization, 
@@ -48,6 +50,14 @@ import {
   isCriticalSeverity,
   isNoticeRead,
 } from '../../../lib/announcements';
+import {
+  evaluateEndEventRules,
+  evaluatePreFlightRules,
+  type PreFlightMissingFieldsMeta,
+  type PreFlightUnassignedJudgesMeta,
+  type RuleEvaluation,
+} from '../../../lib/rules';
+import { EventProgressScreen } from '../EventProgressScreen';
 
 function formatNoticeTime(iso?: string, fallbackMs?: number): string {
   const ms = iso ? Date.parse(iso) : NaN;
@@ -173,6 +183,7 @@ interface EventCardProps {
   onResume: (event: SupabaseEvent, e: React.MouseEvent) => void;
   onOpenEndConfirm: (event: SupabaseEvent, e: React.MouseEvent) => void;
   onToggleLock: (event: SupabaseEvent) => void;
+  onOpenProgress: (event: SupabaseEvent, e: React.MouseEvent) => void;
   onOpenPublicView?: (eventId: string) => void;
 }
 
@@ -190,6 +201,7 @@ export const EventCard = React.memo(function EventCard({
   onResume,
   onOpenEndConfirm,
   onToggleLock,
+  onOpenProgress,
   onOpenPublicView,
 }: EventCardProps) {
   // Required judges count
@@ -321,6 +333,20 @@ export const EventCard = React.memo(function EventCard({
                 <span className="hidden sm:inline">Unlocked</span>
               </span>
             )}
+          </button>
+
+          {/* Read-only Progress View Eye Button (44x44px, enabled for all event statuses) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenProgress(event, e);
+            }}
+            aria-label="View event progress"
+            title="View progress"
+            className="min-h-[44px] min-w-[44px] w-11 h-11 flex items-center justify-center rounded-xl border border-stone-200/60 dark:border-zinc-700 bg-stone-100/60 dark:bg-zinc-800/60 text-stone-600 dark:text-zinc-300 hover:text-stone-900 dark:hover:text-white hover:border-stone-300 dark:hover:border-zinc-600 transition-colors motion-reduce:transition-none cursor-pointer shrink-0"
+          >
+            <Eye className="w-4 h-4 stroke-[2.2]" />
           </button>
         </div>
 
@@ -794,9 +820,14 @@ export function LiveTab({
   // 3. Accordion Expanded Card State (Single expandedCardId or null)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
 
-  // 4. Double-Confirmation Modal State for Ending Session & Unlocking Live Event
+  // 4. Pre-Flight Checklist, End-of-Event Check, & Unlock Live Confirmation Modals
+  const [preFlightDialog, setPreFlightDialog] = useState<{
+    event: SupabaseEvent;
+    evaluation: RuleEvaluation;
+  } | null>(null);
   const [confirmingEvent, setConfirmingEvent] = useState<SupabaseEvent | null>(null);
   const [unlockConfirmEvent, setUnlockConfirmEvent] = useState<SupabaseEvent | null>(null);
+  const [progressEventId, setProgressEventId] = useState<string | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [isRetryingRead, setIsRetryingRead] = useState(false);
   const readErrorRef = useRef<string | null>(null);
@@ -955,23 +986,31 @@ export function LiveTab({
 
   // Modal Scroll Lock & Escape Key: Ensure body does not scroll while confirm modal or alert popover is open
   useEffect(() => {
-    if (confirmingEvent || isAlertsOpen || unlockConfirmEvent) {
+    if (preFlightDialog || confirmingEvent || isAlertsOpen || unlockConfirmEvent) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
-          setConfirmingEvent(null);
-          setUnlockConfirmEvent(null);
-          setIsAlertsOpen(false);
+          e.preventDefault();
+          e.stopPropagation();
+          if (preFlightDialog) {
+            setPreFlightDialog(null);
+          } else if (confirmingEvent) {
+            setConfirmingEvent(null);
+          } else if (unlockConfirmEvent) {
+            setUnlockConfirmEvent(null);
+          } else if (isAlertsOpen) {
+            setIsAlertsOpen(false);
+          }
         }
       };
-      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keydown', handleKeyDown, true);
       return () => {
         document.body.style.overflow = originalOverflow;
-        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keydown', handleKeyDown, true);
       };
     }
-  }, [confirmingEvent, isAlertsOpen, unlockConfirmEvent]);
+  }, [preFlightDialog, confirmingEvent, isAlertsOpen, unlockConfirmEvent]);
 
   // Helper to compute live elapsed seconds for an event
   const computeEventElapsedSeconds = useCallback((event: SupabaseEvent): number => {
@@ -1081,8 +1120,7 @@ export function LiveTab({
   // -------------------------------------------------------------
   // EVENT LIFECYCLE ACTION HANDLERS
   // -------------------------------------------------------------
-  const handleStartSession = useCallback(async (event: SupabaseEvent, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const commitStartSession = useCallback(async (event: SupabaseEvent) => {
     const nowIso = new Date().toISOString();
     try {
       await dbService.updateEventStatus(event.id, 'active');
@@ -1108,6 +1146,24 @@ export function LiveTab({
       }
     }
   }, []);
+
+  const handleStartSession = useCallback(
+    async (event: SupabaseEvent, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const evaluation = evaluatePreFlightRules({
+        event,
+        orgEvents: events,
+        orgJudges: judges,
+        orgParticipants: allParticipants,
+      });
+      if (evaluation.hasBlocks || evaluation.hasWarnings) {
+        setPreFlightDialog({ event, evaluation });
+        return;
+      }
+      await commitStartSession(event);
+    },
+    [events, judges, allParticipants, commitStartSession]
+  );
 
   const handlePauseSession = useCallback(async (event: SupabaseEvent, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1163,10 +1219,29 @@ export function LiveTab({
     }
   }, []);
 
-  const handleOpenEndConfirm = useCallback((event: SupabaseEvent, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmingEvent(event);
-  }, []);
+  const handleOpenEndConfirm = useCallback(
+    (event: SupabaseEvent, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setConfirmingEvent(event);
+      // Non-blocking background refresh while online so late ballots update live inside the dialog
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        void loadData(true);
+      }
+    },
+    [loadData]
+  );
+
+  const handleOpenProgress = useCallback(
+    (event: SupabaseEvent, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setProgressEventId(event.id);
+      // Non-blocking background refresh while online so late ballots appear while progress view is open
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        void loadData(true);
+      }
+    },
+    [loadData]
+  );
 
   const handleConfirmEndSession = async () => {
     if (!confirmingEvent) return;
@@ -1348,6 +1423,27 @@ export function LiveTab({
     return participant.name;
   };
 
+  // End-of-event check derived synchronously from cached state (live-updates if background sync completes)
+  const confirmingEventLive = useMemo(() => {
+    if (!confirmingEvent) return null;
+    return events.find((e) => e.id === confirmingEvent.id) || confirmingEvent;
+  }, [confirmingEvent, events]);
+
+  const endCheckEvaluation = useMemo(() => {
+    if (!confirmingEventLive) return null;
+    return evaluateEndEventRules({
+      event: confirmingEventLive,
+      orgJudges: judges,
+      orgParticipants: allParticipants,
+      eventScores: scoresByEvent.get(confirmingEventLive.id) || [],
+    });
+  }, [confirmingEventLive, judges, allParticipants, scoresByEvent]);
+
+  const progressEvent = useMemo(() => {
+    if (!progressEventId) return null;
+    return events.find((e) => e.id === progressEventId) || null;
+  }, [progressEventId, events]);
+
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-32 relative">
       {/* ======================================================== */}
@@ -1449,6 +1545,7 @@ export function LiveTab({
                 onResume={handleResumeSession}
                 onOpenEndConfirm={handleOpenEndConfirm}
                 onToggleLock={handleToggleLock}
+                onOpenProgress={handleOpenProgress}
                 onOpenPublicView={onOpenPublicView}
               />
             );
@@ -1457,62 +1554,348 @@ export function LiveTab({
       </div>
 
       {/* ======================================================== */}
-      {/* DOUBLE-CONFIRMATION MODAL FOR ENDING EVENT SESSION       */}
-      {/* Rendered outside the scroll container with body lock     */}
+      {/* READ-ONLY EVENT PROGRESS VIEW (TaskScreen)               */}
       {/* ======================================================== */}
-      {confirmingEvent && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-fade-in"
-          onClick={() => setConfirmingEvent(null)}
-        >
+      <EventProgressScreen
+        event={progressEvent}
+        orgJudges={judges}
+        orgParticipants={allParticipants}
+        eventScores={progressEvent ? scoresByEvent.get(progressEvent.id) || [] : []}
+        blindJudgingEnabled={Boolean(organization.blind_judging_enabled)}
+        getParticipantDisplayName={getParticipantDisplayName}
+        onClose={() => setProgressEventId(null)}
+      />
+
+      {/* ======================================================== */}
+      {/* START PRE-FLIGHT CHECKLIST DIALOG (Portaled z-[145])     */}
+      {/* ======================================================== */}
+      {preFlightDialog &&
+        typeof document !== 'undefined' &&
+        createPortal(
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-4"
+            className="fixed inset-0 z-[145] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+            onClick={() => setPreFlightDialog(null)}
           >
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto border border-rose-500/20">
-              <AlertTriangle className="w-6 h-6 stroke-[2.2]" />
-            </div>
-
-            <div className="text-center space-y-1">
-              <h3 className="text-lg font-black text-stone-900 dark:text-white tracking-tight">
-                End Live Session?
-              </h3>
-              <p className="text-xs lg:text-sm text-stone-500 dark:text-zinc-400 leading-relaxed">
-                Are you sure you want to end &ldquo;{confirmingEvent.name}&rdquo;? This will finalize all submitted judge scores and seal the scoring ledger permanently.
-              </p>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 text-[11px] lg:text-sm text-stone-600 dark:text-zinc-400 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-stone-900 dark:text-white">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                Ledger Security Enforcement
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={
+                preFlightDialog.evaluation.hasBlocks
+                  ? 'Cannot Start Event'
+                  : 'Check Before Starting'
+              }
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col p-5 shadow-2xl"
+            >
+              <div className="flex items-start gap-3 shrink-0">
+                <div
+                  className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                    preFlightDialog.evaluation.hasBlocks
+                      ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+                      : 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
+                  }`}
+                >
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm lg:text-base font-bold text-stone-900 dark:text-white">
+                    {preFlightDialog.evaluation.hasBlocks
+                      ? 'Cannot Start Event'
+                      : 'Check Before Starting'}
+                  </h3>
+                  <p className="text-xs lg:text-sm text-stone-500 dark:text-zinc-400 truncate mt-0.5">
+                    &ldquo;{preFlightDialog.event.name}&rdquo;
+                  </p>
+                </div>
               </div>
-              <p className="leading-tight">
-                Judges will no longer be able to submit new criteria evaluations once ended.
-              </p>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirmingEvent(null)}
-                className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-stone-700 dark:text-zinc-200 transition-colors cursor-pointer"
+              <div className="mt-4 space-y-3 overflow-y-auto overscroll-contain pr-0.5 flex-1 min-h-0">
+                {/* Blockers listed first in rose */}
+                {preFlightDialog.evaluation.blocks.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                      Required before starting ({preFlightDialog.evaluation.blocks.length})
+                    </div>
+                    {preFlightDialog.evaluation.blocks.map((block) => (
+                      <div
+                        key={block.id}
+                        className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 space-y-0.5"
+                      >
+                        <div className="text-xs lg:text-sm font-bold text-rose-700 dark:text-rose-300">
+                          {block.title}
+                        </div>
+                        <div className="text-[11px] lg:text-xs text-stone-700 dark:text-zinc-300 leading-relaxed">
+                          {block.message}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Warnings listed in amber, scrollable */}
+                {preFlightDialog.evaluation.warnings.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                      Warnings ({preFlightDialog.evaluation.warnings.length})
+                    </div>
+                    {preFlightDialog.evaluation.warnings.map((warn) => {
+                      const missingMeta =
+                        warn.id === 'preflight_missing_school_class'
+                          ? (warn.meta as unknown as PreFlightMissingFieldsMeta | undefined)
+                          : undefined;
+                      const unassignedMeta =
+                        warn.id === 'preflight_judge_unassigned'
+                          ? (warn.meta as unknown as PreFlightUnassignedJudgesMeta | undefined)
+                          : undefined;
+
+                      return (
+                        <div
+                          key={warn.id}
+                          className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1.5"
+                        >
+                          <div className="text-xs lg:text-sm font-bold text-amber-800 dark:text-amber-300">
+                            {warn.title}
+                          </div>
+                          <div className="text-[11px] lg:text-xs text-stone-700 dark:text-zinc-300 leading-relaxed">
+                            {warn.message}
+                          </div>
+
+                          {missingMeta && missingMeta.items.length > 0 && (
+                            <div className="max-h-32 overflow-y-auto overscroll-contain rounded-lg bg-white/70 dark:bg-zinc-900/70 border border-amber-500/20 divide-y divide-amber-500/10">
+                              {missingMeta.items.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px] lg:text-xs"
+                                >
+                                  <span className="font-semibold text-stone-900 dark:text-white truncate">
+                                    {getParticipantDisplayName(
+                                      item.participant,
+                                      preFlightDialog.event
+                                    )}
+                                  </span>
+                                  <span className="text-amber-700 dark:text-amber-300 shrink-0 font-medium">
+                                    {[
+                                      item.missingSchool ? 'No school' : null,
+                                      item.missingClass ? 'No class' : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(', ')}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {unassignedMeta && unassignedMeta.judges.length > 0 && (
+                            <div className="max-h-32 overflow-y-auto overscroll-contain rounded-lg bg-white/70 dark:bg-zinc-900/70 border border-amber-500/20 divide-y divide-amber-500/10">
+                              {unassignedMeta.judges.map((j) => (
+                                <div
+                                  key={j.id}
+                                  className="px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px] lg:text-xs"
+                                >
+                                  <span className="font-semibold text-stone-900 dark:text-white truncate">
+                                    {j.name}
+                                  </span>
+                                  {j.judgeCode && (
+                                    <span className="font-mono text-stone-500 dark:text-zinc-400 shrink-0">
+                                      {j.judgeCode}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div
+                className={`mt-4 pt-3 border-t border-stone-100 dark:border-zinc-800 shrink-0 ${
+                  preFlightDialog.evaluation.hasBlocks ? '' : 'grid grid-cols-2 gap-2.5'
+                }`}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmEndSession}
-                className="w-full min-h-[44px] py-3 px-4 rounded-xl font-bold text-sm bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-900/20 active:scale-95 transition-colors motion-reduce:transition-none cursor-pointer"
-              >
-                End Session
-              </button>
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => setPreFlightDialog(null)}
+                  className="w-full min-h-[44px] py-2.5 px-4 rounded-xl font-bold text-xs lg:text-sm bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-stone-800 dark:text-zinc-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                {!preFlightDialog.evaluation.hasBlocks && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetEvent = preFlightDialog.event;
+                      setPreFlightDialog(null);
+                      void commitStartSession(targetEvent);
+                    }}
+                    className="w-full min-h-[44px] py-2.5 px-4 rounded-xl font-bold text-xs lg:text-sm bg-emerald-600 hover:bg-emerald-500 text-white active:scale-[0.98] transition-[transform,colors] motion-reduce:transition-none cursor-pointer"
+                  >
+                    Start anyway
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
+
+      {/* ======================================================== */}
+      {/* END-OF-EVENT CHECK MODAL (Portaled z-[145], Warn-only)   */}
+      {/* ======================================================== */}
+      {confirmingEventLive &&
+        endCheckEvaluation &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[145] bg-black/75 flex items-center justify-center p-4 animate-in fade-in duration-150 motion-reduce:animate-none pointer-events-auto"
+            onClick={() => setConfirmingEvent(null)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="End Live Session"
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col p-5 shadow-2xl"
+            >
+              <div className="flex items-start gap-3 shrink-0">
+                <div
+                  className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                    endCheckEvaluation.hasWarnings
+                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
+                      : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm lg:text-base font-bold text-stone-900 dark:text-white">
+                    End Live Session?
+                  </h3>
+                  <p className="text-xs lg:text-sm text-stone-500 dark:text-zinc-400 truncate mt-0.5">
+                    &ldquo;{confirmingEventLive.name}&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3 overflow-y-auto overscroll-contain pr-0.5 flex-1 min-h-0">
+                {/* Ballot Completeness Summary */}
+                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs lg:text-sm font-bold text-stone-900 dark:text-white">
+                      Ballots submitted: {endCheckEvaluation.completedBallots} of{' '}
+                      {endCheckEvaluation.totalBallots} done
+                    </span>
+                  </div>
+                  {endCheckEvaluation.perJudgeProgress.length > 0 && (
+                    <div className="max-h-28 overflow-y-auto overscroll-contain space-y-1 pt-1 border-t border-stone-200/70 dark:border-zinc-800">
+                      {endCheckEvaluation.perJudgeProgress.map((jp) => (
+                        <div
+                          key={jp.judgeId}
+                          className="flex items-center justify-between gap-2 text-[11px] lg:text-xs text-stone-600 dark:text-zinc-300"
+                        >
+                          <span className="truncate font-medium">{jp.judgeName}</span>
+                          <span className="font-mono font-bold tabular-nums shrink-0 text-stone-800 dark:text-zinc-200">
+                            {jp.scoredCount}/{jp.totalParticipants}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Unscored Participants List */}
+                {endCheckEvaluation.unscoredParticipants.length > 0 && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-2">
+                    <div className="text-xs lg:text-sm font-bold text-amber-800 dark:text-amber-300">
+                      Unscored participants ({endCheckEvaluation.unscoredParticipants.length})
+                    </div>
+                    <div className="max-h-36 overflow-y-auto overscroll-contain rounded-lg bg-white/75 dark:bg-zinc-900/75 border border-amber-500/20 divide-y divide-amber-500/10">
+                      {endCheckEvaluation.unscoredParticipants.map((item) => (
+                        <div
+                          key={item.id}
+                          className="px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px] lg:text-xs"
+                        >
+                          <span className="font-semibold text-stone-900 dark:text-white truncate">
+                            {getParticipantDisplayName(item.participant, confirmingEventLive)}
+                          </span>
+                          <span className="font-mono text-amber-700 dark:text-amber-300 shrink-0 tabular-nums">
+                            0 of {item.requiredCount} judges
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Partially Scored Participants List */}
+                {endCheckEvaluation.partialParticipants.length > 0 && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-2">
+                    <div className="text-xs lg:text-sm font-bold text-amber-800 dark:text-amber-300">
+                      Partially scored participants ({endCheckEvaluation.partialParticipants.length})
+                    </div>
+                    <div className="max-h-36 overflow-y-auto overscroll-contain rounded-lg bg-white/75 dark:bg-zinc-900/75 border border-amber-500/20 divide-y divide-amber-500/10">
+                      {endCheckEvaluation.partialParticipants.map((item) => (
+                        <div key={item.id} className="px-2.5 py-1.5 space-y-0.5 text-[11px] lg:text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-stone-900 dark:text-white truncate">
+                              {getParticipantDisplayName(item.participant, confirmingEventLive)}
+                            </span>
+                            <span className="font-mono text-amber-700 dark:text-amber-300 shrink-0 tabular-nums">
+                              {item.scoredCount} of {item.requiredCount} judges
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-stone-600 dark:text-zinc-400 leading-snug">
+                            Missing: {item.missingJudges.map((j) => j.name).join(', ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Offline Sync Caveat */}
+                <p className="text-[11px] lg:text-xs text-stone-500 dark:text-zinc-400 leading-relaxed px-0.5">
+                  Scores submitted offline on judge devices may still be syncing.
+                </p>
+
+                {/* Ledger Security Enforcement Notice */}
+                <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-[11px] lg:text-xs text-stone-600 dark:text-zinc-400 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-stone-900 dark:text-white">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                    Ledger Security Enforcement
+                  </div>
+                  <p className="leading-tight">
+                    Judges will no longer be able to submit new criteria evaluations once ended.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-stone-100 dark:border-zinc-800 grid grid-cols-2 gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={() => setConfirmingEvent(null)}
+                  className="w-full min-h-[44px] py-2.5 px-4 rounded-xl font-bold text-xs lg:text-sm bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-stone-800 dark:text-zinc-100 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmEndSession}
+                  className="w-full min-h-[44px] py-2.5 px-4 rounded-xl font-bold text-xs lg:text-sm bg-rose-600 hover:bg-rose-500 text-white active:scale-[0.98] transition-[transform,colors] motion-reduce:transition-none cursor-pointer"
+                >
+                  {endCheckEvaluation.hasWarnings ? 'End anyway' : 'End Session'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* ======================================================== */}
       {/* DOUBLE-CONFIRMATION MODAL FOR UNLOCKING LIVE EVENT       */}
