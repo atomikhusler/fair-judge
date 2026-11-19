@@ -36,6 +36,7 @@ import { eventBus, areRecordsEqual } from '../../../lib/eventBus';
 import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { showToast } from '../../common/ToastProvider';
+import { printDocument } from '../../../lib/fileActions';
 
 interface InsightsTabProps {
   organization: Organization;
@@ -447,8 +448,12 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     XLSX.writeFile(wb, `${fileNamePrefix}_${organization.org_id}.xlsx`);
   };
 
-  // Master PDF Generator with window.open (no blocked iframes)
-  const exportToPDFWithMasterHeader = (reportTitle: string, contentHtml: string) => {
+  // Master PDF Generator routed through shared printDocument fallback chain
+  const exportToPDFWithMasterHeader = (
+    reportTitle: string,
+    contentHtml: string,
+    forceInApp: boolean = false
+  ) => {
     const escapeHtml = (str: string) =>
       String(str || '')
         .replace(/&/g, '&amp;')
@@ -581,23 +586,20 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       </html>
     `;
 
-    const printWin = window.open('', '_blank');
-    if (printWin) {
-      printWin.document.write(htmlDocument);
-      printWin.document.close();
-      printWin.focus();
-      setTimeout(() => {
-        printWin.print();
-      }, 250);
-    } else {
-      showToast('Pop-up blocked. Allow pop-ups to export PDF.', 'warning');
-    }
+    void printDocument(
+      htmlDocument,
+      `${organization.name} - ${reportTitle}`,
+      { forceInApp }
+    ).catch((err: any) => {
+      console.error('Failed to print report:', err);
+      showToast(err?.message || 'Unable to prepare report for printing.', 'error');
+    });
   };
 
   // --- EXPORT HANDLERS FOR EACH PILLAR ---
 
   // 1. RESULTS EXPORT (Concluded Events Only)
-  const handleExportResultsPDF = () => {
+  const handleExportResultsPDF = (forceInApp: boolean = false) => {
     const concludedEvents = eventStandings.filter(
       (es) => es.event.status === 'ended' || es.event.status === 'archived'
     );
@@ -605,7 +607,8 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     if (concludedEvents.length === 0) {
       exportToPDFWithMasterHeader(
         'Official Results & Podium Standings',
-        '<div style="padding: 32px; text-align: center; color: #71717a; font-size: 13px;">No events have concluded yet. Results and podium standings will be securely generated here once a live session ends.</div>'
+        '<div style="padding: 32px; text-align: center; color: #71717a; font-size: 13px;">No events have concluded yet. Results and podium standings will be securely generated here once a live session ends.</div>',
+        forceInApp
       );
       return;
     }
@@ -658,7 +661,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       })
       .join('');
 
-    exportToPDFWithMasterHeader('Official Results & Podium Standings', content);
+    exportToPDFWithMasterHeader('Official Results & Podium Standings', content, forceInApp);
   };
 
   const handleExportResultsExcel = () => {
@@ -701,7 +704,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   };
 
   // 2. STATS EXPORT (Smart Scorecard Matrix with Jury Legend)
-  const handleExportStatsPDF = () => {
+  const handleExportStatsPDF = (forceInApp: boolean = false) => {
     const content = eventStandings.map(({ event, standings }) => {
       const evScores = allScores.filter((s) => s.event_id === event.id);
       const evJudges = judges.filter((j) => evScores.some((s) => s.judge_id === j.id));
@@ -770,7 +773,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       `;
     }).join('');
 
-    exportToPDFWithMasterHeader('Master Scorecard & Jury Ballot Stats', content);
+    exportToPDFWithMasterHeader('Master Scorecard & Jury Ballot Stats', content, forceInApp);
   };
 
   const handleExportStatsExcel = () => {
@@ -854,7 +857,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   };
 
   // 3. ANALYTICS EXPORT
-  const handleExportAnalyticsPDF = () => {
+  const handleExportAnalyticsPDF = (forceInApp: boolean = false) => {
     const absenteesHtml = absenteesList.length === 0
       ? '<p style="font-size: 11px; color: #71717a;">Zero absentees recorded across all completed events.</p>'
       : `
@@ -967,7 +970,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       </div>
     `;
 
-    exportToPDFWithMasterHeader('Jury Integrity & Competitor Analytics', content);
+    exportToPDFWithMasterHeader('Jury Integrity & Competitor Analytics', content, forceInApp);
   };
 
   const handleExportAnalyticsExcel = () => {
@@ -1026,7 +1029,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
   };
 
   // 4. LOGS EXPORT
-  const handleExportLogsPDF = () => {
+  const handleExportLogsPDF = (forceInApp: boolean = false) => {
     const content = `
       <div class="section-block">
         <div class="section-title">Official Cryptographic Ballot Commit Log (${filteredScores.length} Entries)</div>
@@ -1066,7 +1069,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       </div>
     `;
 
-    exportToPDFWithMasterHeader('Official Cryptographic Ledger Logs', content);
+    exportToPDFWithMasterHeader('Official Cryptographic Ledger Logs', content, forceInApp);
   };
 
   const handleExportLogsExcel = () => {
@@ -1186,24 +1189,35 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         {activePillar === 'results' && (
           <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={handleExportResultsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Printer className="w-4 h-4 stroke-[2.2] text-cyan-500 dark:text-cyan-600" />
-                <span>Export PDF (Results)</span>
-              </button>
+            <div className="space-y-1">
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleExportResultsPDF(false)}
+                  className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 stroke-[2.2] text-cyan-500 dark:text-cyan-600" />
+                  <span>Export PDF (Results)</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleExportResultsExcel}
-                className="min-h-[44px] px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-cyan-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
-                <span>Download Excel (Results)</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleExportResultsExcel}
+                  className="min-h-[44px] px-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-cyan-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
+                  <span>Download Excel (Results)</span>
+                </button>
+              </div>
+              <div className="flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => handleExportResultsPDF(true)}
+                  className="text-[11px] font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 underline underline-offset-2 px-1 py-0.5 cursor-pointer"
+                >
+                  Print in app
+                </button>
+              </div>
             </div>
 
             {/* Event List with Metallic Accented Podiums */}
@@ -1322,24 +1336,35 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         {activePillar === 'stats' && (
           <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={handleExportStatsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Printer className="w-4 h-4 stroke-[2.2] text-rose-500 dark:text-rose-400" />
-                <span>Export PDF (Stats)</span>
-              </button>
+            <div className="space-y-1">
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleExportStatsPDF(false)}
+                  className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 stroke-[2.2] text-rose-500 dark:text-rose-400" />
+                  <span>Export PDF (Stats)</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleExportStatsExcel}
-                className="min-h-[44px] px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-rose-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
-                <span>Download Excel (Stats)</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleExportStatsExcel}
+                  className="min-h-[44px] px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-rose-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
+                  <span>Download Excel (Stats)</span>
+                </button>
+              </div>
+              <div className="flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => handleExportStatsPDF(true)}
+                  className="text-[11px] font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 underline underline-offset-2 px-1 py-0.5 cursor-pointer"
+                >
+                  Print in app
+                </button>
+              </div>
             </div>
 
             {/* Collapsible Event Accordions */}
@@ -1504,24 +1529,35 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         {activePillar === 'analytics' && (
           <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={handleExportAnalyticsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Printer className="w-4 h-4 stroke-[2.2] text-amber-500 dark:text-amber-600" />
-                <span>Export PDF (Analytics)</span>
-              </button>
+            <div className="space-y-1">
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleExportAnalyticsPDF(false)}
+                  className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 stroke-[2.2] text-amber-500 dark:text-amber-600" />
+                  <span>Export PDF (Analytics)</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleExportAnalyticsExcel}
-                className="min-h-[44px] px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-amber-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
-                <span>Download Excel (Analytics)</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleExportAnalyticsExcel}
+                  className="min-h-[44px] px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-amber-600/20 active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
+                  <span>Download Excel (Analytics)</span>
+                </button>
+              </div>
+              <div className="flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => handleExportAnalyticsPDF(true)}
+                  className="text-[11px] font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 underline underline-offset-2 px-1 py-0.5 cursor-pointer"
+                >
+                  Print in app
+                </button>
+              </div>
             </div>
 
             {/* 1. Absentee Tracker */}
@@ -1736,24 +1772,35 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         {activePillar === 'logs' && (
           <div className="space-y-4 animate-in fade-in duration-200 motion-reduce:animate-none">
             {/* Header: Two massive export buttons */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={handleExportLogsPDF}
-                className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Printer className="w-4 h-4 stroke-[2.2] text-stone-400 dark:text-stone-600" />
-                <span>Export PDF (Logs)</span>
-              </button>
+            <div className="space-y-1">
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleExportLogsPDF(false)}
+                  className="min-h-[44px] px-3 bg-stone-900 hover:bg-stone-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 stroke-[2.2] text-stone-400 dark:text-stone-600" />
+                  <span>Export PDF (Logs)</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleExportLogsExcel}
-                className="min-h-[44px] px-3 bg-stone-700 hover:bg-stone-600 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
-                <span>Download Excel (Logs)</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleExportLogsExcel}
+                  className="min-h-[44px] px-3 bg-stone-700 hover:bg-stone-600 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm active:scale-95 transition-transform motion-reduce:transition-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
+                  <span>Download Excel (Logs)</span>
+                </button>
+              </div>
+              <div className="flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => handleExportLogsPDF(true)}
+                  className="text-[11px] font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 underline underline-offset-2 px-1 py-0.5 cursor-pointer"
+                >
+                  Print in app
+                </button>
+              </div>
             </div>
 
             {/* Filter Controls Strip */}

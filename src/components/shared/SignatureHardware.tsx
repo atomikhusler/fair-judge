@@ -792,7 +792,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                           role === 'organiser' ? 'text-emerald-400' : 'text-amber-400'
                         }`}
                       >
-                        JUDGE TRANSPARENTLY
+                        MANAGE &amp; EVALUATE FAIRLY
                       </p>
                       <span className="text-[10.5px] md:text-[2.75cqw] font-semibold uppercase tracking-[0.18em] text-zinc-300 fj-screen-font mt-2.5 md:mt-[2.6cqw]">
                         By Sahil Kumar Rout
@@ -805,7 +805,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                 {showAboutLayer && (
                   <div
                     role="region"
-                    aria-label="Fair Judge — Judge Transparently. Engineered with intent by Sahil Kumar Rout"
+                    aria-label="Fair Judge — Manage & Evaluate Fairly. Engineered with intent by Sahil Kumar Rout"
                     className="relative h-full flex flex-col justify-between text-center overflow-hidden select-none"
                   >
                     {/* Ambient Radial Glow */}
@@ -850,7 +850,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
                         Fair Judge
                       </h2>
                       <p className="text-[10px] md:text-[2.65cqw] tracking-[0.22em] uppercase font-mono font-bold text-zinc-300 mt-0.5 md:mt-[0.5cqw]">
-                        JUDGE TRANSPARENTLY
+                        MANAGE &amp; EVALUATE FAIRLY
                       </p>
 
                       <div className="fj-word-rise font-semibold text-[10px] md:text-[2.65cqw] uppercase tracking-[0.22em] text-zinc-400 fj-screen-font mt-3 md:mt-[3.1cqw] mb-1 md:mb-[1cqw]">

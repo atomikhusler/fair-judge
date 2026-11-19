@@ -4,12 +4,14 @@ import { QRCodeSVG } from 'qrcode.react';
 import { toBlob } from 'html-to-image';
 import { Organization, SupabaseJudge } from './supabaseTypes';
 import { safeName } from './downloadUtils';
-import { saveFile, printHtml } from './fileActions';
+import { saveFile, printDocument, PrintDocumentOptions } from './fileActions';
 import {
   JUDGE_BADGE_HEIGHT,
+  JUDGE_BADGE_QR_SIZE,
   JUDGE_BADGE_STYLES,
   JUDGE_BADGE_WIDTH,
   JudgeBadgeTemplateData,
+  deriveJudgeCode,
   renderBadgeHtml,
 } from './judgeBadgeTemplate';
 
@@ -17,11 +19,11 @@ function buildQrSvgMarkup(qrPayload: string): string {
   return renderToStaticMarkup(
     React.createElement(QRCodeSVG, {
       value: qrPayload,
-      size: 620,
+      size: JUDGE_BADGE_QR_SIZE,
       level: 'H',
       includeMargin: false,
       bgColor: '#FFFFFF',
-      fgColor: '#111111',
+      fgColor: '#111614',
     })
   );
 }
@@ -30,24 +32,30 @@ function buildTemplateData(
   judge: SupabaseJudge,
   organization: Organization
 ): JudgeBadgeTemplateData {
+  const judgeName = (judge.name || 'Judge').trim() || 'Judge';
+  const judgeId = judge.judge_id || judge.id.slice(0, 6);
   return {
-    judgeName: (judge.name || 'Judge').trim() || 'Judge',
+    judgeName,
     orgName: (organization.name || 'Fair Judge').trim() || 'Fair Judge',
     orgId: organization.org_id,
-    judgeId: judge.judge_id || judge.id.slice(0, 6),
+    judgeId,
+    judgeCode: deriveJudgeCode(judgeName, judgeId),
   };
 }
 
-async function ensureLocalGeistLoaded(): Promise<void> {
+async function ensureBadgeFontsLoaded(sampleText: string): Promise<void> {
   if (typeof document === 'undefined' || !('fonts' in document)) return;
   try {
+    const oriyaSample = `${sampleText} ଅ`;
     await Promise.race([
       Promise.all([
-        document.fonts.load('500 34px Geist'),
-        document.fonts.load('600 56px Geist'),
-        document.fonts.load('700 128px Geist'),
+        document.fonts.ready.catch(() => undefined),
+        document.fonts.load('500 46px Geist').catch(() => undefined),
+        document.fonts.load('600 64px Geist').catch(() => undefined),
+        document.fonts.load('500 46px "Noto Sans Oriya"', oriyaSample).catch(() => undefined),
+        document.fonts.load('600 64px "Noto Sans Oriya"', oriyaSample).catch(() => undefined),
       ]),
-      new Promise<void>((r) => window.setTimeout(r, 400)),
+      new Promise<void>((r) => window.setTimeout(r, 2000)),
     ]);
   } catch {
     // Fallback cleanly to system sans-serif if font preload fails
@@ -68,9 +76,9 @@ export async function exportJudgeBadgePng(
     throw new Error('Badge export is only supported in the browser.');
   }
 
-  await ensureLocalGeistLoaded();
-
   const data = buildTemplateData(judge, organization);
+  await ensureBadgeFontsLoaded(`${data.orgName} ${data.judgeName} ${data.judgeCode ?? ''}`);
+
   const qrSvg = buildQrSvgMarkup(qrPayload);
   const badgeMarkup = renderBadgeHtml(data, qrSvg);
 
@@ -152,10 +160,19 @@ export function buildJudgeBadgesPrintHtml(
   <style>
     @font-face {
       font-family: 'Geist';
-      src: url('/fonts/Geist-Variable-latin.woff2') format('woff2');
+      src: url('${baseHref}fonts/Geist-Variable-latin.woff2') format('woff2');
       font-weight: 200 700;
       font-style: normal;
       font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Noto Sans Oriya';
+      src: url('${baseHref}fonts/NotoSansOriya-oriya.woff2') format('woff2');
+      font-weight: 500 600;
+      font-style: normal;
+      font-display: swap;
+      unicode-range: U+0951-0952, U+0964-0965, U+0B01-0B77, U+1CDA, U+1CF2, U+200C-200D, U+20B9, U+25CC;
     }
 
     @page {
@@ -216,13 +233,15 @@ export function buildJudgeBadgesPrintHtml(
 
 /**
  * Prints all judges (one centred badge per A4 portrait page, in list order, no PIN)
- * through fileActions.printHtml().
+ * through fileActions.printDocument().
  */
 export async function exportJudgeBadgesPrint(
   judges: SupabaseJudge[],
   organization: Organization,
-  getQrPayload: (judge: SupabaseJudge) => string
+  getQrPayload: (judge: SupabaseJudge) => string,
+  options?: PrintDocumentOptions
 ): Promise<void> {
   const html = buildJudgeBadgesPrintHtml(judges, organization, getQrPayload);
-  await printHtml(html);
+  const title = `${(organization.name || 'Fair Judge').trim() || 'Fair Judge'} — Judge Badges`;
+  await printDocument(html, title, options);
 }

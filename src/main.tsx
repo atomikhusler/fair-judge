@@ -5,6 +5,7 @@ import App from './App.tsx';
 import './index.css';
 import { blackBox } from './lib/blackBox';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { PrintSheetHost } from './components/common/PrintSheetHost';
 import { initSwUpdateManager } from './lib/swUpdateManager';
 
 // Install Black Box error recording before first render
@@ -41,6 +42,7 @@ createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={true}>
       <App />
+      <PrintSheetHost />
     </ThemeProvider>
   </ErrorBoundary>
 );

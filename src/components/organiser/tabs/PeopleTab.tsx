@@ -1529,7 +1529,7 @@ export function PeopleTab({
   // ========================================================
   // PART 5: SHARED JUDGE BADGE PRINT & PNG ACTIONS
   // ========================================================
-  const handleTriggerPrint = async () => {
+  const handleTriggerPrint = async (forceInApp: boolean = false) => {
     if (judges.length === 0) {
       showToast('No judges found to print badges for.', 'warning');
       return;
@@ -1537,7 +1537,7 @@ export function PeopleTab({
     if (isExportingBadges) return;
     setIsExportingBadges(true);
     try {
-      await exportJudgeBadgesPrint(judges, organization, getJudgeQrPayload);
+      await exportJudgeBadgesPrint(judges, organization, getJudgeQrPayload, { forceInApp });
     } catch (err: any) {
       console.error('Failed to print judge badges:', err);
       showToast(err?.message || 'Unable to prepare badges for printing.', 'error');
@@ -1736,13 +1736,23 @@ export function PeopleTab({
           <div className="mt-3.5 bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 rounded-2xl p-3 shadow-sm">
             <button
               type="button"
-              onClick={handleTriggerPrint}
+              onClick={() => handleTriggerPrint(false)}
               disabled={isExportingBadges}
               className="w-full min-h-[42px] md:min-h-[44px] px-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold text-xs lg:text-sm rounded-xl shadow-sm shadow-orange-500/25 active:scale-[0.97] transition-transform duration-75 ease-out will-change-transform flex items-center justify-center gap-2 cursor-pointer"
             >
               <Printer className="w-4 h-4 stroke-[2.2]" />
               <span>{isExportingBadges ? 'Preparing Badges...' : 'Export Judge Badges (PDF)'}</span>
             </button>
+            <div className="mt-1.5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => handleTriggerPrint(true)}
+                disabled={isExportingBadges}
+                className="text-[11px] font-medium text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-200 underline underline-offset-2 px-1 py-0.5 cursor-pointer disabled:opacity-50"
+              >
+                Print in app
+              </button>
+            </div>
           </div>
         )}
 
