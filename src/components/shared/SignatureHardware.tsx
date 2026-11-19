@@ -710,7 +710,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
     telemetryStep === 'sent' ? 'SENT' : telemetryStep === 'telegram' ? '2/2' : '1/2';
 
   return (
-    <div className="w-full max-w-sm md:max-w-[560px] mx-auto select-none pt-1 pb-1">
+    <div className="w-full max-w-sm md:max-w-[560px] md:@container mx-auto select-none pt-1 pb-1">
       {/* Visually Hidden Live Announcement Region */}
       <div className="sr-only" aria-live="polite">
         {announcement}
@@ -718,13 +718,13 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
 
       {/* CHASSIS (Ultra-Slim Machined Frame) */}
       <div
-        className="relative z-10 w-full md:@container rounded-[20px] md:rounded-[5.2cqw] px-[3px] md:px-[0.8cqw] pt-[3px] md:pt-[0.8cqw] pb-0 bg-gradient-to-b from-zinc-200 to-zinc-300 border border-zinc-300/90 shadow-md dark:bg-zinc-900 dark:from-zinc-900 dark:to-zinc-950 dark:border-white/15"
+        className="relative z-10 w-full rounded-[20px] md:rounded-[28px] px-[3px] md:px-[8px] pt-[3px] md:pt-[8px] pb-0 bg-gradient-to-b from-zinc-200 to-zinc-300 border border-zinc-300/90 shadow-md dark:bg-zinc-900 dark:from-zinc-900 dark:to-zinc-950 dark:border-white/15"
         aria-hidden="false"
       >
         {/* Micro Top Bezel with Sensor Pill */}
-        <div className="flex items-center justify-center gap-1.5 md:gap-[1.5cqw] pt-[1px] pb-[3px] md:pt-[0.3cqw] md:pb-[0.8cqw]" aria-hidden="true">
-          <div className="w-5 md:w-[5.2cqw] h-[2px] md:h-[0.55cqw] rounded-full bg-zinc-500/50 dark:bg-zinc-600/80" />
-          <div className="w-1 h-1 md:w-[1cqw] md:h-[1cqw] rounded-full bg-zinc-600/80 dark:bg-zinc-400/80" />
+        <div className="flex items-center justify-center gap-1.5 md:gap-1.5 pt-[1px] pb-[3px] md:pt-[1px] md:pb-[6px]" aria-hidden="true">
+          <div className="w-5 md:w-7 h-[2px] md:h-[3px] rounded-full bg-zinc-500/50 dark:bg-zinc-600/80" />
+          <div className="w-1 h-1 md:w-1.5 md:h-1.5 rounded-full bg-zinc-600/80 dark:bg-zinc-400/80" />
         </div>
 
         {/* AMOLED SCREEN (pitch-dark edge-to-edge OLED viewport) */}
@@ -734,7 +734,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
               ? 'true'
               : 'false'
           }
-          className="h-[276px] md:h-auto md:aspect-[378/276] bg-black rounded-[15px] md:rounded-[3.9cqw] border border-white/12 shadow-inner overflow-hidden relative flex flex-col justify-between"
+          className="h-[276px] md:h-auto md:aspect-[378/276] bg-black rounded-[15px] md:rounded-[20px] border border-white/12 shadow-inner overflow-hidden relative flex flex-col justify-between"
         >
           {/* SLEEP SCREEN STATE: Interactive Tap-to-Wake AMOLED AOD */}
           {isSleep && (
@@ -1324,7 +1324,7 @@ export const SignatureHardware: React.FC<SignatureHardwareProps> = ({ role }) =>
         </div>
 
         {/* ULTRA-SLIM CHIN: Status, Sound/Mute Key & Power Key */}
-        <div className="py-1.5 md:py-[1.5cqw] px-3 md:px-[3.1cqw] flex items-center justify-between">
+        <div className="py-1.5 md:py-[6px] px-3 md:px-[14px] flex items-center justify-between">
           {/* Left: Model & Queue Indicator LED */}
           <div className="flex items-center gap-2 md:gap-[2cqw]">
             <span
