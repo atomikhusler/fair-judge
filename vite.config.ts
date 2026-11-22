@@ -56,7 +56,7 @@ export default defineConfig(({ command }) => {
                 skipWaiting: false,
                 clientsClaim: true,
                 globPatterns: ['**/*.{js,css,html,json,png,svg,woff,woff2}'],
-                globIgnores: ['**/sw-sync.js', '**/EPIC-*.txt', 'version.json', '**/version.json'],
+                globIgnores: ['**/sw-sync.js', '**/EPIC-*.txt', 'version.json', '**/version.json', '**/assets/aistudio/**'],
                 importScripts: ['/sw-sync.js'],
                 navigateFallbackDenylist: [/^\/api\//, /^\/supabase-proxy\//],
                 maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
@@ -91,6 +91,7 @@ export default defineConfig(({ command }) => {
       ],
     },
     server: {
+      allowedHosts: true,
       proxy: process.env.VITE_SUPABASE_URL
         ? {
             '/supabase-proxy': {
@@ -106,6 +107,9 @@ export default defineConfig(({ command }) => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    preview: {
+      allowedHosts: true,
     },
   };
 });

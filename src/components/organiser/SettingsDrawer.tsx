@@ -1,32 +1,21 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
-import { 
-  X, 
-  Scale, 
-  Plus, 
-  Trash2, 
-  Check, 
-  CheckCircle2,
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Plus,
+  Trash2,
+  Check,
   Sliders,
-  Sparkles,
   Focus,
-  Clock,
-  Monitor,
-  Copy,
-  Pencil
 } from 'lucide-react';
-import { Organization, TieBreakerMethod, CustomParticipantField, SupabaseEvent } from '../../lib/supabaseTypes';
+import { Organization, TieBreakerMethod, CustomParticipantField } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
 import { useToast } from '../common/ToastProvider';
 import { SidePanel } from '../common/SidePanel';
-import { useVisualViewportOffset, scrollFocusedInputIntoView } from '../common/TaskScreen';
 import { getHapticStrength, setHapticStrength, triggerHaptic, HapticStrength } from '../../lib/haptics';
 import { getSoundLevel, setSoundLevel, playSound, SOUND_CHANGE_EVENT, SoundLevel } from '../../lib/sound';
 import { APP_VERSION } from '../../config/version';
 import { downloadDiagnosticLog, getPendingScores, getPendingMutations } from '../../lib/offlineQueue';
 import { SignatureHardware } from '../shared/SignatureHardware';
-import { projectorService, ProjectorPairingItem } from '../../lib/projectorService';
 
 export interface SettingsDrawerProps {
   isOpen: boolean;
@@ -37,38 +26,12 @@ export interface SettingsDrawerProps {
 
 export type OrganiserDrawerProps = SettingsDrawerProps;
 
-function formatLastSeen(iso: string | null, nowMs = Date.now()): string {
-  if (!iso) return 'Waiting to connect';
-  const ts = new Date(iso).getTime();
-  if (Number.isNaN(ts)) return 'Waiting to connect';
-  const diffSec = Math.max(0, Math.floor((nowMs - ts) / 1000));
-  if (diffSec < 60) return 'Just now';
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
-
-function isScreenOnline(iso: string | null, nowMs = Date.now()): boolean {
-  if (!iso) return false;
-  const ts = new Date(iso).getTime();
-  if (Number.isNaN(ts)) return false;
-  return nowMs - ts <= 60000;
-}
-
 function sanitizeTickerInput(raw: string): string {
   return raw
     .replace(/<[^>]*>/g, '')
     .replace(/[<>]/g, '')
     .replace(/[\r\n\t]+/g, ' ')
     .slice(0, 120);
-}
-
-function getCleanProjectorUrl(): string {
-  if (typeof window === 'undefined') return '/#/projector';
-  return `${window.location.origin}/#/projector`;
 }
 
 export function SettingsDrawer({
@@ -96,46 +59,7 @@ export function SettingsDrawer({
   // 3. Global Notification Service
   const { showToast } = useToast();
 
-  // 4. Broadcast Preferences State (Phase 14.3) & Projector Pairings (Epic 15.12 / 15.12.1)
-  const [pairings, setPairings] = useState<ProjectorPairingItem[]>([]);
-  const [isLoadingPairings, setIsLoadingPairings] = useState<boolean>(false);
-  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [confirmRevokeAll, setConfirmRevokeAll] = useState<boolean>(false);
-  const [isRevokingAll, setIsRevokingAll] = useState<boolean>(false);
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
-
-  // Inline screen rename / update state
-  const [editingPairingId, setEditingPairingId] = useState<string | null>(null);
-  const [editingLabel, setEditingLabel] = useState<string>('');
-  const [updatingPairingId, setUpdatingPairingId] = useState<string | null>(null);
-
-  // Copy projector link state
-  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'fallback'>('idle');
-  const copyTimerRef = useRef<number | null>(null);
-  const projectorLinkRef = useRef<HTMLSpanElement | null>(null);
-
-  const [isPairSheetOpen, setIsPairSheetOpen] = useState<boolean>(false);
-  const [pairCode, setPairCode] = useState<string>('');
-  const [pairEventId, setPairEventId] = useState<string>('');
-  const [pairLabel, setPairLabel] = useState<string>('');
-  const [pairError, setPairError] = useState<string | null>(null);
-  const [isPairingSubmitting, setIsPairingSubmitting] = useState<boolean>(false);
-  const [pairedSuccessName, setPairedSuccessName] = useState<string | null>(null);
-  const [orgEvents, setOrgEvents] = useState<SupabaseEvent[]>(() =>
-    dbService.getCachedEvents(organization.org_id).filter((e) => e.status !== 'archived' && !e.is_archived)
-  );
-  const pairSheetRef = useRef<HTMLDivElement>(null);
-  const pairTriggerBtnRef = useRef<HTMLButtonElement>(null);
-  const wasPairSheetOpenRef = useRef<boolean>(false);
-  const pairKeyboardInset = useVisualViewportOffset(isOpen && isPairSheetOpen);
-
-  // Broadcast Controls synced with organization server fields + local fallback
-  const [blindMode, setBlindMode] = useState<boolean>(() => {
-    return organization.projector_blind_mode !== undefined
-      ? Boolean(organization.projector_blind_mode)
-      : Boolean(dbService.getPublicSettings(organization.org_id).blindMode);
-  });
+  // 4. Broadcast Controls synced with organization server fields + local fallback
   const [spotlightMode, setSpotlightMode] = useState<boolean>(() => {
     return organization.projector_spotlight_mode !== undefined
       ? Boolean(organization.projector_spotlight_mode)
@@ -148,16 +72,8 @@ export function SettingsDrawer({
         : dbService.getPublicSettings(organization.org_id).tickerText || '';
     return sanitizeTickerInput(initial);
   });
-  const [paginationTimer, setPaginationTimer] = useState<number>(() => {
-    return (
-      organization.projector_carousel_interval ||
-      dbService.getPublicSettings(organization.org_id).paginationTimer ||
-      60
-    );
-  });
 
   const tickerDebounceRef = useRef<number | null>(null);
-  const intervalDebounceRef = useRef<number | null>(null);
 
   // 5. Intelligent Features State
   const [predictiveScheduleEnabled, setPredictiveScheduleEnabled] = useState<boolean>(() => {
@@ -226,150 +142,29 @@ export function SettingsDrawer({
     if (organization.custom_participant_fields) {
       setCustomFields(organization.custom_participant_fields);
     }
-    if (organization.projector_blind_mode !== undefined) {
-      setBlindMode(Boolean(organization.projector_blind_mode));
-    }
     if (organization.projector_spotlight_mode !== undefined) {
       setSpotlightMode(Boolean(organization.projector_spotlight_mode));
     }
     if (organization.projector_ticker_text !== undefined) {
       setTickerText(sanitizeTickerInput(organization.projector_ticker_text));
     }
-    if (organization.projector_carousel_interval !== undefined) {
-      setPaginationTimer(organization.projector_carousel_interval);
-    }
   }, [organization]);
-
-  const loadProjectorPairings = useCallback(
-    async (silent = false) => {
-      if (!silent) setIsLoadingPairings(true);
-      try {
-        const res = await projectorService.list(organization.org_id);
-        if (res.ok) {
-          setPairings(res.pairings);
-          setNowMs(Date.now());
-        }
-      } finally {
-        if (!silent) setIsLoadingPairings(false);
-      }
-    },
-    [organization.org_id]
-  );
-
-  // Live screen count (seen within last 60 seconds)
-  const liveCount = useMemo(
-    () => pairings.filter((p) => isScreenOnline(p.last_seen_at, nowMs)).length,
-    [pairings, nowMs]
-  );
 
   useEffect(() => {
     if (isOpen) {
       setHapticSetting(getHapticStrength());
       setSoundSetting(getSoundLevel());
-      setConfirmRevokeId(null);
-      setConfirmRevokeAll(false);
-      setEditingPairingId(null);
-      setCopyStatus('idle');
-      setNowMs(Date.now());
-      void loadProjectorPairings(false);
-      dbService
-        .getEvents(organization.org_id)
-        .then((evs) => {
-          setOrgEvents((evs || []).filter((e) => e.status !== 'archived' && !e.is_archived));
-        })
-        .catch(() => {});
-      return;
     }
-
-    setIsPairSheetOpen(false);
-  }, [isOpen, organization.org_id, loadProjectorPairings]);
-
-  // Keep live dot & live count accurate every 5s while Settings is open
-  useEffect(() => {
-    if (!isOpen) return;
-    const pollId = window.setInterval(() => {
-      setNowMs(Date.now());
-      void loadProjectorPairings(true);
-    }, 5000);
-    return () => window.clearInterval(pollId);
-  }, [isOpen, loadProjectorPairings]);
+  }, [isOpen]);
 
   useEffect(() => {
     const syncSound = () => setSoundSetting(getSoundLevel());
     window.addEventListener(SOUND_CHANGE_EVENT, syncSound);
     return () => {
       window.removeEventListener(SOUND_CHANGE_EVENT, syncSound);
-      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
       if (tickerDebounceRef.current) window.clearTimeout(tickerDebounceRef.current);
-      if (intervalDebounceRef.current) window.clearTimeout(intervalDebounceRef.current);
     };
   }, []);
-
-  const handleEscapeBeforeClose = useCallback(() => {
-    if (isPairSheetOpen) {
-      if (!isPairingSubmitting) {
-        setIsPairSheetOpen(false);
-      }
-      return true;
-    }
-    return false;
-  }, [isPairSheetOpen, isPairingSubmitting]);
-
-  useEffect(() => {
-    if (isOpen && isPairSheetOpen) {
-      wasPairSheetOpenRef.current = true;
-      const timer = window.setTimeout(() => {
-        const sheet = pairSheetRef.current;
-        if (!sheet || sheet.contains(document.activeElement)) return;
-        const autoFocused = sheet.querySelector<HTMLElement>('[autofocus], input, select, button');
-        if (autoFocused) {
-          autoFocused.focus();
-        } else {
-          sheet.focus();
-        }
-      }, 20);
-
-      const handleTabKey = (e: KeyboardEvent) => {
-        if (e.key !== 'Tab' || !pairSheetRef.current) return;
-        const candidates = Array.from(
-          pairSheetRef.current.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-          )
-        ).filter((el) => el.offsetParent !== null || el.getClientRects().length > 0);
-        if (candidates.length === 0) return;
-        const first = candidates[0];
-        const last = candidates[candidates.length - 1];
-        const active = document.activeElement as HTMLElement | null;
-        if (!active || !pairSheetRef.current.contains(active)) {
-          e.preventDefault();
-          (e.shiftKey ? last : first).focus();
-          return;
-        }
-        if (e.shiftKey && active === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && active === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      };
-
-      window.addEventListener('keydown', handleTabKey);
-      return () => {
-        window.clearTimeout(timer);
-        window.removeEventListener('keydown', handleTabKey);
-      };
-    }
-
-    if (wasPairSheetOpenRef.current) {
-      wasPairSheetOpenRef.current = false;
-      if (isOpen && pairTriggerBtnRef.current?.isConnected) {
-        window.requestAnimationFrame(() => {
-          pairTriggerBtnRef.current?.focus();
-        });
-      }
-    }
-  }, [isOpen, isPairSheetOpen]);
 
 
   // 1. Toggle Tie-Breaker
@@ -486,132 +281,6 @@ export function SettingsDrawer({
     }
   };
 
-  const handleOpenPairSheet = () => {
-    triggerHaptic('tick');
-    setPairCode('');
-    setPairEventId('');
-    setPairLabel('');
-    setPairError(null);
-    setPairedSuccessName(null);
-    setIsPairSheetOpen(true);
-  };
-
-  const handleSubmitPairScreen = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanCode = pairCode.replace(/\D/g, '');
-    if (cleanCode.length !== 6) {
-      setPairError('Enter the 6-digit code shown on the projector.');
-      return;
-    }
-
-    setIsPairingSubmitting(true);
-    setPairError(null);
-    try {
-      const res = await projectorService.approve({
-        orgId: organization.org_id,
-        code: cleanCode,
-        eventId: pairEventId || null,
-        label: pairLabel.trim() || null,
-      });
-
-      if (!res.ok) {
-        setPairError(res.message || 'Could not pair screen. Check the code and try again.');
-        return;
-      }
-
-      triggerHaptic('tick');
-      const finalName = res.label || pairLabel.trim() || 'Projector Screen';
-      setPairedSuccessName(finalName);
-      showToast(`Paired ${finalName}`, 'success');
-      void loadProjectorPairings();
-    } finally {
-      setIsPairingSubmitting(false);
-    }
-  };
-
-  const handleConfirmRevoke = async (pairingId: string, screenName: string) => {
-    triggerHaptic('tick');
-    setRevokingId(pairingId);
-    try {
-      const res = await projectorService.revoke(organization.org_id, pairingId);
-      if (res.ok) {
-        setPairings((prev) => prev.filter((p) => p.id !== pairingId));
-        setConfirmRevokeId(null);
-        showToast(`Revoked ${screenName}.`);
-      } else {
-        showToast(res.message || 'Could not revoke screen.', 'error');
-      }
-    } finally {
-      setRevokingId(null);
-    }
-  };
-
-  const handleConfirmRevokeAll = async () => {
-    triggerHaptic('tick');
-    setIsRevokingAll(true);
-    try {
-      const res = await projectorService.revoke(organization.org_id, null);
-      if (res.ok) {
-        setPairings([]);
-        setConfirmRevokeAll(false);
-        setConfirmRevokeId(null);
-        showToast('All paired screens disconnected.');
-      } else {
-        showToast(res.message || 'Could not revoke screens.', 'error');
-      }
-    } finally {
-      setIsRevokingAll(false);
-    }
-  };
-
-  const handleCopyProjectorLink = async () => {
-    triggerHaptic('tick');
-    const url = getCleanProjectorUrl();
-    if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
-
-    let copied = false;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        copied = true;
-      }
-    } catch {
-      copied = false;
-    }
-
-    if (!copied && typeof document !== 'undefined') {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = url;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        copied = document.execCommand('copy');
-        document.body.removeChild(ta);
-      } catch {
-        copied = false;
-      }
-    }
-
-    if (copied) {
-      setCopyStatus('copied');
-      copyTimerRef.current = window.setTimeout(() => setCopyStatus('idle'), 2500);
-    } else {
-      setCopyStatus('fallback');
-      if (projectorLinkRef.current && typeof window !== 'undefined') {
-        try {
-          const range = document.createRange();
-          range.selectNodeContents(projectorLinkRef.current);
-          const sel = window.getSelection();
-          sel?.removeAllRanges();
-          sel?.addRange(range);
-        } catch {}
-      }
-    }
-  };
-
   const persistOrgBroadcastUpdate = async (updates: Partial<Organization>) => {
     try {
       const updated = await dbService.updateOrganization(organization.org_id, updates);
@@ -621,250 +290,7 @@ export function SettingsDrawer({
     }
   };
 
-  const handleSaveRename = async (item: ProjectorPairingItem) => {
-    const clean = editingLabel.replace(/<[^>]*>/g, '').trim().slice(0, 60);
-    if (!clean) {
-      setEditingPairingId(null);
-      return;
-    }
-    setUpdatingPairingId(item.id);
-    try {
-      const res = await projectorService.update({
-        orgId: organization.org_id,
-        pairingId: item.id,
-        label: clean,
-      });
-      if (res.ok) {
-        setPairings((prev) =>
-          prev.map((p) => (p.id === item.id ? { ...p, label: res.label || clean } : p))
-        );
-        setEditingPairingId(null);
-        showToast(`Renamed to ${res.label || clean}`);
-      } else {
-        showToast(res.message || 'Could not rename screen.', 'error');
-      }
-    } finally {
-      setUpdatingPairingId(null);
-    }
-  };
-
-  const handleChangeScreenEvent = async (item: ProjectorPairingItem, nextEventId: string) => {
-    triggerHaptic('tick');
-    setUpdatingPairingId(item.id);
-    try {
-      const evObj = orgEvents.find((e) => e.id === nextEventId);
-      const res = await projectorService.update({
-        orgId: organization.org_id,
-        pairingId: item.id,
-        eventId: nextEventId || null,
-        setEvent: true,
-      });
-      if (res.ok) {
-        setPairings((prev) =>
-          prev.map((p) =>
-            p.id === item.id
-              ? {
-                  ...p,
-                  event_id: nextEventId || null,
-                  event_name: nextEventId ? evObj?.name || p.event_name : null,
-                }
-              : p
-          )
-        );
-        showToast(nextEventId ? `Scoped to ${evObj?.name || 'event'}` : 'Scoped to All events');
-      } else {
-        showToast(res.message || 'Could not update screen event.', 'error');
-      }
-    } finally {
-      setUpdatingPairingId(null);
-    }
-  };
-
-  const handleToggleScreenBlank = async (item: ProjectorPairingItem) => {
-    triggerHaptic('tick');
-    const nextBlank = !item.is_blank;
-    setUpdatingPairingId(item.id);
-    setPairings((prev) =>
-      prev.map((p) => (p.id === item.id ? { ...p, is_blank: nextBlank } : p))
-    );
-    try {
-      const res = await projectorService.update({
-        orgId: organization.org_id,
-        pairingId: item.id,
-        isBlank: nextBlank,
-      });
-      if (res.ok) {
-        showToast(
-          nextBlank
-            ? `${item.label || 'Projector Screen'} blanked.`
-            : `${item.label || 'Projector Screen'} restored.`
-        );
-      } else {
-        setPairings((prev) =>
-          prev.map((p) => (p.id === item.id ? { ...p, is_blank: item.is_blank } : p))
-        );
-        showToast(res.message || 'Could not toggle blank screen.', 'error');
-      }
-    } finally {
-      setUpdatingPairingId(null);
-    }
-  };
-
-  const pairSheetOverlay =
-    isOpen && isPairSheetOpen ? (
-      <div
-        className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4"
-        style={pairKeyboardInset > 0 ? { paddingBottom: `${pairKeyboardInset}px` } : undefined}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Pair a screen"
-      >
-        <div
-          onClick={() => !isPairingSubmitting && setIsPairSheetOpen(false)}
-          className="fixed inset-0 bg-black/60 animate-in fade-in duration-200 motion-reduce:animate-none"
-        />
-
-        <div
-          ref={pairSheetRef}
-          tabIndex={-1}
-          className="relative z-10 w-full sm:max-w-sm max-h-full sm:max-h-[calc(100dvh-2rem)] flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white border-t sm:border border-stone-200 dark:border-zinc-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden animate-spring-sheet motion-reduce:animate-none focus:outline-none"
-        >
-          <div className="shrink-0 px-5 py-4 border-b border-stone-200 dark:border-zinc-800 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
-                <Monitor className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold tracking-tight">Pair a screen</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => !isPairingSubmitting && setIsPairSheetOpen(false)}
-              className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center cursor-pointer transition-colors duration-150 motion-reduce:transition-none"
-              aria-label="Close"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {pairedSuccessName ? (
-            <div className="p-5 space-y-4 text-center overflow-y-auto">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500 mx-auto">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <div className="text-base font-bold text-zinc-900 dark:text-white">
-                  Paired
-                </div>
-                <p className="text-xs lg:text-sm text-zinc-500 font-mono">
-                  {pairedSuccessName}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsPairSheetOpen(false)}
-                className="w-full min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-              >
-                Done
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmitPairScreen} className="flex flex-col flex-1 min-h-0">
-              <div
-                onFocusCapture={(e) => scrollFocusedInputIntoView(e.target)}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 space-y-4"
-              >
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="fj-pair-code"
-                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                  >
-                    6-Digit Code
-                  </label>
-                  <input
-                    id="fj-pair-code"
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    autoFocus
-                    maxLength={6}
-                    placeholder="000000"
-                    value={pairCode}
-                    onChange={(e) => {
-                      setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6));
-                      if (pairError) setPairError(null);
-                    }}
-                    className="w-full min-h-[52px] px-4 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl font-mono text-2xl font-black tracking-[0.3em] text-center text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500 tabular-nums"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="fj-pair-event"
-                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                  >
-                    Event Scope (Optional)
-                  </label>
-                  <select
-                    id="fj-pair-event"
-                    value={pairEventId}
-                    onChange={(e) => setPairEventId(e.target.value)}
-                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="">All events</option>
-                    {orgEvents.map((ev) => (
-                      <option key={ev.id} value={ev.id}>
-                        {ev.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="fj-pair-label"
-                    className="block text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500"
-                  >
-                    Screen Name (Optional)
-                  </label>
-                  <input
-                    id="fj-pair-label"
-                    type="text"
-                    maxLength={40}
-                    placeholder="e.g. Main Hall"
-                    value={pairLabel}
-                    onChange={(e) => setPairLabel(e.target.value)}
-                    className="w-full min-h-[44px] px-3 bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl text-xs lg:text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div
-                className={`shrink-0 px-5 pt-3 border-t border-stone-100 dark:border-zinc-800/80 bg-white dark:bg-zinc-950 space-y-2 ${
-                  pairKeyboardInset > 0 ? 'pb-3' : 'pb-5 pb-safe'
-                }`}
-              >
-                {pairError && (
-                  <p className="text-xs lg:text-sm font-semibold text-amber-600 dark:text-amber-400">
-                    {pairError}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isPairingSubmitting || pairCode.length !== 6}
-                  className="w-full min-h-[46px] rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs lg:text-sm cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                >
-                  {isPairingSubmitting ? 'Pairing...' : 'Pair screen'}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      </div>
-    ) : null;
-
   return (
-    <>
       <SidePanel
         isOpen={isOpen}
         onClose={onClose}
@@ -876,8 +302,6 @@ export function SettingsDrawer({
           <ThemeToggleButton className="w-11 h-11 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors duration-200 active:scale-[0.96] motion-reduce:transition-none shadow-sm flex items-center justify-center cursor-pointer" />
         }
         closeAriaLabel="Close Drawer"
-        hasActiveOverlay={isPairSheetOpen}
-        onEscapeBeforeClose={handleEscapeBeforeClose}
       >
 
           {/* -------------------------------------------------------- */}
@@ -1372,62 +796,14 @@ export function SettingsDrawer({
           </div>
 
           {/* -------------------------------------------------------- */}
-          {/* SECTION 4: BROADCAST CONTROL ROOM (Phase 14.3 / 15.12.1) */}
+          {/* SECTION 4: BROADCAST CONTROL ROOM                        */}
           {/* -------------------------------------------------------- */}
           <div>
-            <div className="flex items-center justify-between ml-4 mr-2 mb-2 mt-6">
-              <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500">
-                Broadcast Control Room
-              </h4>
-              <span
-                aria-label="Live projector screens count"
-                className="inline-flex items-center gap-1.5 text-[10px] lg:text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 tabular-nums"
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    liveCount > 0 ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-600'
-                  }`}
-                />
-                <span>{liveCount} live</span>
-              </span>
-            </div>
+            <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
+              Broadcast Control Room
+            </h4>
 
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
-              
-              {/* 1. SCORE SECRECY (BLIND MODE) */}
-              <div className="p-4 flex items-center justify-between gap-3">
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                    Score Secrecy (Blind Mode)
-                  </span>
-                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
-                    Enforced on server; hides points and reveals rankings only.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerHaptic('tick');
-                    const next = !blindMode;
-                    setBlindMode(next);
-                    dbService.savePublicSettings(organization.org_id, { blindMode: next });
-                    void persistOrgBroadcastUpdate({ projector_blind_mode: next });
-                    showToast(next ? 'Blind Mode active on projector.' : 'Numeric scores unhidden.');
-                  }}
-                  aria-pressed={blindMode}
-                  aria-label="Score Secrecy (Blind Mode)"
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-opacity duration-150 motion-reduce:transition-none ${
-                    blindMode ? 'bg-amber-500' : 'bg-stone-300 dark:bg-zinc-700'
-                  }`}
-                >
-                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-150 motion-reduce:transition-none ${
-                      blindMode ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
 
               {/* 2. SPOTLIGHT / FOCUS MODE */}
               <div className="p-4 flex items-center justify-between gap-3">
@@ -1520,356 +896,6 @@ export function SettingsDrawer({
                 </div>
               </div>
 
-              {/* 4. CONFETTI TRIGGER */}
-              <div className="p-4 flex items-center justify-between gap-3 bg-amber-500/5 dark:bg-amber-950/20">
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <div className="flex items-center space-x-1.5">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
-                    <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                      Celebration Confetti
-                    </span>
-                  </div>
-                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
-                    Blast celebratory particle shower across the broadcast screen.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerHaptic('tick');
-                    const nowIso = new Date().toISOString();
-                    dbService.savePublicSettings(organization.org_id, { confettiTrigger: Date.now() });
-                    void persistOrgBroadcastUpdate({ projector_confetti_at: nowIso });
-                    window.dispatchEvent(new CustomEvent('fairjudge_confetti'));
-                    showToast('Celebration confetti launched on projector!', 'success');
-                  }}
-                  className="min-h-[38px] md:min-h-[44px] px-4 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-black text-xs lg:text-sm uppercase tracking-wider rounded-xl transition-transform duration-150 motion-reduce:transition-none shadow-md shadow-amber-500/20 flex items-center space-x-1.5 cursor-pointer shrink-0"
-                >
-                  <Sparkles className="w-3.5 h-3.5 fill-black" />
-                  <span>Fire Confetti</span>
-                </button>
-              </div>
-
-              {/* 5. CAROUSEL INTERVAL (Single Rotation Setting) */}
-              <div className="p-4 flex items-center justify-between gap-3">
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <div className="flex items-center space-x-1.5">
-                    <Clock className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                      Carousel Interval
-                    </span>
-                  </div>
-                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
-                    Event rotation window duration.
-                  </p>
-                </div>
-                <div className="flex items-center space-x-2 shrink-0">
-                  <input
-                    type="range"
-                    min={15}
-                    max={180}
-                    step={5}
-                    value={paginationTimer}
-                    aria-label="Carousel Interval"
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      setPaginationTimer(val);
-                      dbService.savePublicSettings(organization.org_id, { paginationTimer: val });
-                      if (intervalDebounceRef.current) window.clearTimeout(intervalDebounceRef.current);
-                      intervalDebounceRef.current = window.setTimeout(() => {
-                        void persistOrgBroadcastUpdate({ projector_carousel_interval: val });
-                      }, 300);
-                    }}
-                    onPointerUp={() => {
-                      if (intervalDebounceRef.current) window.clearTimeout(intervalDebounceRef.current);
-                      void persistOrgBroadcastUpdate({ projector_carousel_interval: paginationTimer });
-                    }}
-                    className="w-20 accent-emerald-500 cursor-pointer"
-                  />
-                  <span className="font-mono text-xs lg:text-sm font-bold w-12 text-right text-emerald-600 dark:text-emerald-400 tabular-nums">
-                    {paginationTimer}s
-                  </span>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* -------------------------------------------------------- */}
-          {/* SECTION 4.5: PROJECTOR (15.12 + 15.12.1)                 */}
-          {/* -------------------------------------------------------- */}
-          <div>
-            <div className="flex items-center justify-between ml-4 mr-2 mb-2 mt-6">
-              <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500">
-                Projector
-              </h4>
-              <span className="text-[11px] lg:text-sm font-mono font-bold text-zinc-500 tabular-nums">
-                {pairings.length} {pairings.length === 1 ? 'screen' : 'screens'}
-              </span>
-            </div>
-
-            <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
-              {/* A1-A5: Clean Projector Address + Copy Button */}
-              <div className="p-4 flex flex-wrap items-center justify-between gap-2.5 bg-stone-50/70 dark:bg-zinc-900/60">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 mb-0.5">
-                    Projector address
-                  </div>
-                  <span
-                    ref={projectorLinkRef}
-                    className="block font-mono text-xs lg:text-sm text-zinc-800 dark:text-zinc-200 select-all break-all"
-                  >
-                    {getCleanProjectorUrl()}
-                  </span>
-                  {copyStatus === 'fallback' && (
-                    <span className="block text-[11px] lg:text-sm text-amber-600 dark:text-amber-400 mt-1">
-                      Clipboard unavailable — copy the address above.
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleCopyProjectorLink()}
-                  className="min-h-[38px] md:min-h-[44px] px-3.5 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-xs lg:text-sm font-bold text-zinc-900 dark:text-white inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                >
-                  {copyStatus === 'copied' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-500" />
-                      <span className="text-emerald-600 dark:text-emerald-400">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-zinc-500" />
-                      <span>Copy projector link</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {isLoadingPairings && pairings.length === 0 ? (
-                <div className="p-4 text-xs lg:text-sm text-zinc-500">
-                  Loading paired screens...
-                </div>
-              ) : pairings.length === 0 ? (
-                <div className="p-4 text-xs lg:text-sm text-zinc-500">
-                  No screens paired yet
-                </div>
-              ) : (
-                pairings.map((item) => {
-                  const screenName = item.label || 'Projector Screen';
-                  const online = isScreenOnline(item.last_seen_at, nowMs);
-                  const isConfirming = confirmRevokeId === item.id;
-                  const isRevoking = revokingId === item.id;
-                  const isEditing = editingPairingId === item.id;
-                  const isBusy = updatingPairingId === item.id || isRevoking;
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="p-4 space-y-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1 space-y-1">
-                          {isEditing ? (
-                            <form
-                              onSubmit={(e) => {
-                                e.preventDefault();
-                                void handleSaveRename(item);
-                              }}
-                              className="flex items-center gap-1.5"
-                            >
-                              <input
-                                type="text"
-                                maxLength={60}
-                                value={editingLabel}
-                                onChange={(e) => setEditingLabel(e.target.value)}
-                                autoFocus
-                                aria-label="Rename screen"
-                                className="flex-1 min-w-0 min-h-[34px] md:min-h-[44px] px-2.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-700 text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
-                              />
-                              <button
-                                type="submit"
-                                disabled={isBusy}
-                                className="min-h-[34px] md:min-h-[44px] px-2.5 rounded-lg bg-emerald-600 text-white text-[11px] lg:text-sm font-bold cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingPairingId(null)}
-                                className="min-h-[34px] md:min-h-[44px] px-2 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] lg:text-sm font-semibold cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </form>
-                          ) : (
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                title={online ? 'Online (seen within 60s)' : 'Offline'}
-                                aria-label={online ? 'Online' : 'Offline'}
-                                className={`w-2 h-2 rounded-full shrink-0 ${
-                                  online ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-600'
-                                }`}
-                              />
-                              <span className="text-sm font-semibold text-zinc-900 dark:text-white truncate">
-                                {screenName}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingPairingId(item.id);
-                                  setEditingLabel(screenName);
-                                }}
-                                aria-label={`Rename ${screenName}`}
-                                title="Rename screen"
-                                className="p-1 md:min-w-[44px] md:min-h-[44px] md:flex md:items-center md:justify-center rounded-md text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
-
-                          <div className="text-[11px] lg:text-sm text-zinc-500 font-mono flex items-center gap-1.5 flex-wrap">
-                            <span>{online ? 'Online' : 'Offline'}</span>
-                            <span>•</span>
-                            <span>{formatLastSeen(item.last_seen_at, nowMs)}</span>
-                            {item.is_blank && (
-                              <>
-                                <span>•</span>
-                                <span className="text-amber-600 dark:text-amber-400 font-bold">
-                                  Blanked
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {isConfirming ? (
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              type="button"
-                              disabled={isRevoking}
-                              onClick={() => void handleConfirmRevoke(item.id, screenName)}
-                              className="min-h-[36px] md:min-h-[44px] px-3 rounded-xl text-xs lg:text-sm font-bold bg-amber-500 hover:bg-amber-400 text-black cursor-pointer transition-opacity duration-150 motion-reduce:transition-none disabled:opacity-50"
-                            >
-                              {isRevoking ? 'Revoking...' : 'Confirm'}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isRevoking}
-                              onClick={() => setConfirmRevokeId(null)}
-                              className="min-h-[36px] md:min-h-[44px] px-2.5 rounded-xl text-xs lg:text-sm font-semibold bg-stone-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-800 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmRevokeId(item.id)}
-                            className="min-h-[36px] md:min-h-[44px] px-3 rounded-xl text-xs lg:text-sm font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                          >
-                            Revoke
-                          </button>
-                        )}
-                      </div>
-
-                      {/* C2 & C4: Per-screen Event selector + Blank screen toggle */}
-                      <div className="flex items-center justify-between gap-2.5 pt-1">
-                        <select
-                          aria-label={`Event for ${screenName}`}
-                          value={item.event_id || ''}
-                          disabled={isBusy}
-                          onChange={(e) => void handleChangeScreenEvent(item, e.target.value)}
-                          className="flex-1 min-w-0 min-h-[36px] md:min-h-[44px] px-2.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs lg:text-sm font-semibold text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500 disabled:opacity-50"
-                        >
-                          <option value="">All events</option>
-                          {orgEvents.map((ev) => (
-                            <option key={ev.id} value={ev.id}>
-                              {ev.name}
-                            </option>
-                          ))}
-                        </select>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-[11px] lg:text-sm font-semibold text-zinc-600 dark:text-zinc-400">
-                            Blank
-                          </span>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={item.is_blank}
-                            aria-label={`Blank ${screenName}`}
-                            disabled={isBusy}
-                            onClick={() => void handleToggleScreenBlank(item)}
-                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-opacity duration-150 motion-reduce:transition-none disabled:opacity-50 ${
-                              item.is_blank ? 'bg-amber-500' : 'bg-stone-300 dark:bg-zinc-700'
-                            }`}
-                          >
-                            <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
-                            <span
-                              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-150 motion-reduce:transition-none ${
-                                item.is_blank ? 'translate-x-5' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-
-              <div className="p-3.5 bg-stone-50/50 dark:bg-zinc-900 space-y-2">
-                <button
-                  ref={pairTriggerBtnRef}
-                  type="button"
-                  onClick={handleOpenPairSheet}
-                  className="w-full min-h-[44px] bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs lg:text-sm flex items-center justify-center gap-2 transition-transform duration-150 motion-reduce:transition-none active:scale-[0.98] cursor-pointer shadow-sm"
-                >
-                  <Monitor className="w-4 h-4" />
-                  <span>Pair a screen</span>
-                </button>
-
-                {pairings.length > 0 && (
-                  confirmRevokeAll ? (
-                    <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between gap-2">
-                      <span className="text-xs lg:text-sm font-semibold text-amber-700 dark:text-amber-300">
-                        Revoke all {pairings.length} {pairings.length === 1 ? 'screen' : 'screens'}?
-                      </span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          disabled={isRevokingAll}
-                          onClick={() => void handleConfirmRevokeAll()}
-                          className="min-h-[34px] md:min-h-[44px] px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs lg:text-sm font-bold cursor-pointer transition-opacity duration-150 motion-reduce:transition-none disabled:opacity-50"
-                        >
-                          {isRevokingAll ? 'Revoking...' : 'Confirm'}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isRevokingAll}
-                          onClick={() => setConfirmRevokeAll(false)}
-                          className="min-h-[34px] md:min-h-[44px] px-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs lg:text-sm font-semibold cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setConfirmRevokeId(null);
-                        setConfirmRevokeAll(true);
-                      }}
-                      className="w-full min-h-[40px] md:min-h-[44px] rounded-xl text-xs lg:text-sm font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 cursor-pointer transition-opacity duration-150 motion-reduce:transition-none"
-                    >
-                      Revoke all
-                    </button>
-                  )
-                )}
-              </div>
             </div>
           </div>
 
@@ -1880,12 +906,6 @@ export function SettingsDrawer({
             <SignatureHardware role="organiser" />
           </div>
       </SidePanel>
-
-      {pairSheetOverlay &&
-        (typeof document !== 'undefined'
-          ? createPortal(pairSheetOverlay, document.body)
-          : pairSheetOverlay)}
-    </>
   );
 }
 

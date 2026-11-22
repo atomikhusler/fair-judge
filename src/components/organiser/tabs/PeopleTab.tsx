@@ -47,6 +47,7 @@ import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
 import { setFormDirty } from '../../../lib/swUpdateManager';
 import { useTaskScreenBackGuard } from '../../common/useTaskScreenBackGuard';
 import { exportJudgeBadgePng, exportJudgeBadgesPrint } from '../../../lib/judgeBadgeRenderer';
+import { safeCell } from '../../../lib/excelSafe';
 import { 
   Organization, 
   SupabaseParticipant, 
@@ -655,7 +656,9 @@ export function PeopleTab({
       ...customFields.map(() => 'Sample Value'),
     ];
 
-    const wsData = [headers, sampleRow1, sampleRow2];
+    const wsData = [headers, sampleRow1, sampleRow2].map((row) =>
+      row.map((cell) => safeCell(cell))
+    );
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
     // Apply column widths for pristine usability
@@ -679,18 +682,20 @@ export function PeopleTab({
       return;
     }
 
+    const safeCategoryHeader = String(safeCell(categoryLabel));
     const rows = participants.map((p, idx) => {
       const rowData: Record<string, any> = {
         'Sl. No': idx + 1,
-        'Participant ID': p.identity_id || `P-${p.sl_no || idx + 1}`,
-        'Full Name': p.name,
-        'School / Institution': p.school,
-        [categoryLabel]: p.class_or_age || '',
-        'Mobile Number': p.mobile_number || '',
+        'Participant ID': safeCell(p.identity_id || `P-${p.sl_no || idx + 1}`),
+        'Full Name': safeCell(p.name),
+        'School / Institution': safeCell(p.school),
+        [safeCategoryHeader]: safeCell(p.class_or_age || ''),
+        'Mobile Number': safeCell(p.mobile_number || ''),
       };
 
       customFields.forEach((cf) => {
-        rowData[cf.name] = (p.custom_values && p.custom_values[cf.id]) || '';
+        const safeFieldHeader = String(safeCell(cf.name));
+        rowData[safeFieldHeader] = safeCell((p.custom_values && p.custom_values[cf.id]) || '');
       });
 
       return rowData;

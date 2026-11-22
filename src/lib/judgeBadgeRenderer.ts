@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { toBlob } from 'html-to-image';
 import { Organization, SupabaseJudge } from './supabaseTypes';
 import { safeName } from './downloadUtils';
+import { escapeHtml } from './htmlEscape';
 import { saveFile, printDocument, PrintDocumentOptions } from './fileActions';
 import {
   JUDGE_BADGE_HEIGHT,
@@ -146,21 +147,19 @@ export function buildJudgeBadgesPrintHtml(
     })
     .join('\n');
 
-  const safeOrgTitle = (organization.name || 'Fair Judge')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  const safeBaseHref = escapeHtml(baseHref);
+  const safeOrgTitle = escapeHtml(organization.name || 'Fair Judge');
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <base href="${baseHref}" />
+  <base href="${safeBaseHref}" />
   <title>${safeOrgTitle} — Judge Badges</title>
   <style>
     @font-face {
       font-family: 'Geist';
-      src: url('${baseHref}fonts/Geist-Variable-latin.woff2') format('woff2');
+      src: url('${safeBaseHref}fonts/Geist-Variable-latin.woff2') format('woff2');
       font-weight: 200 700;
       font-style: normal;
       font-display: swap;
@@ -168,7 +167,7 @@ export function buildJudgeBadgesPrintHtml(
 
     @font-face {
       font-family: 'Noto Sans Oriya';
-      src: url('${baseHref}fonts/NotoSansOriya-oriya.woff2') format('woff2');
+      src: url('${safeBaseHref}fonts/NotoSansOriya-oriya.woff2') format('woff2');
       font-weight: 500 600;
       font-style: normal;
       font-display: swap;

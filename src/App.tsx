@@ -47,6 +47,12 @@ import {
   SessionReverifyModal,
   SessionReverifySuccessPayload,
 } from './components/auth/SessionReverifyModal';
+import {
+  loadProjectorSession,
+  clearProjectorSession,
+} from './lib/projector/projectorTokenStore';
+import { projectorAppService } from './lib/projector/projectorAppService';
+import type { ProjectorExitOptions } from './components/projector/ProjectorApp';
 
 // Code Splitting: Asynchronously load major route panels with auto-retry resilience
 const OrganiserDashboard = lazyWithRetry(() =>
@@ -61,9 +67,9 @@ const JudgeLobby = lazyWithRetry(() =>
   import('./components/judge/JudgeLobby').then((m) => ({ default: m.JudgeLobby })),
   'lobby'
 );
-const ProjectorView = lazyWithRetry(() =>
-  import('./components/public/ProjectorView').then((m) => ({ default: m.ProjectorView })),
-  'projector'
+const ProjectorApp = lazyWithRetry(() =>
+  import('./components/projector/ProjectorApp').then((m) => ({ default: m.ProjectorApp })),
+  'projector-app'
 );
 const AdminApp = lazyWithRetry(() =>
   import('./admin/AdminApp').then((m) => ({ default: m.AdminApp })),
@@ -72,18 +78,49 @@ const AdminApp = lazyWithRetry(() =>
 
 export type UserSession = StoredUserSession;
 
-function detectProjectorRoute(): boolean {
+export function isProjectorAppHash(hash: string): boolean {
+  const h = hash || '';
+  return (
+    h === '#/projector-app' ||
+    h.startsWith('#/projector-app?') ||
+    h.startsWith('#/projector-app/')
+  );
+}
+
+export function cleanProjectorAppHash(): void {
+  if (typeof window === 'undefined') return;
+  if (isProjectorAppHash(window.location.hash || '')) {
+    try {
+      window.history.replaceState(
+        null,
+        '',
+        window.location.pathname + window.location.search
+      );
+    } catch {}
+  }
+}
+
+export function clearProjectorRouteState(): void {
+  clearProjectorSession();
+  cleanProjectorAppHash();
+}
+
+export function resolveProjectorAppRoute(options?: {
+  allowWithoutSession?: boolean;
+}): boolean {
   if (typeof window === 'undefined') return false;
-  if (window.location.hash.startsWith('#/projector')) return true;
-  const params = new URLSearchParams(window.location.search);
-  return params.get('view') === 'projector';
+  if (!isProjectorAppHash(window.location.hash || '')) return false;
+  if (options?.allowWithoutSession) return true;
+  if (loadProjectorSession()) return true;
+  cleanProjectorAppHash();
+  return false;
 }
 
 type BootSplashMode = 'skip' | 'short' | 'full';
 
-function getBootSplashMode(): BootSplashMode {
+function getBootSplashMode(initialProjectorAppRoute: boolean): BootSplashMode {
   if (typeof window === 'undefined') return 'skip';
-  if (detectProjectorRoute()) return 'skip';
+  if (initialProjectorAppRoute) return 'skip';
   const s = getStoredSession();
   if (!s) return 'full';
   if (s.org?.org_id && dbService.hasCachedData(s.org.org_id)) {
@@ -103,7 +140,13 @@ function AnimatedEllipsis() {
 }
 
 export default function App() {
-  const [bootMode] = useState<BootSplashMode>(() => getBootSplashMode());
+  // Standalone Projector App route (#/projector-app): keep open on reload ONLY if a valid session exists
+  const [isProjectorAppRoute, setIsProjectorAppRoute] = useState<boolean>(() =>
+    resolveProjectorAppRoute()
+  );
+  const intentionalProjectorEntryRef = useRef(false);
+
+  const [bootMode] = useState<BootSplashMode>(() => getBootSplashMode(isProjectorAppRoute));
   const [isBooting, setIsBooting] = useState(() => bootMode !== 'skip');
   const [isBootFading, setIsBootFading] = useState(false);
   const [session, setSession] = useState<UserSession | null>(getStoredSession);
@@ -136,9 +179,6 @@ export default function App() {
   const [isAdminRoute, setIsAdminRoute] = useState(() =>
     typeof window !== 'undefined' && window.location.hash.startsWith('#/admin')
   );
-
-  // Paired Projector route (#/projector or ?view=projector; old ?view=public links intentionally disabled)
-  const [isProjectorRoute, setIsProjectorRoute] = useState<boolean>(detectProjectorRoute);
 
   // Transient Auth Splash State (EPIC 15.3 Target 1)
   const [authSplash, setAuthSplash] = useState<{
@@ -247,10 +287,19 @@ export default function App() {
 
     const handleHashChange = () => {
       setIsAdminRoute(window.location.hash.startsWith('#/admin'));
-      setIsProjectorRoute(detectProjectorRoute());
+      const allowEntry =
+        intentionalProjectorEntryRef.current &&
+        isProjectorAppHash(window.location.hash || '');
+      if (allowEntry) {
+        intentionalProjectorEntryRef.current = false;
+        setIsProjectorAppRoute(true);
+        return;
+      }
+      setIsProjectorAppRoute(resolveProjectorAppRoute());
     };
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('popstate', handleHashChange);
 
     const prefersReducedMotion =
       typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -268,7 +317,7 @@ export default function App() {
     let bootFadeTimer: number | undefined;
     let bootUnmountTimer: number | undefined;
 
-    if (!detectProjectorRoute()) {
+    if (!isProjectorAppHash(window.location.hash || '')) {
       unlockSoundEngine();
       if (bootMode !== 'skip') {
         playSound('boot', { launch: true });
@@ -291,6 +340,7 @@ export default function App() {
       if (unsubSync) unsubSync();
       window.removeEventListener('fairjudge_session_change', handleSessionEvent);
       window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('popstate', handleHashChange);
     };
   }, [bootMode]);
 
@@ -400,11 +450,11 @@ export default function App() {
       return;
     }
     const unsub = eventBus.on('session_expired', ({ role, reason }) => {
-      if (isSigningOutRef.current || isAdminRoute || isProjectorRoute) return;
+      if (isSigningOutRef.current || isAdminRoute || isProjectorAppRoute) return;
       setReverifyPrompt((prev) => prev || { role, reason });
     });
     return unsub;
-  }, [session, isAdminRoute, isProjectorRoute]);
+  }, [session, isAdminRoute, isProjectorAppRoute]);
 
   // Epic 16.6.0: Silent update check (/version.json + reg.waiting) and minimum client version safety net
   useEffect(() => {
@@ -414,7 +464,7 @@ export default function App() {
       void checkForAppUpdate();
       void checkSwUpdateWaiting();
 
-      if (isProjectorRoute || !isSupabaseConfigured()) return;
+      if (isProjectorAppRoute || !isSupabaseConfigured()) return;
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
 
       try {
@@ -454,11 +504,11 @@ export default function App() {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, [isProjectorRoute]);
+  }, [isProjectorAppRoute]);
 
   // Epic 16.6.0: While minimum version blocks the app, flush and monitor pending IndexedDB work until empty
   useEffect(() => {
-    if (!minRequiredVersion || isProjectorRoute) return;
+    if (!minRequiredVersion || isProjectorAppRoute) return;
 
     let cancelled = false;
     let retryTimer: number | null = null;
@@ -525,7 +575,7 @@ export default function App() {
       window.removeEventListener('online', handleOnlineOrVisible);
       document.removeEventListener('visibilitychange', handleOnlineOrVisible);
     };
-  }, [minRequiredVersion, isProjectorRoute]);
+  }, [minRequiredVersion, isProjectorAppRoute]);
 
   // Helper to trigger hardware-accelerated ~2.4s sign-in splash
   const triggerAuthSplash = useCallback((displayName: string) => {
@@ -721,21 +771,81 @@ export default function App() {
     [session]
   );
 
-  const exitProjectorRoute = useCallback(() => {
-    if (window.location.hash.startsWith('#/projector')) {
-      history.replaceState(null, '', window.location.pathname + window.location.search);
+  const openProjectorAppRoute = useCallback(() => {
+    intentionalProjectorEntryRef.current = true;
+    if (!isProjectorAppHash(window.location.hash || '')) {
+      window.location.hash = '#/projector-app';
     }
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('view') === 'projector') {
-      params.delete('view');
-      const nextSearch = params.toString();
-      history.replaceState(
-        null,
-        '',
-        window.location.pathname + (nextSearch ? `?${nextSearch}` : '') + window.location.hash
-      );
+    setIsProjectorAppRoute(true);
+  }, []);
+
+  const exitProjectorAppRoute = useCallback(async (options?: ProjectorExitOptions) => {
+    const shouldAnimate = Boolean(options?.animate);
+    intentionalProjectorEntryRef.current = false;
+    clearProjectorRouteState();
+
+    if (!shouldAnimate) {
+      setIsProjectorAppRoute(false);
+      return;
     }
-    setIsProjectorRoute(false);
+
+    if (isSigningOutRef.current) return;
+    isSigningOutRef.current = true;
+
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const minDwellMs = prefersReducedMotion ? 350 : 1950;
+    const fadeMs = prefersReducedMotion ? 150 : 450;
+
+    if (signOutTimersRef.current.wait) clearTimeout(signOutTimersRef.current.wait);
+    if (signOutTimersRef.current.fade) clearTimeout(signOutTimersRef.current.fade);
+
+    playSound('shutdown');
+    setSignOutOverlay({
+      name: 'Projector',
+      role: 'organiser',
+      waitingOnServer: false,
+      isFading: false,
+    });
+
+    const tokenToEnd = options?.endToken?.trim() || null;
+    if (tokenToEnd) {
+      signOutTimersRef.current.wait = window.setTimeout(() => {
+        setSignOutOverlay((prev) => (prev ? { ...prev, waitingOnServer: true } : null));
+      }, 1500);
+    }
+
+    const serverEndPromise = tokenToEnd
+      ? Promise.race([
+          projectorAppService
+            .endSession(tokenToEnd)
+            .then(() => undefined)
+            .catch(() => undefined),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 8000)),
+        ])
+      : Promise.resolve();
+
+    const dwellPromise = new Promise<void>((resolve) =>
+      window.setTimeout(resolve, minDwellMs)
+    );
+
+    try {
+      await Promise.all([serverEndPromise, dwellPromise]);
+    } finally {
+      if (signOutTimersRef.current.wait) {
+        clearTimeout(signOutTimersRef.current.wait);
+        signOutTimersRef.current.wait = undefined;
+      }
+
+      setIsProjectorAppRoute(false);
+
+      setSignOutOverlay((prev) => (prev ? { ...prev, isFading: true } : null));
+      signOutTimersRef.current.fade = window.setTimeout(() => {
+        setSignOutOverlay(null);
+        isSigningOutRef.current = false;
+      }, fadeMs);
+    }
   }, []);
 
   // Active Screen Content based on session and route
@@ -761,16 +871,16 @@ export default function App() {
       );
     }
 
-    // 1. PAIRED PROJECTOR SCREEN (#/projector or ?view=projector)
-    if (isProjectorRoute) {
+    // 1A. STANDALONE PROJECTOR APP (#/projector-app)
+    if (isProjectorAppRoute) {
       return (
         <ErrorBoundary
           variant="fullscreen"
-          title="Projector screen interrupted"
-          resetKeys={['projector', screenRetryNonce]}
+          title="Projector app interrupted"
+          resetKeys={['projector-app', screenRetryNonce]}
           onRetry={() => setScreenRetryNonce((n) => n + 1)}
         >
-          <ProjectorView onExit={exitProjectorRoute} />
+          <ProjectorApp onExit={exitProjectorAppRoute} />
         </ErrorBoundary>
       );
     }
@@ -787,6 +897,7 @@ export default function App() {
           <AuthScreen
             onOrganiserLogin={handleOrganiserLogin}
             onJudgeLogin={handleJudgeLogin}
+            onOpenProjector={openProjectorAppRoute}
             onOpenAdmin={() => {
               if (!window.location.hash.startsWith('#/admin')) {
                 window.location.hash = '#/admin';
@@ -869,6 +980,7 @@ export default function App() {
         <AuthScreen
           onOrganiserLogin={handleOrganiserLogin}
           onJudgeLogin={handleJudgeLogin}
+          onOpenProjector={openProjectorAppRoute}
           onOpenAdmin={() => {
             if (!window.location.hash.startsWith('#/admin')) {
               window.location.hash = '#/admin';
@@ -1021,7 +1133,7 @@ export default function App() {
         />
       )}
 
-      {minRequiredVersion && !isProjectorRoute && (
+      {minRequiredVersion && !isProjectorAppRoute && (
         <div
           role="alertdialog"
           aria-modal="true"

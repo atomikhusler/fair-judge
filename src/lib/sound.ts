@@ -28,9 +28,12 @@ export const SOUND_CHANGE_EVENT = 'fairjudge_sound_change';
 
 export function isProjectorRouteActive(): boolean {
   if (typeof window === 'undefined') return false;
-  if (window.location.hash.startsWith('#/projector')) return true;
-  const params = new URLSearchParams(window.location.search);
-  return params.get('view') === 'projector';
+  const hash = window.location.hash || '';
+  return (
+    hash === '#/projector-app' ||
+    hash.startsWith('#/projector-app?') ||
+    hash.startsWith('#/projector-app/')
+  );
 }
 
 function isAdminRouteActive(): boolean {

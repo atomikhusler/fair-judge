@@ -956,11 +956,6 @@ export const dbService = {
 
   async resetOrganizationData(orgId: string): Promise<void> {
     const cleanOrgId = orgId.toUpperCase().trim();
-
-    if (isSupabaseConfigured()) {
-      await callSecuredWriteRpc('org_reset_data', { p_org_id: cleanOrgId });
-    }
-
     await this._purgeLocalCompetitionCache(cleanOrgId);
   },
 
@@ -1906,24 +1901,12 @@ export const dbService = {
 
       if (isSupabaseConfigured()) {
         try {
-          let rawJudges: any[] = [];
-          let rawParticipants: any[] = [];
-
-          try {
-            const [judgesRes, partsRes] = await Promise.all([
-              callSecuredReadRpc<any[]>('judges_list_with_pins', { p_org_id: cleanOrgId }),
-              callSecuredReadRpc<any[]>('participants_list', { p_org_id: cleanOrgId }),
-            ]);
-            rawJudges = Array.isArray(judgesRes.data) ? judgesRes.data : [];
-            rawParticipants = Array.isArray(partsRes.data) ? partsRes.data : [];
-          } catch (phase3Err: any) {
-            if (phase3Err?.code !== 'rpc_unavailable') {
-              throw phase3Err;
-            }
-            const res = await callSecuredReadRpc('read_org_roster_credentials', {});
-            rawJudges = Array.isArray(res.judges) ? res.judges : [];
-            rawParticipants = Array.isArray(res.participants) ? res.participants : [];
-          }
+          const [judgesRes, partsRes] = await Promise.all([
+            callSecuredReadRpc<any[]>('judges_list_with_pins', { p_org_id: cleanOrgId }),
+            callSecuredReadRpc<any[]>('participants_list', { p_org_id: cleanOrgId }),
+          ]);
+          const rawJudges = Array.isArray(judgesRes.data) ? judgesRes.data : [];
+          const rawParticipants = Array.isArray(partsRes.data) ? partsRes.data : [];
 
           const judges = rawJudges.map(normalizeJudge);
           const participants = rawParticipants as SupabaseParticipant[];

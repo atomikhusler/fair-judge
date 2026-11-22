@@ -9,6 +9,7 @@ import {
 } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
 import { BlindRankItem } from '../../lib/projectorService';
+import { isEventProvisional } from './PublicLeaderboard';
 
 interface ProjectorScoreboardProps {
   organization: Organization | null;
@@ -40,13 +41,16 @@ export function ProjectorScoreboard({
     return matched.length > 0 ? matched : judges;
   }, [currentEvent, judges]);
 
+  const isProvisional = isEventProvisional(currentEvent);
+
   const assignedParticipants = useMemo(() => {
     if (!currentEvent) return [];
+    const activeParticipants = participants.filter((p) => p.is_active !== false);
     const assignedIds = currentEvent.assigned_participants || [];
     if (assignedIds.length > 0) {
-      return participants.filter((p) => assignedIds.includes(p.id));
+      return activeParticipants.filter((p) => assignedIds.includes(p.id));
     }
-    return participants;
+    return activeParticipants;
   }, [participants, currentEvent]);
 
   const eventScores = useMemo(() => {
@@ -72,32 +76,32 @@ export function ProjectorScoreboard({
           rankMap.set(r.participant_id, r);
         }
       }
-      const rows = assignedParticipants.map((p) => {
-        const pScores = eventScores.filter((s) => s.participant_id === p.id);
-        const br = rankMap.get(p.id);
-        return {
-          ...p,
-          pScores,
-          rank: br ? br.rank : 0,
-          judgeCount: br ? br.judge_count : pScores.length,
-          avgScore: 0,
-        };
-      });
-      rows.sort((a, b) => {
-        if (a.rank > 0 && b.rank > 0) return a.rank - b.rank;
-        if (a.rank > 0) return -1;
-        if (b.rank > 0) return 1;
-        return a.name.localeCompare(b.name);
-      });
+      const rows = assignedParticipants
+        .map((p) => {
+          const pScores = eventScores.filter((s) => s.participant_id === p.id);
+          const br = rankMap.get(p.id);
+          return {
+            ...p,
+            pScores,
+            rank: br ? br.rank : 0,
+            judgeCount: br ? br.judge_count : pScores.length,
+            avgScore: 0,
+          };
+        })
+        .filter((r) => r.rank > 0);
+      rows.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
       return rows;
     }
 
-    return dbService.calculateRankings(
-      assignedParticipants,
-      eventScores,
-      eventJudges.length || currentEvent.assigned_judges?.length || 0,
-      organization?.tie_breaker_method || 'olympic'
-    );
+    return dbService
+      .calculateRankings(
+        assignedParticipants,
+        eventScores,
+        eventJudges.length || currentEvent.assigned_judges?.length || 0,
+        organization?.tie_breaker_method || 'olympic',
+        Boolean(organization?.tie_breaker_enabled)
+      )
+      .filter((row) => row.rank > 0);
   }, [
     isServerBlind,
     blindRanks,
@@ -106,17 +110,35 @@ export function ProjectorScoreboard({
     eventJudges.length,
     currentEvent,
     organization?.tie_breaker_method,
+    organization?.tie_breaker_enabled,
   ]);
 
   const scoreLookup = useMemo(() => {
+    const latest = new Map<
+      string,
+      { val: number | null; ts: number; order: number }
+    >();
+    eventScores.forEach((s, idx) => {
+      const key = `${s.participant_id}::${s.judge_id}`;
+      const parsedTs = s.created_at ? Date.parse(s.created_at) : 0;
+      const ts = Number.isFinite(parsedTs) ? parsedTs : 0;
+      const existing = latest.get(key);
+      if (!existing || ts > existing.ts || (ts === existing.ts && idx > existing.order)) {
+        const rawVal = s.total_score as unknown;
+        const numVal =
+          rawVal !== undefined &&
+          rawVal !== null &&
+          !(typeof rawVal === 'string' && rawVal.trim() === '') &&
+          Number.isFinite(Number(rawVal))
+            ? Number(rawVal)
+            : null;
+        latest.set(key, { val: numVal, ts, order: idx });
+      }
+    });
     const map = new Map<string, number | null>();
-    for (const s of eventScores) {
-      const rawVal = s.total_score;
-      map.set(
-        `${s.participant_id}::${s.judge_id}`,
-        rawVal !== undefined && rawVal !== null ? Number(rawVal) : null
-      );
-    }
+    latest.forEach((entry, key) => {
+      map.set(key, entry.val);
+    });
     return map;
   }, [eventScores]);
 
@@ -137,10 +159,20 @@ export function ProjectorScoreboard({
   return (
     <section aria-label="Per-Judge Scoreboard" className="w-full flex flex-col flex-1 min-h-0">
       <div className="text-center space-y-1 mb-5">
-        <div className="inline-flex items-center gap-2 font-mono text-[clamp(0.75rem,1vw,1.05rem)] uppercase font-bold tracking-widest text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3.5 py-1 rounded-full border border-emerald-500/20">
-          <span>{currentEvent.category || 'CHAMPIONSHIP'}</span>
-          <span>—</span>
-          <span>JUDGE SCOREBOARD</span>
+        <div className="inline-flex flex-wrap items-center justify-center gap-2">
+          <div className="inline-flex items-center gap-2 font-mono text-[clamp(0.75rem,1vw,1.05rem)] uppercase font-bold tracking-widest text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3.5 py-1 rounded-full border border-emerald-500/20">
+            <span>{currentEvent.category || 'CHAMPIONSHIP'}</span>
+            <span>—</span>
+            <span>JUDGE SCOREBOARD</span>
+          </div>
+          {isProvisional && (
+            <span
+              data-testid="provisional-badge"
+              className="inline-flex items-center font-mono text-[clamp(0.75rem,1vw,1.05rem)] uppercase font-bold tracking-widest text-amber-600 dark:text-amber-300 bg-amber-500/15 px-3.5 py-1 rounded-full border border-amber-500/40"
+            >
+              Provisional
+            </span>
+          )}
         </div>
         <h1
           className={`text-[clamp(1.5rem,3vw,3.4rem)] font-black tracking-tight leading-tight uppercase ${

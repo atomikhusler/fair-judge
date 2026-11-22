@@ -1,3 +1,5 @@
+import { escapeHtml } from './htmlEscape';
+
 export interface JudgeBadgeTemplateData {
   judgeName: string;
   orgName: string;
@@ -311,15 +313,6 @@ const BADGE_HTML_TEMPLATE = `<div class="badge">
     <footer class="dev-line">Engineered with intent · Sahil Kumar Rout</footer>
   </div>
 </div>`;
-
-function escapeHtml(value: string): string {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 export function renderBadgeHtml(data: JudgeBadgeTemplateData, qrSvg: string): string {
   const cleanJudgeName = (data.judgeName || 'Judge').trim() || 'Judge';

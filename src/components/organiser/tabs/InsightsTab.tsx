@@ -38,6 +38,8 @@ import { DB_TABLES, matchesDbTable } from '../../../lib/dbTables';
 import { ReadRetryBanner } from '../../common/ReadRetryBanner';
 import { showToast } from '../../common/ToastProvider';
 import { printDocument } from '../../../lib/fileActions';
+import { escapeHtml } from '../../../lib/htmlEscape';
+import { safeCell } from '../../../lib/excelSafe';
 import {
   buildDeduplicatedEventData,
   computeEventTieBreakerSuggestions,
@@ -403,15 +405,15 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       [''], // Blank row 5 for spacing
       dataHeaders, // Row 6
       ...dataRows, // Row 7+
-    ];
+    ].map((row) => row.map((cell) => safeCell(cell)));
 
     const ws = XLSX.utils.aoa_to_sheet(masterRows);
 
     // Apply auto-column widths
     const colWidths = dataHeaders.map((h, i) => {
-      let maxLen = h.length;
+      let maxLen = String(safeCell(h)).length;
       dataRows.forEach((r) => {
-        const valStr = String(r[i] ?? '');
+        const valStr = String(safeCell(r[i] ?? ''));
         if (valStr.length > maxLen) maxLen = valStr.length;
       });
       return { wch: Math.min(Math.max(maxLen + 3, 12), 40) };
@@ -429,13 +431,6 @@ export function InsightsTab({ organization }: InsightsTabProps) {
     contentHtml: string,
     forceInApp: boolean = false
   ) => {
-    const escapeHtml = (str: string) =>
-      String(str || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-
     const htmlDocument = `
       <!DOCTYPE html>
       <html lang="en">
@@ -599,12 +594,12 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               <td class="${s.rank === 1 ? 'rank-gold' : s.rank === 2 ? 'rank-silver' : 'rank-bronze'}">
                 ${s.rank === 1 ? '1st 🥇' : s.rank === 2 ? '2nd 🥈' : '3rd 🥉'}${s.isTied ? ' (Tied)' : ''}
               </td>
-              <td style="font-family: monospace; font-weight: bold;">${s.participant.identity_id || `P-${s.participant.sl_no || '0000'}`}</td>
-              <td style="font-weight: 700;">${s.participant.name}</td>
-              <td>${s.participant.school || 'Independent'}</td>
-              <td>${s.participant.class_or_age || '—'}</td>
+              <td style="font-family: monospace; font-weight: bold;">${escapeHtml(s.participant.identity_id || `P-${s.participant.sl_no || '0000'}`)}</td>
+              <td style="font-weight: 700;">${escapeHtml(s.participant.name)}</td>
+              <td>${escapeHtml(s.participant.school || 'Independent')}</td>
+              <td>${escapeHtml(s.participant.class_or_age || '—')}</td>
               <td style="text-align: right; font-family: monospace; font-weight: bold; color: #059669;">
-                ${s.averageScore.toFixed(2)} pts
+                ${escapeHtml(s.averageScore.toFixed(2))} pts
               </td>
             </tr>
           `
@@ -614,7 +609,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
         return `
           <div class="section-block">
             <div class="section-title">
-              ${(event as any).category ? `${(event as any).category} — ` : ''}${event.name}
+              ${(event as any).category ? `${escapeHtml((event as any).category)} — ` : ''}${escapeHtml(event.name)}
             </div>
             <table>
               <thead>
@@ -702,19 +697,19 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               const scoreObj = evScores.find(
                 (sc) => sc.event_id === event.id && sc.participant_id === s.participant.id && sc.judge_id === j.id
               );
-              return `<td style="text-align: center; font-family: monospace;">${scoreObj ? scoreObj.total_score : '—'}</td>`;
+              return `<td style="text-align: center; font-family: monospace;">${escapeHtml(scoreObj ? scoreObj.total_score : '—')}</td>`;
             })
             .join('');
 
           return `
             <tr>
-              <td style="font-weight: bold; text-align: center;">#${s.rank}${s.isTied ? ' (T)' : ''}</td>
-              <td style="font-family: monospace; font-size: 10px;">${s.participant.identity_id || `P-${s.participant.sl_no || ''}`}</td>
-              <td style="font-weight: 700;">${s.participant.name}</td>
-              <td>${s.participant.school || 'Independent'}</td>
+              <td style="font-weight: bold; text-align: center;">#${escapeHtml(s.rank)}${s.isTied ? ' (T)' : ''}</td>
+              <td style="font-family: monospace; font-size: 10px;">${escapeHtml(s.participant.identity_id || `P-${s.participant.sl_no || ''}`)}</td>
+              <td style="font-weight: 700;">${escapeHtml(s.participant.name)}</td>
+              <td>${escapeHtml(s.participant.school || 'Independent')}</td>
               ${judgeCells}
               <td style="text-align: center; font-weight: bold; font-family: monospace; color: #059669;">
-                ${s.averageScore.toFixed(2)}
+                ${escapeHtml(s.averageScore.toFixed(2))}
               </td>
             </tr>
           `;
@@ -724,10 +719,10 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       return `
         <div class="section-block">
           <div class="section-title">
-            ${(event as any).category ? `${(event as any).category} — ` : ''}${event.name}
+            ${(event as any).category ? `${escapeHtml((event as any).category)} — ` : ''}${escapeHtml(event.name)}
           </div>
           <div class="jury-legend">
-            ${juryLegend}
+            ${escapeHtml(juryLegend)}
           </div>
           <table>
             <thead>
@@ -811,7 +806,8 @@ export function InsightsTab({ organization }: InsightsTabProps) {
       masterAoa.push(['']);
     });
 
-    const ws = XLSX.utils.aoa_to_sheet(masterAoa);
+    const safeMasterAoa = masterAoa.map((row) => row.map((cell) => safeCell(cell)));
+    const ws = XLSX.utils.aoa_to_sheet(safeMasterAoa);
     ws['!cols'] = [
       { wch: 8 },  // Rank
       { wch: 14 }, // ID
@@ -833,13 +829,6 @@ export function InsightsTab({ organization }: InsightsTabProps) {
 
   // 3. ANALYTICS EXPORT
   const handleExportAnalyticsPDF = (forceInApp: boolean = false) => {
-    const esc = (str: string) =>
-      String(str || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-
     const absenteesHtml = absenteesList.length === 0
       ? '<p style="font-size: 11px; color: #71717a;">Zero absentees recorded across all completed events.</p>'
       : `
@@ -858,11 +847,11 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               .map(
                 (a) => `
               <tr>
-                <td>${esc(a.event.name)}</td>
-                <td style="font-family: monospace;">${esc(a.participant.identity_id || `P-${a.participant.sl_no}`)}</td>
-                <td style="font-weight: 700;">${esc(a.participant.name)}</td>
-                <td>${esc(a.participant.school)}</td>
-                <td style="color: #dc2626;">${esc(a.reason)}</td>
+                <td>${escapeHtml(a.event.name)}</td>
+                <td style="font-family: monospace;">${escapeHtml(a.participant.identity_id || `P-${a.participant.sl_no}`)}</td>
+                <td style="font-weight: 700;">${escapeHtml(a.participant.name)}</td>
+                <td>${escapeHtml(a.participant.school)}</td>
+                <td style="color: #dc2626;">${escapeHtml(a.reason)}</td>
               </tr>
             `
               )
@@ -890,14 +879,14 @@ export function InsightsTab({ organization }: InsightsTabProps) {
               .map(
                 (b) => `
               <tr>
-                <td style="font-family: monospace;">${esc(b.judge.judge_id || b.judge.id.slice(0, 6))}</td>
-                <td style="font-weight: 700;">${esc(b.judge.name)}</td>
-                <td>${b.ballotCount}</td>
-                <td style="font-family: monospace;">${b.mean.toFixed(2)} pts</td>
+                <td style="font-family: monospace;">${escapeHtml(b.judge.judge_id || b.judge.id.slice(0, 6))}</td>
+                <td style="font-weight: 700;">${escapeHtml(b.judge.name)}</td>
+                <td>${escapeHtml(b.ballotCount)}</td>
+                <td style="font-family: monospace;">${escapeHtml(b.mean.toFixed(2))} pts</td>
                 <td style="font-family: monospace; font-weight: bold; color: ${b.variancePct >= 10 ? '#d97706' : b.variancePct <= -10 ? '#2563eb' : '#059669'};">
-                  ${b.variancePct >= 0 ? '+' : ''}${b.variancePct.toFixed(1)}%
+                  ${escapeHtml(`${b.variancePct >= 0 ? '+' : ''}${b.variancePct.toFixed(1)}%`)}
                 </td>
-                <td>${b.classification.toUpperCase()}</td>
+                <td>${escapeHtml(b.classification.toUpperCase())}</td>
               </tr>
             `
               )
@@ -986,13 +975,13 @@ export function InsightsTab({ organization }: InsightsTabProps) {
                 const e = eventMap.get(s.event_id);
                 return `
                 <tr>
-                  <td style="font-family: monospace; font-size: 10px;">${new Date(s.created_at).toLocaleTimeString()}</td>
-                  <td style="font-family: monospace; color: #059669; font-weight: bold;">#${s.id.slice(0, 6).toUpperCase()}</td>
-                  <td>${e?.name || s.event_id}</td>
-                  <td style="font-weight: 600;">${j?.name || s.judge_id}</td>
-                  <td>${p?.name || s.participant_id}</td>
+                  <td style="font-family: monospace; font-size: 10px;">${escapeHtml(new Date(s.created_at).toLocaleTimeString())}</td>
+                  <td style="font-family: monospace; color: #059669; font-weight: bold;">#${escapeHtml(s.id.slice(0, 6).toUpperCase())}</td>
+                  <td>${escapeHtml(e?.name || s.event_id)}</td>
+                  <td style="font-weight: 600;">${escapeHtml(j?.name || s.judge_id)}</td>
+                  <td>${escapeHtml(p?.name || s.participant_id)}</td>
                   <td style="text-align: right; font-weight: bold; font-family: monospace; color: #059669;">
-                    ${s.total_score} pts
+                    ${escapeHtml(s.total_score)} pts
                   </td>
                 </tr>
               `;

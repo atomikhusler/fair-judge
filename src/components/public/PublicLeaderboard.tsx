@@ -119,6 +119,15 @@ function ConfettiBurst({ active }: { active: boolean }) {
   );
 }
 
+export function isEventProvisional(
+  event?: Pick<SupabaseEvent, 'status' | 'is_archived'> | null
+): boolean {
+  if (!event) return false;
+  if (event.is_archived) return false;
+  const status = String(event.status || '').toLowerCase();
+  return status !== 'ended' && status !== 'archived';
+}
+
 export function PublicLeaderboard({
   snapshot,
   isReconnecting = false,
@@ -222,8 +231,18 @@ export function PublicLeaderboard({
   const ledgerScrollRef = useRef<HTMLDivElement>(null);
   const isHoveredLedgerRef = useRef<boolean>(false);
 
-  // Trigger celebratory confetti function (respects prefers-reduced-motion)
+  // Current active event & provisional status (provisional whenever not ended and not archived)
+  const currentEvent = useMemo(() => {
+    return events.find((e) => e.id === selectedEventId) || events[0];
+  }, [events, selectedEventId]);
+  const isProvisional = isEventProvisional(currentEvent);
+
+  // Trigger celebratory confetti function (suppressed while provisional; respects prefers-reduced-motion)
   const fireConfetti = useCallback(() => {
+    if (isProvisional) {
+      setIsConfettiActive(false);
+      return;
+    }
     if (
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -234,7 +253,16 @@ export function PublicLeaderboard({
     setTimeout(() => {
       setIsConfettiActive(false);
     }, 4500);
-  }, []);
+  }, [isProvisional]);
+
+  // Immediately clear any active celebration overlays/confetti when viewing a provisional event
+  useEffect(() => {
+    if (isProvisional) {
+      setIsConfettiActive(false);
+      setNewLeaderModal(null);
+      setPerfectScoreModal(null);
+    }
+  }, [isProvisional]);
 
   // Keep selectedEventId valid when snapshot changes or pairing is scoped to 1 event
   useEffect(() => {
@@ -443,11 +471,6 @@ export function PublicLeaderboard({
     setNetworkBanner((prev) => (prev.show ? { ...prev, show: false } : prev));
   }, []);
 
-  // Current active event
-  const currentEvent = useMemo(() => {
-    return events.find((e) => e.id === selectedEventId) || events[0];
-  }, [events, selectedEventId]);
-
   // Compute maximum points for current rubric
   const maxRubricScore = useMemo(() => {
     if (!currentEvent) return 100;
@@ -456,14 +479,15 @@ export function PublicLeaderboard({
     return total > 0 ? total : 100;
   }, [currentEvent]);
 
-  // Assigned participants for current event
+  // Active assigned participants for current event
   const assignedParticipants = useMemo(() => {
     if (!currentEvent) return [];
+    const activeParticipants = participants.filter((p) => p.is_active !== false);
     const assignedIds = currentEvent.assigned_participants || [];
     if (assignedIds.length > 0) {
-      return participants.filter((p) => assignedIds.includes(p.id));
+      return activeParticipants.filter((p) => assignedIds.includes(p.id));
     }
-    return participants;
+    return activeParticipants;
   }, [participants, currentEvent]);
 
   const isServerBlindForEvent = useMemo(() => {
@@ -481,6 +505,7 @@ export function PublicLeaderboard({
   }, [currentEvent, scores, snapshot.blindRanks, organization?.projector_blind_mode]);
 
   // Ranked Standings (uses server blind_ranks when Blind Mode strips scores on server)
+  // Excludes absent (rank === 0) participants from ranked standings.
   const rankedStandings = useMemo(() => {
     if (!currentEvent) return [];
     if (isServerBlindForEvent) {
@@ -490,32 +515,32 @@ export function PublicLeaderboard({
           rankMap.set(r.participant_id, r);
         }
       }
-      const rows = assignedParticipants.map((p) => {
-        const pScores = scores.filter((s) => s.participant_id === p.id);
-        const br = rankMap.get(p.id);
-        return {
-          ...p,
-          pScores,
-          rank: br ? br.rank : 0,
-          judgeCount: br ? br.judge_count : pScores.length,
-          avgScore: 0,
-        };
-      });
-      rows.sort((a, b) => {
-        if (a.rank > 0 && b.rank > 0) return a.rank - b.rank;
-        if (a.rank > 0) return -1;
-        if (b.rank > 0) return 1;
-        return a.name.localeCompare(b.name);
-      });
+      const rows = assignedParticipants
+        .map((p) => {
+          const pScores = scores.filter((s) => s.participant_id === p.id);
+          const br = rankMap.get(p.id);
+          return {
+            ...p,
+            pScores,
+            rank: br ? br.rank : 0,
+            judgeCount: br ? br.judge_count : pScores.length,
+            avgScore: 0,
+          };
+        })
+        .filter((r) => r.rank > 0);
+      rows.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
       return rows;
     }
 
-    return dbService.calculateRankings(
-      assignedParticipants,
-      scores,
-      currentEvent.assigned_judges?.length || 0,
-      organization?.tie_breaker_method || 'olympic'
-    );
+    return dbService
+      .calculateRankings(
+        assignedParticipants,
+        scores,
+        currentEvent.assigned_judges?.length || 0,
+        organization?.tie_breaker_method || 'olympic',
+        Boolean(organization?.tie_breaker_enabled)
+      )
+      .filter((item) => item.rank > 0);
   }, [
     isServerBlindForEvent,
     snapshot.blindRanks,
@@ -523,16 +548,23 @@ export function PublicLeaderboard({
     scores,
     currentEvent,
     organization?.tie_breaker_method,
+    organization?.tie_breaker_enabled,
   ]);
 
   // -------------------------------------------------------------
-  // AUTONOMOUS "NEW LEADER" DETECTION
+  // AUTONOMOUS "NEW LEADER" DETECTION (suppressed while provisional)
   // -------------------------------------------------------------
   useEffect(() => {
     if (rankedStandings.length === 0) return;
 
     const currentLeader = rankedStandings.find((s) => s.judgeCount > 0);
     if (!currentLeader) return;
+
+    if (isProvisional) {
+      previousLeaderIdRef.current = currentLeader.id;
+      isInitialLoadRef.current = false;
+      return;
+    }
 
     if (isInitialLoadRef.current) {
       previousLeaderIdRef.current = currentLeader.id;
@@ -561,10 +593,10 @@ export function PublicLeaderboard({
     }
 
     previousLeaderIdRef.current = currentLeader.id;
-  }, [rankedStandings, fireConfetti]);
+  }, [rankedStandings, fireConfetti, isProvisional]);
 
   // -------------------------------------------------------------
-  // AUTONOMOUS "PERFECT SCORE" FIREWORKS TRIGGER
+  // AUTONOMOUS "PERFECT SCORE" FIREWORKS TRIGGER (suppressed while provisional)
   // -------------------------------------------------------------
   useEffect(() => {
     if (!currentEvent || scores.length === 0) return;
@@ -575,6 +607,8 @@ export function PublicLeaderboard({
     scores.forEach((sc) => {
       if (seenScoreIdsRef.current.has(sc.id)) return;
       seenScoreIdsRef.current.add(sc.id);
+
+      if (isProvisional) return;
 
       // Server-enforced blind mode strips numeric scores — never inspect omitted scores
       if (sc.total_score === undefined || sc.total_score === null) return;
@@ -603,7 +637,7 @@ export function PublicLeaderboard({
         }, 5000);
       }
     });
-  }, [scores, currentEvent, maxRubricScore, participants, fireConfetti]);
+  }, [scores, currentEvent, maxRubricScore, participants, fireConfetti, isProvisional]);
 
   // -------------------------------------------------------------
   // LIVE SCORING PULSE (Currently On Stage)
@@ -625,7 +659,7 @@ export function PublicLeaderboard({
   // SMART AUTO-SCROLL PACING FOR LEDGER (Rank 4+)
   // -------------------------------------------------------------
   const rankFourAndBelow = useMemo(() => {
-    return rankedStandings.filter((item) => item.rank >= 4 || item.rank === 0);
+    return rankedStandings.filter((item) => item.rank >= 4);
   }, [rankedStandings]);
 
   useEffect(() => {
@@ -703,7 +737,7 @@ export function PublicLeaderboard({
       {/* ============================================================ */}
       {/* 0. CELEBRATORY CONFETTI SYSTEM                               */}
       {/* ============================================================ */}
-      <ConfettiBurst active={isConfettiActive} />
+      <ConfettiBurst active={!isProvisional && isConfettiActive} />
 
       {/* ============================================================ */}
       {/* 1. CINEMATIC BACKGROUND GLOW (Deep Black Mode Only)          */}
@@ -743,7 +777,7 @@ export function PublicLeaderboard({
       {/* ============================================================ */}
       {/* 3. "NEW OVERALL LEADER!" CINEMATIC POP-UP MODAL (5 Seconds)  */}
       {/* ============================================================ */}
-      {newLeaderModal && newLeaderModal.show && (
+      {!isProvisional && newLeaderModal && newLeaderModal.show && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-6 text-center animate-leader-pop">
           <div className="absolute w-[min(90vw,650px)] h-[min(90vw,650px)] bg-amber-500/20 blur-[130px] rounded-full pointer-events-none" />
 
@@ -790,7 +824,7 @@ export function PublicLeaderboard({
       {/* ============================================================ */}
       {/* 4. "PERFECT SCORE" FIREWORKS / BANNER                        */}
       {/* ============================================================ */}
-      {perfectScoreModal && perfectScoreModal.show && (
+      {!isProvisional && perfectScoreModal && perfectScoreModal.show && (
         <div className="fixed top-8 inset-x-4 md:inset-x-20 z-50 animate-in fade-in zoom-in-95 duration-300 pointer-events-none">
           <div className="max-w-4xl mx-auto p-4 md:p-6 bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600 rounded-3xl text-black shadow-[0_0_80px_rgba(245,158,11,0.6)] border-2 border-white/80 flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -1186,10 +1220,20 @@ export function PublicLeaderboard({
             }`}
           >
             {/* Category Breadcrumb */}
-            <div className="inline-flex items-center gap-2 font-mono text-[clamp(0.75rem,1.1vw,1rem)] uppercase font-bold tracking-widest text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3.5 py-1 rounded-full border border-emerald-500/20">
-              <span>{currentEvent.category || 'CHAMPIONSHIP'}</span>
-              <span>—</span>
-              <span>OFFICIAL STAGE</span>
+            <div className="inline-flex flex-wrap items-center justify-center gap-2">
+              <div className="inline-flex items-center gap-2 font-mono text-[clamp(0.75rem,1.1vw,1rem)] uppercase font-bold tracking-widest text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3.5 py-1 rounded-full border border-emerald-500/20">
+                <span>{currentEvent.category || 'CHAMPIONSHIP'}</span>
+                <span>—</span>
+                <span>OFFICIAL STAGE</span>
+              </div>
+              {isProvisional && (
+                <span
+                  data-testid="provisional-badge"
+                  className="inline-flex items-center font-mono text-[clamp(0.75rem,1.1vw,1rem)] uppercase font-bold tracking-widest text-amber-600 dark:text-amber-300 bg-amber-500/15 px-3.5 py-1 rounded-full border border-amber-500/40"
+                >
+                  Provisional
+                </span>
+              )}
             </div>
 
             {/* [CATEGORY] — [EVENT TITLE] */}

@@ -197,7 +197,7 @@ export function runGoldenTests(): GoldenTestRunResult {
     });
   }
 
-  // 6. Two-Way Tie Sequential (Non-Shared)
+  // 6. Two-Way Unresolved Tie (Tie-Breaker Enabled -> Shared Rank)
   try {
     const p1 = makeMockParticipant('p1', 'Hannah', '01');
     const p2 = makeMockParticipant('p2', 'Ian', '02');
@@ -205,20 +205,20 @@ export function runGoldenTests(): GoldenTestRunResult {
     const s2 = makeMockScore('s2', 'p2', 'j1', 90);
 
     const ranks = calculateRankings([p1, p2], [s1, s2], 1, 'olympic', true);
-    const passed = ranks[0].rank === 1 && ranks[1].rank === 2;
+    const passed = ranks[0].rank === 1 && ranks[1].rank === 1;
     cases.push({
       id: 'two_way_tie_sequential',
-      name: 'Two-way tie sequential break',
+      name: 'Two-way unresolved tie shared rank',
       passed,
-      expected: 'Ranks: [1, 2]',
+      expected: 'Ranks: [1, 1]',
       actual: `Ranks: [${ranks[0]?.rank}, ${ranks[1]?.rank}]`,
     });
   } catch (e: any) {
     cases.push({
       id: 'two_way_tie_sequential',
-      name: 'Two-way tie sequential break',
+      name: 'Two-way unresolved tie shared rank',
       passed: false,
-      expected: '[1, 2]',
+      expected: '[1, 1]',
       actual: 'crash',
       error: e.message,
     });
