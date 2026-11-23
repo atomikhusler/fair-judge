@@ -1,6 +1,8 @@
 import { calculateRankings, RankedParticipantItem } from '../tieBreakerEngine';
+import { applyTieDecisions, resolveOrgTieDefault } from '../tieDecisionEngine';
 import type {
   Organization,
+  ProjectorTieDecision,
   SupabaseEvent,
   SupabaseJudge,
   SupabaseParticipant,
@@ -15,6 +17,7 @@ export interface ProjectorEventState {
   participants: SupabaseParticipant[];
   judges: SupabaseJudge[];
   scores: SupabaseScore[];
+  tieDecisions?: ProjectorTieDecision[];
 }
 
 export interface ProjectorOverviewMetrics {
@@ -122,14 +125,25 @@ export function computeProjectorRankings(
   const activeParticipants = getActiveAssignedParticipants(state.event, state.participants);
   const activeJudges = getActiveAssignedJudges(state.event, state.judges);
   const eventScores = deduplicateEventScores(state.scores, state.event.id);
+  const eventDecisions = (state.tieDecisions || []).filter(
+    (d) => !d.event_id || d.event_id === state.event?.id
+  );
 
-  return calculateRankings(
+  const baseline = calculateRankings(
     activeParticipants,
     eventScores,
     activeJudges.length || state.event.assigned_judges?.length || 0,
-    state.org?.tie_breaker_method || 'olympic',
-    Boolean(state.org?.tie_breaker_enabled)
-  ).filter((item) => item.rank > 0);
+    'shared',
+    false
+  );
+
+  const applied = applyTieDecisions(
+    baseline,
+    eventDecisions,
+    resolveOrgTieDefault(state.org)
+  );
+
+  return applied.rankings.filter((item) => item.rank > 0);
 }
 
 /**

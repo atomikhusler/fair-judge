@@ -30,6 +30,7 @@ export interface Organization {
   deleted_at?: string | null;
   tie_breaker_enabled?: boolean; // Default false (off by default)
   tie_breaker_method?: TieBreakerMethod; // 'olympic' | 'shared' | 'manual'
+  tie_management_enabled?: boolean; // Default true (show Ties chip org-wide)
   custom_participant_fields?: CustomParticipantField[];
   blind_judging_enabled?: boolean; // Default false (hide names & schools to prevent bias)
   auto_advance_enabled?: boolean; // Default true (auto-slide to next on submit)
@@ -41,6 +42,33 @@ export interface Organization {
   projector_carousel_interval?: number; // Broadcast Control Room: Carousel interval (15-180s)
   projector_confetti_at?: string | null; // Broadcast Control Room: Last confetti trigger timestamp
   created_at: string;
+}
+
+export type TieDecisionMode = 'shared' | 'olympic' | 'manual';
+
+export interface TieDecision {
+  id: string;
+  org_id: string;
+  event_id: string;
+  group_key: string;
+  mode: TieDecisionMode;
+  ordered_participant_ids: string[];
+  score_fingerprint: string;
+  decided_by?: string;
+  decided_at: string;
+  version: number;
+  updated_at?: string;
+}
+
+export interface ProjectorTieDecision {
+  id: string;
+  event_id: string;
+  group_key: string;
+  mode: TieDecisionMode;
+  ordered_participant_ids: string[];
+  score_fingerprint: string;
+  decided_at: string;
+  version: number;
 }
 
 export interface SupabaseEvent {

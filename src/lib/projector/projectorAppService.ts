@@ -3,11 +3,13 @@ import type { ActiveOrgSession } from '../authService';
 import type {
   EventStatus,
   Organization,
+  ProjectorTieDecision,
   SupabaseEvent,
   SupabaseJudge,
   SupabaseParticipant,
   SupabaseScore,
   TieBreakerMethod,
+  TieDecisionMode,
 } from '../supabaseTypes';
 import type { ProjectorEventState } from './projectorRanking';
 
@@ -52,6 +54,7 @@ export interface ProjectorChangesPayload {
   participants: SupabaseParticipant[];
   judges: SupabaseJudge[];
   scores: SupabaseScore[];
+  tieDecisions?: ProjectorTieDecision[];
   deletions: ProjectorDeletionRecord[];
 }
 
@@ -169,6 +172,9 @@ export async function fetchProjectorChanges(
         : [],
       judges: Array.isArray(res.judges) ? res.judges.map(normalizeJudge) : [],
       scores: Array.isArray(res.scores) ? res.scores.map(normalizeScore) : [],
+      tieDecisions: Array.isArray(res.tie_decisions)
+        ? res.tie_decisions.map(normalizeProjectorTieDecision)
+        : [],
       deletions: Array.isArray(res.deletions) ? res.deletions : [],
     };
 
@@ -276,6 +282,26 @@ function normalizeScore(raw: any): SupabaseScore {
   };
 }
 
+function normalizeProjectorTieDecision(raw: any): ProjectorTieDecision {
+  // Strictly allowlist projector fields; NEVER carry decided_by, org_id, PINs, or tokens
+  const rawMode = String(raw?.mode || 'shared').toLowerCase();
+  const mode: TieDecisionMode =
+    rawMode === 'olympic' || rawMode === 'manual' ? rawMode : 'shared';
+  const versionNum = Number(raw?.version ?? 1);
+  return {
+    id: String(raw?.id || ''),
+    event_id: String(raw?.event_id || ''),
+    group_key: String(raw?.group_key || ''),
+    mode,
+    ordered_participant_ids: Array.isArray(raw?.ordered_participant_ids)
+      ? raw.ordered_participant_ids.map((id: unknown) => String(id))
+      : [],
+    score_fingerprint: String(raw?.score_fingerprint || ''),
+    decided_at: String(raw?.decided_at || ''),
+    version: Number.isFinite(versionNum) ? versionNum : 1,
+  };
+}
+
 function upsertById<T extends { id: string }>(
   existing: T[],
   incoming: T[],
@@ -310,6 +336,7 @@ export function mergeProjectorDelta(
   const deletedParticipants = new Set<string>();
   const deletedJudges = new Set<string>();
   const deletedScores = new Set<string>();
+  const deletedTieDecisions = new Set<string>();
 
   for (const d of delta.deletions || []) {
     const tbl = String(d.table_name || '').toLowerCase();
@@ -318,6 +345,7 @@ export function mergeProjectorDelta(
     if (tbl === 'participants') deletedParticipants.add(id);
     else if (tbl === 'judges') deletedJudges.add(id);
     else if (tbl === 'scores') deletedScores.add(id);
+    else if (tbl === 'tie_decisions') deletedTieDecisions.add(id);
   }
 
   const nextParticipants = upsertById(
@@ -332,14 +360,23 @@ export function mergeProjectorDelta(
 
   const nextScores = upsertById(prev.scores, delta.scores, deletedScores);
 
+  const nextTieDecisions = upsertById(
+    prev.tieDecisions || [],
+    delta.tieDecisions || [],
+    deletedTieDecisions
+  );
+
   return {
     org: delta.org || prev.org,
     event: delta.event || prev.event,
     participants: nextParticipants,
     judges: nextJudges,
     scores: nextScores,
+    tieDecisions: nextTieDecisions,
   };
 }
+
+export const applyProjectorChanges = mergeProjectorDelta;
 
 function getDefaultDeviceLabel(): string {
   if (typeof navigator === 'undefined') return 'Projector PC';
