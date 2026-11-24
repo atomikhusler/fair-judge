@@ -291,10 +291,10 @@ export default function App() {
         intentionalProjectorEntryRef.current &&
         isProjectorAppHash(window.location.hash || '');
       if (allowEntry) {
-        intentionalProjectorEntryRef.current = false;
         setIsProjectorAppRoute(true);
         return;
       }
+      intentionalProjectorEntryRef.current = false;
       setIsProjectorAppRoute(resolveProjectorAppRoute());
     };
     handleHashChange();
