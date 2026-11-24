@@ -91,6 +91,7 @@ export function computeRankings(
         const sum = trimmed.reduce((acc, s) => acc + s.total_score, 0);
         computedAverage = Number((sum / trimmed.length).toFixed(2));
       } else if (tieBreakerEnabled && method === 'manual') {
+        // Legacy 4-decimal precision fallback (retained for backward compatibility)
         const sum = pScores.reduce((acc, s) => acc + s.total_score, 0);
         computedAverage = Number((sum / judgeCount).toFixed(4));
       } else {

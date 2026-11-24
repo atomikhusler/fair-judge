@@ -1079,7 +1079,7 @@ export function InsightsTab({ organization }: InsightsTabProps) {
             } else if (sug.resolution === 'shared') {
               copy = `Tie at Rank #${sug.rank} (${sug.tiedAverageScore.toFixed(2)} pts). Tied participants share this rank. No suggested order.`;
             } else {
-              copy = `Tie at Rank #${sug.rank} (${sug.tiedAverageScore.toFixed(2)} pts). Chief Judge decision required.`;
+              copy = `Tie at Rank #${sug.rank} (${sug.tiedAverageScore.toFixed(2)} pts). Organiser tie review required.`;
             }
 
             return (

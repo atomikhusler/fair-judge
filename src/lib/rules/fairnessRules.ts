@@ -243,7 +243,7 @@ export function computeEventTieBreakerSuggestions(
       continue;
     }
 
-    // Chief Judge Adjudication: no suggested order is calculated
+    // Legacy unresolved tie setting: no suggested order is calculated
     if (method === 'manual') {
       suggestions.push({
         id: `${ctx.event.id}__rank_${rank}`,

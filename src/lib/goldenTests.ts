@@ -120,15 +120,15 @@ export function runGoldenTests(): GoldenTestRunResult {
     const s3 = makeMockScore('s3', 'p1', 'j3', 11); // sum 31 / 3 = 10.3333...
 
     const standardRanks = calculateRankings([p1], [s1, s2, s3], 3, 'shared', false);
-    const manualRanks = calculateRankings([p1], [s1, s2, s3], 3, 'manual', true);
+    const exactPrecisionRanks = calculateRankings([p1], [s1, s2, s3], 3, 'manual', true);
 
-    const passed = standardRanks[0].avgScore === 10.33 && manualRanks[0].avgScore === 10.3333;
+    const passed = standardRanks[0].avgScore === 10.33 && exactPrecisionRanks[0].avgScore === 10.3333;
     cases.push({
       id: 'rounding_precision',
       name: 'Rounding precision',
       passed,
-      expected: 'standard: 10.33, manual: 10.3333',
-      actual: `standard: ${standardRanks[0]?.avgScore}, manual: ${manualRanks[0]?.avgScore}`,
+      expected: 'standard: 10.33, 4dp: 10.3333',
+      actual: `standard: ${standardRanks[0]?.avgScore}, 4dp: ${exactPrecisionRanks[0]?.avgScore}`,
     });
   } catch (e: any) {
     cases.push({

@@ -27,9 +27,10 @@ import {
   SupabaseJudge, 
   SupabaseParticipant, 
   SupabaseScore, 
-  EventStatus 
+  EventStatus,
+  TieRound
 } from '../../../lib/supabaseTypes';
-import { dbService, subscribeToDatabase } from '../../../lib/supabase';
+import { callSecuredReadRpc, dbService, subscribeToDatabase } from '../../../lib/supabase';
 import { registerSyncCadence } from '../../../lib/syncEngine';
 import { 
   getPendingCount, 
@@ -58,6 +59,13 @@ import {
   type RuleEvaluation,
 } from '../../../lib/rules';
 import { EventProgressScreen } from '../EventProgressScreen';
+import { TieManagerScreen } from '../TieManagerScreen';
+import {
+  TieStatusChip,
+  type EventTieSummary,
+  type OrganiserLiveTieGroup,
+  type OrganiserStaleRoundRef,
+} from '../TieStatusChip';
 
 function formatNoticeTime(iso?: string, fallbackMs?: number): string {
   const ms = iso ? Date.parse(iso) : NaN;
@@ -185,6 +193,9 @@ interface EventCardProps {
   onToggleLock: (event: SupabaseEvent) => void;
   onOpenProgress: (event: SupabaseEvent, e: React.MouseEvent) => void;
   onOpenPublicView?: (eventId: string) => void;
+  tieManagementEnabled?: boolean;
+  tieSummary?: EventTieSummary | null;
+  onTieChipClick?: (event: SupabaseEvent, summary: EventTieSummary) => void;
 }
 
 export const EventCard = React.memo(function EventCard({
@@ -203,6 +214,9 @@ export const EventCard = React.memo(function EventCard({
   onToggleLock,
   onOpenProgress,
   onOpenPublicView,
+  tieManagementEnabled = false,
+  tieSummary = null,
+  onTieChipClick,
 }: EventCardProps) {
   // Required judges count
   const requiredJudgesCount = eventJudgesCount > 0 ? eventJudgesCount : (allJudgesCount > 0 ? allJudgesCount : 1);
@@ -351,6 +365,15 @@ export const EventCard = React.memo(function EventCard({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <TieStatusChip
+            tieManagementEnabled={tieManagementEnabled}
+            summary={tieSummary}
+            onClick={() => {
+              if (tieSummary && onTieChipClick) {
+                onTieChipClick(event, tieSummary);
+              }
+            }}
+          />
           {event.status === 'active' && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] lg:text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -828,10 +851,14 @@ export function LiveTab({
   const [confirmingEvent, setConfirmingEvent] = useState<SupabaseEvent | null>(null);
   const [unlockConfirmEvent, setUnlockConfirmEvent] = useState<SupabaseEvent | null>(null);
   const [progressEventId, setProgressEventId] = useState<string | null>(null);
+  const [tieManagerEventId, setTieManagerEventId] = useState<string | null>(null);
+  const [tieRefreshTick, setTieRefreshTick] = useState(0);
+  const [tieSummaryByEvent, setTieSummaryByEvent] = useState<Record<string, EventTieSummary>>({});
   const [readError, setReadError] = useState<string | null>(null);
   const [isRetryingRead, setIsRetryingRead] = useState(false);
   const readErrorRef = useRef<string | null>(null);
   const loadRequestIdRef = useRef(0);
+  const tieLoadRequestIdRef = useRef(0);
 
   useEffect(() => {
     readErrorRef.current = readError;
@@ -1444,6 +1471,95 @@ export function LiveTab({
     return events.find((e) => e.id === progressEventId) || null;
   }, [progressEventId, events]);
 
+  // Server-authoritative tie summary from tie_rounds_list_organiser (only when tie_management_enabled === true)
+  const tieManagementEnabled = Boolean(organization.tie_management_enabled);
+
+  useEffect(() => {
+    if (!tieManagementEnabled) {
+      tieLoadRequestIdRef.current += 1;
+      setTieSummaryByEvent({});
+      return;
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+    const reqId = ++tieLoadRequestIdRef.current;
+    let cancelled = false;
+
+    const fetchTieSummaries = async () => {
+      try {
+        const orgRes = (await callSecuredReadRpc('tie_rounds_list_organiser', {
+          p_event_id: null,
+        })) as unknown as {
+          ok?: boolean;
+          rounds?: TieRound[];
+        };
+        if (cancelled || reqId !== tieLoadRequestIdRef.current) return;
+
+        const nextMap: Record<string, EventTieSummary> = {};
+        const orgRounds = Array.isArray(orgRes?.rounds) ? orgRes.rounds : [];
+        for (const r of orgRounds) {
+          if (!r?.event_id) continue;
+          if (!nextMap[r.event_id]) {
+            nextMap[r.event_id] = { rounds: [], liveTieGroups: [], staleRounds: [] };
+          }
+          nextMap[r.event_id].rounds.push(r);
+        }
+
+        // Query per-event tie_rounds_list_organiser for events with >= 2 scores (server-side tie detection + stale rounds)
+        const scoredEventIds = events
+          .filter((evt) => (scoresByEvent.get(evt.id)?.length || 0) >= 2)
+          .map((evt) => evt.id);
+
+        if (scoredEventIds.length > 0) {
+          const perEventResults = await Promise.allSettled(
+            scoredEventIds.map(async (eventId) => {
+              const res = (await callSecuredReadRpc('tie_rounds_list_organiser', {
+                p_event_id: eventId,
+              })) as unknown as {
+                ok?: boolean;
+                rounds?: TieRound[];
+                live_tie_groups?: OrganiserLiveTieGroup[];
+                stale_rounds?: OrganiserStaleRoundRef[];
+              };
+              return { eventId, res };
+            })
+          );
+
+          if (cancelled || reqId !== tieLoadRequestIdRef.current) return;
+
+          for (const settled of perEventResults) {
+            if (settled.status !== 'fulfilled') continue;
+            const { eventId, res } = settled.value;
+            nextMap[eventId] = {
+              rounds: Array.isArray(res?.rounds) ? res.rounds : nextMap[eventId]?.rounds || [],
+              liveTieGroups: Array.isArray(res?.live_tie_groups) ? res.live_tie_groups : [],
+              staleRounds: Array.isArray(res?.stale_rounds) ? res.stale_rounds : [],
+            };
+          }
+        }
+
+        setTieSummaryByEvent(nextMap);
+      } catch {
+        // Keep last known server summary on transient network errors
+      }
+    };
+
+    void fetchTieSummaries();
+    return () => {
+      cancelled = true;
+    };
+  }, [tieManagementEnabled, events, scoresByEvent, tieRefreshTick]);
+
+  const handleTieChipClick = useCallback((event: SupabaseEvent) => {
+    triggerHaptic('tick');
+    setTieManagerEventId(event.id);
+  }, []);
+
+  const tieManagerEvent = useMemo(() => {
+    if (!tieManagerEventId) return null;
+    return events.find((e) => e.id === tieManagerEventId) || null;
+  }, [tieManagerEventId, events]);
+
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-32 relative">
       {/* ======================================================== */}
@@ -1547,6 +1663,9 @@ export function LiveTab({
                 onToggleLock={handleToggleLock}
                 onOpenProgress={handleOpenProgress}
                 onOpenPublicView={onOpenPublicView}
+                tieManagementEnabled={tieManagementEnabled}
+                tieSummary={tieSummaryByEvent[event.id] || null}
+                onTieChipClick={handleTieChipClick}
               />
             );
           })
@@ -1564,6 +1683,24 @@ export function LiveTab({
         blindJudgingEnabled={Boolean(organization.blind_judging_enabled)}
         getParticipantDisplayName={getParticipantDisplayName}
         onClose={() => setProgressEventId(null)}
+      />
+
+      {/* ======================================================== */}
+      {/* FULL-SCREEN TIE MANAGER PANEL (Stage B4b)                */}
+      {/* ======================================================== */}
+      <TieManagerScreen
+        event={tieManagerEvent}
+        organization={organization}
+        eventParticipants={tieManagerEvent ? participantsByEvent.get(tieManagerEvent.id) || [] : []}
+        eventScores={tieManagerEvent ? scoresByEvent.get(tieManagerEvent.id) || [] : []}
+        assignedJudgesCount={
+          tieManagerEvent
+            ? tieManagerEvent.assigned_judges?.length || judges.filter((j) => j.is_active !== false).length
+            : 0
+        }
+        getParticipantDisplayName={getParticipantDisplayName}
+        onClose={() => setTieManagerEventId(null)}
+        onTieDataChanged={() => setTieRefreshTick((n) => n + 1)}
       />
 
       {/* ======================================================== */}
