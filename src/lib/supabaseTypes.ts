@@ -29,8 +29,9 @@ export interface Organization {
   suspended_reason?: string | null;
   deleted_at?: string | null;
   tie_breaker_enabled?: boolean; // Default false (off by default)
-  tie_breaker_method?: TieBreakerMethod; // 'olympic' | 'shared' | 'manual'
-  tie_management_enabled?: boolean; // Default true (show Ties chip org-wide)
+  tie_breaker_method?: TieBreakerMethod; // Legacy column kept for migration compatibility
+  tie_management_enabled?: boolean; // Default false (org-wide tie management toggle)
+  tie_rule?: OrgTieRule; // Default 'countback' (org-wide tie rule for future events)
   custom_participant_fields?: CustomParticipantField[];
   blind_judging_enabled?: boolean; // Default false (hide names & schools to prevent bias)
   auto_advance_enabled?: boolean; // Default true (auto-slide to next on submit)
@@ -44,31 +45,111 @@ export interface Organization {
   created_at: string;
 }
 
-export type TieDecisionMode = 'shared' | 'olympic' | 'manual';
+export type OrgTieRule = 'countback' | 'olympic' | 'recompete';
+export type TieRoundRule = 'countback' | 'olympic' | 'recompete' | 'shared';
+export type TieRoundStatus = 'open' | 'closed' | 'published' | 'cancelled_stale';
+export type TieAuditAction =
+  | 'apply_countback'
+  | 'apply_olympic'
+  | 'open_recompete'
+  | 'close_recompete'
+  | 'publish_recompete'
+  | 'reopen_recompete'
+  | 'close_stale_round'
+  | 'close_event_shared';
 
-export interface TieDecision {
+export interface TieRoundPlacement {
+  participant_id: string;
+  before_rank: number;
+  after_rank: number;
+  base_avg: number;
+  ballot_count?: number;
+  scores_desc?: number[];
+  trimmed_avg?: number | null;
+  grade_sum?: number;
+  grade_count?: number;
+}
+
+export interface TieRoundResultPayload {
+  rule?: TieRoundRule;
+  tied_rank?: number;
+  score_fingerprint?: string;
+  resolved?: boolean;
+  still_tied?: boolean;
+  low_judge_warning?: boolean;
+  submitted_judge_count?: number;
+  total_grades?: number;
+  placements?: TieRoundPlacement[];
+}
+
+export interface TieRound {
   id: string;
   org_id: string;
   event_id: string;
   group_key: string;
-  mode: TieDecisionMode;
-  ordered_participant_ids: string[];
+  tied_rank: number;
+  tied_participant_ids: string[];
+  rule: TieRoundRule;
+  status: TieRoundStatus;
+  is_stale: boolean;
   score_fingerprint: string;
-  decided_by?: string;
-  decided_at: string;
+  preview_payload: Record<string, unknown>;
+  result_payload: TieRoundResultPayload;
+  reopen_count: number;
+  last_reopen_reason: string;
+  opened_at: string;
+  closed_at: string | null;
+  published_at: string | null;
+  version: number;
+  updated_at: string;
+  submitted_judge_count?: number;
+  completed_judge_count?: number;
+  expected_judge_count?: number;
+}
+
+export interface TieRoundGrade {
+  id: string;
+  org_id?: string;
+  round_id: string;
+  event_id: string;
+  judge_id: string;
+  participant_id: string;
+  grade: number; // Strict integer 1..5 (E=1, D=2, C=3, B=4, A=5)
+  submitted_at: string;
   version: number;
   updated_at?: string;
 }
 
-export interface ProjectorTieDecision {
+export interface ProjectorTieRound {
   id: string;
   event_id: string;
   group_key: string;
-  mode: TieDecisionMode;
-  ordered_participant_ids: string[];
+  tied_rank: number;
+  tied_participant_ids: string[];
+  rule: TieRoundRule;
+  status: TieRoundStatus;
+  is_stale: boolean;
   score_fingerprint: string;
-  decided_at: string;
+  result_payload: TieRoundResultPayload;
+  published_at: string | null;
   version: number;
+}
+
+export interface TieAuditEntry {
+  id: string;
+  org_id: string;
+  event_id: string | null;
+  event_name: string;
+  round_id: string | null;
+  group_key: string;
+  action: TieAuditAction;
+  rule: TieRoundRule;
+  actor_label: string;
+  preview_json: Record<string, unknown>;
+  result_json: Record<string, unknown>;
+  outcome: string;
+  reason: string;
+  created_at: string;
 }
 
 export interface SupabaseEvent {

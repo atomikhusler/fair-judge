@@ -2,14 +2,18 @@ import { supabase, isSupabaseConfigured } from '../supabase';
 import type { ActiveOrgSession } from '../authService';
 import type {
   EventStatus,
+  OrgTieRule,
   Organization,
-  ProjectorTieDecision,
+  ProjectorTieRound,
   SupabaseEvent,
   SupabaseJudge,
   SupabaseParticipant,
   SupabaseScore,
   TieBreakerMethod,
-  TieDecisionMode,
+  TieRoundPlacement,
+  TieRoundResultPayload,
+  TieRoundRule,
+  TieRoundStatus,
 } from '../supabaseTypes';
 import type { ProjectorEventState } from './projectorRanking';
 
@@ -54,7 +58,7 @@ export interface ProjectorChangesPayload {
   participants: SupabaseParticipant[];
   judges: SupabaseJudge[];
   scores: SupabaseScore[];
-  tieDecisions?: ProjectorTieDecision[];
+  tieRounds?: ProjectorTieRound[];
   deletions: ProjectorDeletionRecord[];
 }
 
@@ -172,8 +176,8 @@ export async function fetchProjectorChanges(
         : [],
       judges: Array.isArray(res.judges) ? res.judges.map(normalizeJudge) : [],
       scores: Array.isArray(res.scores) ? res.scores.map(normalizeScore) : [],
-      tieDecisions: Array.isArray(res.tie_decisions)
-        ? res.tie_decisions.map(normalizeProjectorTieDecision)
+      tieRounds: Array.isArray(res.tie_rounds)
+        ? res.tie_rounds.map(normalizeProjectorTieRound).filter((r: ProjectorTieRound) => Boolean(r.id))
         : [],
       deletions: Array.isArray(res.deletions) ? res.deletions : [],
     };
@@ -193,6 +197,12 @@ export interface ProjectorEndResult {
   error?: string;
 }
 
+function normalizeOrgTieRule(raw: unknown): OrgTieRule {
+  const val = String(raw || '').toLowerCase();
+  if (val === 'olympic' || val === 'recompete') return val;
+  return 'countback';
+}
+
 function normalizeOrg(raw: any): Organization | null {
   if (!raw || typeof raw !== 'object') return null;
   return {
@@ -201,6 +211,8 @@ function normalizeOrg(raw: any): Organization | null {
     name: raw.name || 'Fair Judge Competition',
     tie_breaker_enabled: Boolean(raw.tie_breaker_enabled),
     tie_breaker_method: (raw.tie_breaker_method || 'olympic') as TieBreakerMethod,
+    tie_management_enabled: Boolean(raw.tie_management_enabled),
+    tie_rule: normalizeOrgTieRule(raw.tie_rule),
     blind_judging_enabled: false,
     projector_blind_mode: false,
     projector_spotlight_mode:
@@ -219,15 +231,25 @@ function normalizeEvent(raw: any): SupabaseEvent | null {
   if (!raw || typeof raw !== 'object' || !raw.id) return null;
   const schema = Array.isArray(raw.rubric_schema) ? raw.rubric_schema : [];
   return {
-    ...raw,
+    id: String(raw.id),
+    org_id: String(raw.org_id || ''),
+    name: String(raw.name || ''),
+    category: typeof raw.category === 'string' ? raw.category : '',
+    date: typeof raw.date === 'string' ? raw.date : undefined,
     status: (String(raw.status || 'draft').toLowerCase() as EventStatus) || 'draft',
     is_locked: Boolean(raw.is_locked),
     is_archived: Boolean(raw.is_archived),
     rubric_schema: schema,
     rubric: schema,
-    assigned_judges: Array.isArray(raw.assigned_judges) ? raw.assigned_judges : [],
-    assigned_participants: Array.isArray(raw.assigned_participants) ? raw.assigned_participants : [],
-    participant_sl_numbers: raw.participant_sl_numbers || {},
+    assigned_judges: Array.isArray(raw.assigned_judges) ? raw.assigned_judges.map(String) : [],
+    assigned_participants: Array.isArray(raw.assigned_participants)
+      ? raw.assigned_participants.map(String)
+      : [],
+    participant_sl_numbers:
+      raw.participant_sl_numbers && typeof raw.participant_sl_numbers === 'object'
+        ? raw.participant_sl_numbers
+        : {},
+    created_at: String(raw.created_at || ''),
   };
 }
 
@@ -282,24 +304,90 @@ function normalizeScore(raw: any): SupabaseScore {
   };
 }
 
-function normalizeProjectorTieDecision(raw: any): ProjectorTieDecision {
-  // Strictly allowlist projector fields; NEVER carry decided_by, org_id, PINs, or tokens
-  const rawMode = String(raw?.mode || 'shared').toLowerCase();
-  const mode: TieDecisionMode =
-    rawMode === 'olympic' || rawMode === 'manual' ? rawMode : 'shared';
+function normalizeTieRoundRule(raw: unknown): TieRoundRule {
+  const val = String(raw || '').toLowerCase();
+  if (val === 'countback' || val === 'olympic' || val === 'recompete' || val === 'shared') {
+    return val;
+  }
+  return 'shared';
+}
+
+function normalizeTieRoundStatus(raw: unknown): TieRoundStatus {
+  const val = String(raw || '').toLowerCase();
+  if (val === 'open' || val === 'closed' || val === 'published' || val === 'cancelled_stale') {
+    return val;
+  }
+  return 'cancelled_stale';
+}
+
+function sanitizeProjectorPlacement(raw: any): TieRoundPlacement | null {
+  if (!raw || typeof raw !== 'object' || !raw.participant_id) return null;
+  const out: TieRoundPlacement = {
+    participant_id: String(raw.participant_id),
+    before_rank: Number.isFinite(Number(raw.before_rank)) ? Number(raw.before_rank) : 1,
+    after_rank: Number.isFinite(Number(raw.after_rank)) ? Number(raw.after_rank) : 1,
+    base_avg: Number.isFinite(Number(raw.base_avg)) ? Number(raw.base_avg) : 0,
+  };
+  if (Number.isFinite(Number(raw.ballot_count))) out.ballot_count = Number(raw.ballot_count);
+  if (Array.isArray(raw.scores_desc)) {
+    out.scores_desc = raw.scores_desc.map(Number).filter(Number.isFinite);
+  }
+  if (raw.trimmed_avg === null || Number.isFinite(Number(raw.trimmed_avg))) {
+    out.trimmed_avg = raw.trimmed_avg === null ? null : Number(raw.trimmed_avg);
+  }
+  if (Number.isFinite(Number(raw.grade_sum))) out.grade_sum = Number(raw.grade_sum);
+  if (Number.isFinite(Number(raw.grade_count))) out.grade_count = Number(raw.grade_count);
+  return out;
+}
+
+function sanitizeProjectorResultPayload(raw: any): TieRoundResultPayload {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: TieRoundResultPayload = {};
+  if (raw.rule !== undefined) out.rule = normalizeTieRoundRule(raw.rule);
+  if (Number.isFinite(Number(raw.tied_rank))) out.tied_rank = Number(raw.tied_rank);
+  if (typeof raw.score_fingerprint === 'string') out.score_fingerprint = raw.score_fingerprint;
+  if (typeof raw.resolved === 'boolean') out.resolved = raw.resolved;
+  if (typeof raw.still_tied === 'boolean') out.still_tied = raw.still_tied;
+  if (typeof raw.low_judge_warning === 'boolean') out.low_judge_warning = raw.low_judge_warning;
+  if (Number.isFinite(Number(raw.submitted_judge_count))) {
+    out.submitted_judge_count = Number(raw.submitted_judge_count);
+  }
+  if (Number.isFinite(Number(raw.total_grades))) out.total_grades = Number(raw.total_grades);
+  if (Array.isArray(raw.placements)) {
+    out.placements = raw.placements
+      .map(sanitizeProjectorPlacement)
+      .filter((p: TieRoundPlacement | null): p is TieRoundPlacement => p !== null);
+  }
+  return out;
+}
+
+function normalizeProjectorTieRound(raw: any): ProjectorTieRound {
+  // Strictly allowlist the 12 public projector fields; drop all private/audit/grade fields
+  const tiedRankNum = Number(raw?.tied_rank ?? 1);
   const versionNum = Number(raw?.version ?? 1);
   return {
     id: String(raw?.id || ''),
     event_id: String(raw?.event_id || ''),
     group_key: String(raw?.group_key || ''),
-    mode,
-    ordered_participant_ids: Array.isArray(raw?.ordered_participant_ids)
-      ? raw.ordered_participant_ids.map((id: unknown) => String(id))
+    tied_rank: Number.isFinite(tiedRankNum) ? tiedRankNum : 1,
+    tied_participant_ids: Array.isArray(raw?.tied_participant_ids)
+      ? raw.tied_participant_ids.map((id: unknown) => String(id))
       : [],
+    rule: normalizeTieRoundRule(raw?.rule),
+    status: normalizeTieRoundStatus(raw?.status),
+    is_stale: Boolean(raw?.is_stale),
     score_fingerprint: String(raw?.score_fingerprint || ''),
-    decided_at: String(raw?.decided_at || ''),
+    result_payload: sanitizeProjectorResultPayload(raw?.result_payload),
+    published_at: typeof raw?.published_at === 'string' ? raw.published_at : null,
     version: Number.isFinite(versionNum) ? versionNum : 1,
   };
+}
+
+function isProjectorRetainedTieRound(round: ProjectorTieRound): boolean {
+  if (!round || !round.id || round.is_stale) return false;
+  if (round.status === 'published') return true;
+  if (round.status === 'open' && round.rule === 'recompete') return true;
+  return false;
 }
 
 function upsertById<T extends { id: string }>(
@@ -324,6 +412,8 @@ function upsertById<T extends { id: string }>(
 /**
  * Pure cursor-delta merge: combines incoming changed rows and deletion tombstones
  * into the existing in-memory event state without re-downloading unchanged records.
+ * Retains only published tie rounds (including 'shared') and open re-compete rounds;
+ * ignores cancelled_stale / closed rounds and never stores grades or audit rows.
  */
 export function mergeProjectorDelta(
   prev: ProjectorEventState,
@@ -336,7 +426,7 @@ export function mergeProjectorDelta(
   const deletedParticipants = new Set<string>();
   const deletedJudges = new Set<string>();
   const deletedScores = new Set<string>();
-  const deletedTieDecisions = new Set<string>();
+  const deletedTieRounds = new Set<string>();
 
   for (const d of delta.deletions || []) {
     const tbl = String(d.table_name || '').toLowerCase();
@@ -345,7 +435,7 @@ export function mergeProjectorDelta(
     if (tbl === 'participants') deletedParticipants.add(id);
     else if (tbl === 'judges') deletedJudges.add(id);
     else if (tbl === 'scores') deletedScores.add(id);
-    else if (tbl === 'tie_decisions') deletedTieDecisions.add(id);
+    else if (tbl === 'tie_rounds') deletedTieRounds.add(id);
   }
 
   const nextParticipants = upsertById(
@@ -360,11 +450,12 @@ export function mergeProjectorDelta(
 
   const nextScores = upsertById(prev.scores, delta.scores, deletedScores);
 
-  const nextTieDecisions = upsertById(
-    prev.tieDecisions || [],
-    delta.tieDecisions || [],
-    deletedTieDecisions
+  const mergedTieRounds = upsertById(
+    prev.tieRounds || [],
+    delta.tieRounds || [],
+    deletedTieRounds
   );
+  const nextTieRounds = mergedTieRounds.filter(isProjectorRetainedTieRound);
 
   return {
     org: delta.org || prev.org,
@@ -372,7 +463,7 @@ export function mergeProjectorDelta(
     participants: nextParticipants,
     judges: nextJudges,
     scores: nextScores,
-    tieDecisions: nextTieDecisions,
+    tieRounds: nextTieRounds,
   };
 }
 

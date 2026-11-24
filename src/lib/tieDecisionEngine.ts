@@ -1,26 +1,32 @@
 /**
- * Pure TypeScript Tie Decision Engine (17.7.0). Zero DOM, DB, or UI dependencies.
+ * Pure TypeScript Tie Management Engine (17.7.0).
+ * Mirrors PostgreSQL _fj_detect_event_tie_groups, tie_round_apply_auto,
+ * tie_round_close, tie_round_publish, and _fj_find_stale_tie_rounds.
+ * Zero DOM, DB, or UI dependencies.
  */
 import { calculateRankings, type RankedParticipantItem } from './tieBreakerEngine';
-import type { Organization, SupabaseParticipant, SupabaseScore, TieDecisionMode } from './supabaseTypes';
+import { md5Hex } from './tieMd5';
+import type {
+  ProjectorTieRound,
+  SupabaseParticipant,
+  SupabaseScore,
+  TieRound,
+  TieRoundGrade,
+  TieRoundPlacement,
+  TieRoundRule,
+} from './supabaseTypes';
 
-export const EVENT_MODE_GROUP_KEY = '__event_mode__';
-
-export interface TieDecisionLike {
-  id?: string;
-  event_id?: string;
-  group_key: string;
-  mode: TieDecisionMode;
-  ordered_participant_ids: string[];
-  score_fingerprint: string;
-  decided_by?: string;
-  decided_at?: string;
-  version?: number;
-}
+export const TIE_GRADE_MIN = 1;
+export const TIE_GRADE_MAX = 5;
+export const TIE_GRADE_LABELS: Readonly<Record<1 | 2 | 3 | 4 | 5, string>> = {
+  5: 'A', 4: 'B', 3: 'C', 2: 'D', 1: 'E',
+};
 
 export interface TieGroupMember {
   participant: RankedParticipantItem;
   perJudgeScores: Array<{ judgeId: string; score: number }>;
+  scoresDesc: number[];
+  ballotCount: number;
   rawAverage: number;
   olympicAverage: number | null;
 }
@@ -33,108 +39,117 @@ export interface DetectedTiedGroup {
   members: TieGroupMember[];
 }
 
-export interface ResolvedTiedGroup extends DetectedTiedGroup {
-  decision: TieDecisionLike | null;
-  effectiveMode: TieDecisionMode;
-  isStale: boolean;
-  isResolved: boolean;
+export interface AutoTiePreview {
+  rule: 'countback' | 'olympic';
+  groupKey: string;
+  tiedRank: number;
+  scoreFingerprint: string;
+  placements: TieRoundPlacement[];
+  stillTied: boolean;
+  resolved: boolean;
+  lowJudgeWarning: boolean;
 }
 
-export interface AppliedTieRankingsResult {
-  rankings: RankedParticipantItem[];
-  tiedGroups: ResolvedTiedGroup[];
-  unresolvedTieCount: number;
-  staleDecisionGroupKeys: string[];
+export interface RecompeteStandingsResult {
+  rule: 'recompete';
+  groupKey: string;
+  tiedRank: number;
+  scoreFingerprint: string;
+  placements: TieRoundPlacement[];
+  stillTied: boolean;
+  resolved: boolean;
+  submittedJudgeCount: number;
+  totalGrades: number;
 }
 
-export interface TieDecisionRpcResponse {
-  ok: boolean;
-  error?: string;
-  message?: string;
-  data?: TieDecisionLike | null;
-  current?: TieDecisionLike | null;
-}
+const lexCompare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 
-export interface TieDecisionConflictOutcome {
-  status: 'saved' | 'conflict' | 'error';
-  decision: TieDecisionLike | null;
-  conflictServerDecision: TieDecisionLike | null;
-  message: string;
-}
-
-export function resolveOrgTieDefault(
-  org?: Pick<Organization, 'tie_breaker_enabled' | 'tie_breaker_method'> | null
-): TieDecisionMode {
-  if (!org || !org.tie_breaker_enabled) return 'shared';
-  if (org.tie_breaker_method === 'olympic') return 'olympic';
-  if (org.tie_breaker_method === 'manual') return 'manual';
-  return 'shared';
+export function isValidTieGrade(grade: unknown): grade is 1 | 2 | 3 | 4 | 5 {
+  return typeof grade === 'number' && Number.isInteger(grade) && grade >= TIE_GRADE_MIN && grade <= TIE_GRADE_MAX;
 }
 
 export function buildTieGroupKey(participantIds: ReadonlyArray<string>): string {
   return Array.from(new Set(participantIds.map((id) => String(id).trim()).filter(Boolean)))
-    .sort()
+    .sort(lexCompare)
     .join(',');
 }
 
-export function computeOlympicAverage(scores: ReadonlyArray<SupabaseScore>): number | null {
+export function computeOlympicAverage(scores: ReadonlyArray<SupabaseScore> | ReadonlyArray<number>): number | null {
   if (scores.length < 3) return null;
-  const sorted = scores.map((s) => Number(s.total_score)).sort((a, b) => a - b);
-  const trimmed = sorted.slice(1, sorted.length - 1);
-  return Number((trimmed.reduce((acc, v) => acc + v, 0) / trimmed.length).toFixed(2));
+  const numeric = scores
+    .map((entry) => (typeof entry === 'number' ? entry : Number(entry.total_score)))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+  if (numeric.length < 3) return null;
+  const trimmed = numeric.slice(1, numeric.length - 1);
+  return round2(trimmed.reduce((acc, v) => acc + v, 0) / trimmed.length);
 }
 
-function fnv1aHex(input: string): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x9e3779b9;
-  for (let i = 0; i < input.length; i++) {
-    const ch = input.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 0x01000193) >>> 0;
-    h2 = Math.imul(h2 ^ (ch + ((i + 1) & 0xff)), 0x85ebca6b) >>> 0;
-  }
-  return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
-}
-
-export function computeGroupScoreFingerprint(
+/**
+ * Mirrors PostgreSQL _fj_detect_event_tie_groups:
+ * 's1:' || md5(string_agg(pid || '[' || string_agg(jid || '=' || to_char(val, 'FM999999990.0000'), ',' order by jid) || ']', '|' order by pid))
+ */
+export function buildCanonicalGroupScoreString(
   members: ReadonlyArray<Pick<RankedParticipantItem, 'id' | 'pScores'>>
 ): string {
-  const canonical = [...members]
-    .sort((a, b) => a.id.localeCompare(b.id))
+  return [...members]
+    .sort((a, b) => lexCompare(String(a.id), String(b.id)))
     .map((m) => {
       const ballots = [...(m.pScores || [])]
         .map((s) => ({ judgeId: String(s.judge_id), val: Number(s.total_score).toFixed(4) }))
-        .sort((a, b) => a.judgeId.localeCompare(b.judgeId))
+        .sort((a, b) => lexCompare(a.judgeId, b.judgeId))
         .map((b) => `${b.judgeId}=${b.val}`)
         .join(',');
       return `${m.id}[${ballots}]`;
     })
     .join('|');
-  return `v1:${fnv1aHex(canonical)}`;
+}
+
+export function computeGroupScoreFingerprint(
+  members: ReadonlyArray<Pick<RankedParticipantItem, 'id' | 'pScores'>>
+): string {
+  return `s1:${md5Hex(buildCanonicalGroupScoreString(members))}`;
+}
+
+export function compareScoresDesc(a: ReadonlyArray<number>, b: ReadonlyArray<number>): number {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    if (a[i] !== b[i]) return b[i] - a[i];
+  }
+  return b.length - a.length;
 }
 
 function toTieGroupMember(item: RankedParticipantItem): TieGroupMember {
   const perJudgeScores = [...(item.pScores || [])]
     .map((s) => ({ judgeId: String(s.judge_id), score: Number(s.total_score) }))
-    .sort((a, b) => a.judgeId.localeCompare(b.judgeId));
+    .sort((a, b) => lexCompare(a.judgeId, b.judgeId));
+  const scoresDesc = perJudgeScores.map((s) => s.score).sort((a, b) => b - a);
   return {
     participant: item,
     perJudgeScores,
+    scoresDesc,
+    ballotCount: perJudgeScores.length,
     rawAverage: item.avgScore,
-    olympicAverage: computeOlympicAverage(item.pScores || []),
+    olympicAverage: computeOlympicAverage(scoresDesc),
   };
 }
 
-function normalizeActiveBaseline(rankings: ReadonlyArray<RankedParticipantItem>) {
-  const active = rankings.filter((r) => r.is_active !== false);
-  const scoredRaw = active.filter((r) => r.judgeCount > 0).map((r) => ({ ...r })).sort((a, b) => b.avgScore - a.avgScore);
-  const absent = active.filter((r) => r.judgeCount <= 0).map((r) => ({ ...r, rank: 0 }));
-  let currentRank = 1;
-  const scored = scoredRaw.map((item, idx) => {
-    if (idx === 0) currentRank = 1;
-    else if (item.avgScore !== scoredRaw[idx - 1].avgScore) currentRank = idx + 1;
-    return { ...item, rank: currentRank };
+function assignCompetitionRanks<T>(
+  sorted: ReadonlyArray<T>,
+  baseRank: number,
+  isSameTie: (curr: T, prev: T) => boolean,
+  buildPlacement: (item: T, afterRank: number) => TieRoundPlacement
+): { placements: TieRoundPlacement[]; stillTied: boolean } {
+  let currentRank = baseRank;
+  let stillTied = false;
+  const placements = sorted.map((item, idx) => {
+    if (idx === 0) currentRank = baseRank;
+    else if (isSameTie(item, sorted[idx - 1])) stillTied = true;
+    else currentRank = baseRank + idx;
+    return buildPlacement(item, currentRank);
   });
-  return { scored, absent };
+  return { placements, stillTied };
 }
 
 export function detectTiedGroups(
@@ -165,122 +180,113 @@ export function detectTiedGroups(
   return { baselineRankings, groups };
 }
 
-export function applyTieDecisions(
-  rankings: ReadonlyArray<RankedParticipantItem>,
-  decisions: ReadonlyArray<TieDecisionLike> = [],
-  orgDefault: TieDecisionMode = 'shared'
-): AppliedTieRankingsResult {
-  const { scored, absent } = normalizeActiveBaseline(rankings);
-  const byKey = new Map<string, TieDecisionLike>();
-  for (const d of decisions || []) {
-    if (d?.group_key) byKey.set(d.group_key, d);
+export function computeCountbackPreview(group: DetectedTiedGroup): AutoTiePreview {
+  const sorted = [...group.members].sort((a, b) => {
+    const cmp = compareScoresDesc(a.scoresDesc, b.scoresDesc);
+    return cmp !== 0 ? cmp : lexCompare(a.participant.id, b.participant.id);
+  });
+  const { placements, stillTied } = assignCompetitionRanks(
+    sorted,
+    group.rank,
+    (curr, prev) => compareScoresDesc(curr.scoresDesc, prev.scoresDesc) === 0,
+    (m, afterRank) => ({
+      participant_id: m.participant.id, before_rank: group.rank, after_rank: afterRank,
+      base_avg: m.rawAverage, ballot_count: m.ballotCount, scores_desc: [...m.scoresDesc], trimmed_avg: null,
+    })
+  );
+  return {
+    rule: 'countback', groupKey: group.groupKey, tiedRank: group.rank,
+    scoreFingerprint: group.scoreFingerprint, placements, stillTied, resolved: !stillTied, lowJudgeWarning: false,
+  };
+}
+
+export function computeOlympicPreview(group: DetectedTiedGroup, configuredJudgesCount?: number): AutoTiePreview {
+  const sorted = group.members
+    .map((member) => ({
+      member,
+      trimmedAvg: member.ballotCount >= 3 && member.olympicAverage !== null ? member.olympicAverage : member.rawAverage,
+    }))
+    .sort((a, b) =>
+      a.trimmedAvg !== b.trimmedAvg
+        ? b.trimmedAvg - a.trimmedAvg
+        : lexCompare(a.member.participant.id, b.member.participant.id)
+    );
+  const { placements, stillTied } = assignCompetitionRanks(
+    sorted,
+    group.rank,
+    (curr, prev) => curr.trimmedAvg === prev.trimmedAvg,
+    (entry, afterRank) => ({
+      participant_id: entry.member.participant.id, before_rank: group.rank, after_rank: afterRank,
+      base_avg: entry.member.rawAverage, ballot_count: entry.member.ballotCount,
+      scores_desc: [...entry.member.scoresDesc], trimmed_avg: entry.trimmedAvg,
+    })
+  );
+  const lowJudgeWarning =
+    (configuredJudgesCount !== undefined && configuredJudgesCount < 5) ||
+    group.members.some((m) => m.ballotCount < 5);
+  return {
+    rule: 'olympic', groupKey: group.groupKey, tiedRank: group.rank,
+    scoreFingerprint: group.scoreFingerprint, placements, stillTied, resolved: !stillTied, lowJudgeWarning,
+  };
+}
+
+export function computeRecompeteStandings(
+  group: DetectedTiedGroup,
+  grades: ReadonlyArray<Pick<TieRoundGrade, 'participant_id' | 'judge_id' | 'grade'>>
+): RecompeteStandingsResult {
+  const memberIds = new Set(group.members.map((m) => m.participant.id));
+  const dedup = new Map<string, { judgeId: string; participantId: string; grade: number }>();
+  for (const g of grades || []) {
+    if (!g || !memberIds.has(g.participant_id) || !isValidTieGrade(g.grade)) continue;
+    const judgeId = String(g.judge_id || '').trim();
+    if (!judgeId) continue;
+    dedup.set(`${judgeId}::${g.participant_id}`, { judgeId, participantId: g.participant_id, grade: g.grade });
   }
-  const eventModeDecision = byKey.get(EVENT_MODE_GROUP_KEY) ?? null;
-
-  const finalScored: RankedParticipantItem[] = [];
-  const tiedGroups: ResolvedTiedGroup[] = [];
-  const staleDecisionGroupKeys: string[] = [];
-  let unresolvedTieCount = 0;
-
-  let i = 0;
-  while (i < scored.length) {
-    let j = i + 1;
-    while (j < scored.length && scored[j].rank === scored[i].rank) j += 1;
-    const bucket = scored.slice(i, j);
-    const baseRank = i + 1;
-
-    if (bucket.length < 2) {
-      finalScored.push({ ...bucket[0], rank: baseRank });
-      i = j;
-      continue;
-    }
-
-    const groupKey = buildTieGroupKey(bucket.map((b) => b.id));
-    const scoreFingerprint = computeGroupScoreFingerprint(bucket);
-    const groupDecision = byKey.get(groupKey) ?? null;
-    const isStale = Boolean(groupDecision?.score_fingerprint && groupDecision.score_fingerprint !== scoreFingerprint);
-
-    let effectiveMode: TieDecisionMode = orgDefault;
-    let activeDecision: TieDecisionLike | null = groupDecision;
-    if (isStale) {
-      effectiveMode = 'shared';
-      staleDecisionGroupKeys.push(groupKey);
-    } else if (groupDecision) {
-      effectiveMode = groupDecision.mode;
-    } else if (eventModeDecision) {
-      effectiveMode = eventModeDecision.mode;
-      activeDecision = eventModeDecision;
-    }
-
-    let resolvedRows: RankedParticipantItem[];
-    let isResolved = false;
-
-    if (effectiveMode === 'manual' && groupDecision && !isStale) {
-      const orderIndex = new Map<string, number>();
-      (groupDecision.ordered_participant_ids || []).forEach((id, idx) => {
-        if (!orderIndex.has(id)) orderIndex.set(id, idx);
-      });
-      const ordered = [...bucket].sort(
-        (a, b) => (orderIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER)
-      );
-      resolvedRows = ordered.map((item, idx) => ({ ...item, rank: baseRank + idx }));
-      isResolved = true;
-    } else if (effectiveMode === 'olympic') {
-      const withTrim = bucket
-        .map((item) => {
-          const trimAvg = computeOlympicAverage(item.pScores || []);
-          return { ...item, avgScore: trimAvg !== null ? trimAvg : item.avgScore };
-        })
-        .sort((a, b) => b.avgScore - a.avgScore);
-      let subRank = baseRank;
-      let hasSubTie = false;
-      resolvedRows = withTrim.map((item, idx) => {
-        if (idx === 0) subRank = baseRank;
-        else if (item.avgScore === withTrim[idx - 1].avgScore) hasSubTie = true;
-        else subRank = baseRank + idx;
-        return { ...item, rank: subRank };
-      });
-      isResolved = !hasSubTie;
-    } else {
-      resolvedRows = bucket.map((item) => ({ ...item, rank: baseRank }));
-      isResolved = Boolean(!isStale && activeDecision?.mode === 'shared');
-    }
-
-    if (!isResolved) unresolvedTieCount += 1;
-    tiedGroups.push({
-      groupKey, rank: baseRank, tiedAverageScore: bucket[0].avgScore, scoreFingerprint,
-      members: bucket.map(toTieGroupMember), decision: activeDecision, effectiveMode, isStale, isResolved,
+  const sums = new Map<string, { sum: number; count: number }>();
+  const judges = new Set<string>();
+  for (const entry of dedup.values()) {
+    judges.add(entry.judgeId);
+    const cur = sums.get(entry.participantId) || { sum: 0, count: 0 };
+    cur.sum += entry.grade;
+    cur.count += 1;
+    sums.set(entry.participantId, cur);
+  }
+  const sorted = group.members
+    .map((member) => {
+      const agg = sums.get(member.participant.id) || { sum: 0, count: 0 };
+      return { member, gradeSum: agg.sum, gradeCount: agg.count };
+    })
+    .sort((a, b) => {
+      if (a.gradeSum !== b.gradeSum) return b.gradeSum - a.gradeSum;
+      const cb = compareScoresDesc(a.member.scoresDesc, b.member.scoresDesc);
+      return cb !== 0 ? cb : lexCompare(a.member.participant.id, b.member.participant.id);
     });
-    finalScored.push(...resolvedRows);
-    i = j;
-  }
-
-  return { rankings: [...finalScored, ...absent], tiedGroups, unresolvedTieCount, staleDecisionGroupKeys };
+  const { placements, stillTied } = assignCompetitionRanks(
+    sorted,
+    group.rank,
+    (curr, prev) =>
+      curr.gradeSum === prev.gradeSum && compareScoresDesc(curr.member.scoresDesc, prev.member.scoresDesc) === 0,
+    (entry, afterRank) => ({
+      participant_id: entry.member.participant.id, before_rank: group.rank, after_rank: afterRank,
+      base_avg: entry.member.rawAverage, grade_sum: entry.gradeSum,
+      grade_count: entry.gradeCount, scores_desc: [...entry.member.scoresDesc],
+    })
+  );
+  return {
+    rule: 'recompete', groupKey: group.groupKey, tiedRank: group.rank, scoreFingerprint: group.scoreFingerprint,
+    placements, stillTied, resolved: !stillTied, submittedJudgeCount: judges.size, totalGrades: dedup.size,
+  };
 }
 
-export function computeRankedStandingsWithDecisions(
-  participants: SupabaseParticipant[],
-  scores: SupabaseScore[],
-  assignedJudgesCount: number = 0,
-  decisions: ReadonlyArray<TieDecisionLike> = [],
-  orgDefault: TieDecisionMode = 'shared'
-): AppliedTieRankingsResult {
-  const { baselineRankings } = detectTiedGroups(participants, scores, assignedJudgesCount);
-  return applyTieDecisions(baselineRankings, decisions, orgDefault);
+export function isRoundStale(
+  round: Pick<TieRound | ProjectorTieRound, 'group_key' | 'status' | 'is_stale' | 'score_fingerprint'>,
+  liveGroups: ReadonlyArray<Pick<DetectedTiedGroup, 'groupKey' | 'scoreFingerprint'>>
+): boolean {
+  if (round.status === 'cancelled_stale') return false;
+  if (round.is_stale) return true;
+  const live = liveGroups.find((g) => g.groupKey === round.group_key);
+  if (!live) return true;
+  return (round.score_fingerprint || '') !== (live.scoreFingerprint || '');
 }
 
-export function resolveTieDecisionUpsertResponse(
-  response: TieDecisionRpcResponse,
-  localFallback: TieDecisionLike | null = null
-): TieDecisionConflictOutcome {
-  if (response.ok) {
-    return { status: 'saved', decision: response.data ?? localFallback, conflictServerDecision: null, message: 'Tie decision saved.' };
-  }
-  if (response.error === 'conflict') {
-    return {
-      status: 'conflict', decision: response.current ?? localFallback, conflictServerDecision: response.current ?? null,
-      message: response.message || 'Another organiser updated this tie decision. Review before saving again.',
-    };
-  }
-  return { status: 'error', decision: localFallback, conflictServerDecision: null, message: response.message || 'Could not save tie decision.' };
-}
+export type ActiveTieRoundRule = TieRoundRule;
