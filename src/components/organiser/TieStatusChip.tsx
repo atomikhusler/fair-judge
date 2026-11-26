@@ -24,7 +24,8 @@ export interface EventTieSummary {
 }
 
 export interface TieStatusChipProps {
-  tieManagementEnabled: boolean;
+  tieManagementEnabled?: boolean;
+  canShow?: boolean;
   summary?: EventTieSummary | null;
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }
@@ -42,8 +43,9 @@ export interface ComputedTieChipState {
 }
 
 export function deriveTieChipState(
-  tieManagementEnabled: boolean,
-  summary?: EventTieSummary | null
+  tieManagementEnabled: boolean = true,
+  summary?: EventTieSummary | null,
+  canShow: boolean = true
 ): ComputedTieChipState {
   const empty: ComputedTieChipState = {
     visible: false,
@@ -56,7 +58,7 @@ export function deriveTieChipState(
     unresolvedCount: 0,
     liveTieCount: 0,
   };
-  if (!tieManagementEnabled || !summary) return empty;
+  if (!tieManagementEnabled || !canShow || !summary) return empty;
 
   const rounds = Array.isArray(summary.rounds) ? summary.rounds : [];
   const liveTieGroups = Array.isArray(summary.liveTieGroups) ? summary.liveTieGroups : [];
@@ -87,8 +89,7 @@ export function deriveTieChipState(
   }).length;
 
   const liveTieCount = liveTieGroups.length;
-  const hasAnySignal = staleCount > 0 || openCount > 0 || closedCount > 0 || liveTieCount > 0;
-  if (!hasAnySignal) return empty;
+  if (liveTieCount === 0) return empty;
 
   if (staleCount > 0) {
     const label = staleCount === 1 ? 'Stale tie' : `${staleCount} stale ties`;
@@ -165,11 +166,12 @@ export function deriveTieChipState(
 }
 
 export const TieStatusChip = React.memo(function TieStatusChip({
-  tieManagementEnabled,
+  tieManagementEnabled = true,
+  canShow = true,
   summary,
   onClick,
 }: TieStatusChipProps) {
-  const state = deriveTieChipState(tieManagementEnabled, summary);
+  const state = deriveTieChipState(tieManagementEnabled, summary, canShow);
   if (!state.visible) return null;
 
   const toneClass =

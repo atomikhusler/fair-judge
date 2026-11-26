@@ -155,13 +155,34 @@ function assignCompetitionRanks<T>(
 export function detectTiedGroups(
   participants: SupabaseParticipant[],
   scores: SupabaseScore[],
-  assignedJudgesCount: number = 0
+  assignedJudgesCount: number = 0,
+  absentParticipantIds?: ReadonlySet<string> | ReadonlyArray<string>
 ): { baselineRankings: RankedParticipantItem[]; groups: DetectedTiedGroup[] } {
-  const active = participants.filter((p) => p.is_active !== false);
-  const baselineRankings = calculateRankings(active, scores, assignedJudgesCount, 'shared', false);
+  const absentSet = absentParticipantIds
+    ? absentParticipantIds instanceof Set
+      ? absentParticipantIds
+      : new Set<string>(absentParticipantIds)
+    : new Set<string>();
+  const active = participants.filter((p) => p.is_active !== false && !absentSet.has(p.id));
+  const eligibleScores = scores.filter((s) => {
+    if (!s || absentSet.has(s.participant_id)) return false;
+    const payload = s.score_payload as { is_absent?: boolean; criteria?: Record<string, unknown> } | undefined;
+    if (payload?.is_absent === true) return false;
+    const criteriaCount = Object.keys(s.score_data || payload?.criteria || {}).length;
+    if (Number(s.total_score) === 0 && criteriaCount === 0) return false;
+    return true;
+  });
+  const baselineRankings = calculateRankings(
+    active,
+    eligibleScores,
+    assignedJudgesCount,
+    'shared',
+    false,
+    absentSet
+  );
   const byRank = new Map<number, RankedParticipantItem[]>();
   for (const row of baselineRankings) {
-    if (row.rank <= 0 || row.judgeCount <= 0) continue;
+    if (row.rank <= 0 || row.judgeCount <= 0 || absentSet.has(row.id)) continue;
     const bucket = byRank.get(row.rank) || [];
     bucket.push(row);
     byRank.set(row.rank, bucket);

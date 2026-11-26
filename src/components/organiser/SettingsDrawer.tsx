@@ -2,11 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Trash2,
-  Check,
   Sliders,
   Focus,
 } from 'lucide-react';
-import { Organization, OrgTieRule, TieBreakerMethod, CustomParticipantField } from '../../lib/supabaseTypes';
+import { Organization, CustomParticipantField } from '../../lib/supabaseTypes';
 import { dbService } from '../../lib/supabase';
 import { ThemeToggleButton } from '../../lib/theme';
 import { useToast } from '../common/ToastProvider';
@@ -42,25 +41,14 @@ export function SettingsDrawer({
   onUpdateOrganization,
   returnToCloseEvent,
 }: SettingsDrawerProps) {
-  // 1. Tie-Breaker Engine State (existing tie_breaker_* fields preserved)
-  const [tieBreakerEnabled, setTieBreakerEnabled] = useState<boolean>(
-    Boolean(organization.tie_breaker_enabled)
+  // 1. Adjudication & Podium Settings (ties always activate in real time)
+  const [prizePlaces, setPrizePlaces] = useState<3 | 5>(
+    organization.prize_places === 5 ? 5 : 3
   );
-  const [currentTieBreaker, setCurrentTieBreaker] = useState<TieBreakerMethod>(
-    organization.tie_breaker_method || 'olympic'
+  const [scoreOneByOneEnabled, setScoreOneByOneEnabled] = useState<boolean>(
+    Boolean(organization.score_one_by_one_enabled)
   );
-
-  // 1b. Org-Wide Tie Management State (17.7.0, default OFF)
-  const [tieManagementEnabled, setTieManagementEnabled] = useState<boolean>(
-    Boolean(organization.tie_management_enabled)
-  );
-  const [tieRule, setTieRule] = useState<OrgTieRule>(
-    organization.tie_rule === 'olympic' || organization.tie_rule === 'recompete'
-      ? organization.tie_rule
-      : 'countback'
-  );
-  const [tieManagementError, setTieManagementError] = useState<string | null>(null);
-  const [isSavingTieManagement, setIsSavingTieManagement] = useState<boolean>(false);
+  const [isSavingAdjudication, setIsSavingAdjudication] = useState<boolean>(false);
 
   // 2. Dynamic Custom Participant Fields State
   const [customFields, setCustomFields] = useState<CustomParticipantField[]>(
@@ -149,16 +137,8 @@ export function SettingsDrawer({
 
   // Sync state if organization prop changes
   useEffect(() => {
-    setTieBreakerEnabled(Boolean(organization.tie_breaker_enabled));
-    if (organization.tie_breaker_method) {
-      setCurrentTieBreaker(organization.tie_breaker_method);
-    }
-    setTieManagementEnabled(Boolean(organization.tie_management_enabled));
-    setTieRule(
-      organization.tie_rule === 'olympic' || organization.tie_rule === 'recompete'
-        ? organization.tie_rule
-        : 'countback'
-    );
+    setPrizePlaces(organization.prize_places === 5 ? 5 : 3);
+    setScoreOneByOneEnabled(Boolean(organization.score_one_by_one_enabled));
     if (organization.custom_participant_fields) {
       setCustomFields(organization.custom_participant_fields);
     }
@@ -187,15 +167,43 @@ export function SettingsDrawer({
   }, []);
 
 
-  // 1. Toggle Tie-Breaker
-  const handleToggleTieBreaker = async () => {
+  // 1. Prize Places (3 or 5, default 3)
+  const handleSelectPrizePlaces = async (nextPlaces: 3 | 5) => {
+    if (isSavingAdjudication || prizePlaces === nextPlaces) return;
     triggerHaptic('tick');
-    const prevVal = tieBreakerEnabled;
-    const nextVal = !prevVal;
-    setTieBreakerEnabled(nextVal);
+    const prevPlaces = prizePlaces;
+    setPrizePlaces(nextPlaces);
+    setIsSavingAdjudication(true);
     try {
       const updated = await dbService.updateOrganization(organization.org_id, {
-        tie_breaker_enabled: nextVal,
+        prize_places: nextPlaces,
+      });
+      onUpdateOrganization(updated);
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      showToast(
+        isOffline
+          ? 'Saved locally — will sync when online.'
+          : `Prize places set to Top ${nextPlaces}.`
+      );
+    } catch (err: any) {
+      setPrizePlaces(prevPlaces);
+      showToast(err?.message || 'Could not update prize places.', 'error');
+    } finally {
+      setIsSavingAdjudication(false);
+    }
+  };
+
+  // 1b. Score One by One (default OFF)
+  const handleToggleScoreOneByOne = async () => {
+    if (isSavingAdjudication) return;
+    triggerHaptic('tick');
+    const prevVal = scoreOneByOneEnabled;
+    const nextVal = !prevVal;
+    setScoreOneByOneEnabled(nextVal);
+    setIsSavingAdjudication(true);
+    try {
+      const updated = await dbService.updateOrganization(organization.org_id, {
+        score_one_by_one_enabled: nextVal,
       });
       onUpdateOrganization(updated);
       const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
@@ -203,110 +211,14 @@ export function SettingsDrawer({
         isOffline
           ? 'Saved locally — will sync when online.'
           : nextVal
-          ? 'Tie-Breaker Engine enabled.'
-          : 'Tie-Breaker Engine disabled.'
+          ? 'Score One by One enabled by default.'
+          : 'Score One by One turned off.'
       );
     } catch (err: any) {
-      setTieBreakerEnabled(prevVal);
-      showToast(err?.message || 'Could not update Tie-Breaker setting.', 'error');
-    }
-  };
-
-  // Change Tie-Breaker Method
-  const handleSelectTieBreaker = async (method: TieBreakerMethod) => {
-    triggerHaptic('tick');
-    const prevMethod = currentTieBreaker;
-    const prevEnabled = tieBreakerEnabled;
-    setCurrentTieBreaker(method);
-    try {
-      const updated = await dbService.updateOrganization(organization.org_id, {
-        tie_breaker_method: method,
-        tie_breaker_enabled: true,
-      });
-      setTieBreakerEnabled(true);
-      onUpdateOrganization(updated);
-      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-      showToast(
-        isOffline
-          ? 'Saved locally — will sync when online.'
-          : `Tie-breaker standard set to ${method.toUpperCase()}.`
-      );
-    } catch (err: any) {
-      setCurrentTieBreaker(prevMethod);
-      setTieBreakerEnabled(prevEnabled);
-      showToast(err?.message || 'Could not update tie-breaker method.', 'error');
-    }
-  };
-
-  // 1b. Toggle Org-Wide Tie Management (17.7.0)
-  const handleToggleTieManagement = async () => {
-    if (isSavingTieManagement) return;
-    triggerHaptic('tick');
-    const prevVal = tieManagementEnabled;
-    const nextVal = !prevVal;
-    setTieManagementError(null);
-    setTieManagementEnabled(nextVal);
-    setIsSavingTieManagement(true);
-    try {
-      const updated = await dbService.updateOrganization(organization.org_id, {
-        tie_management_enabled: nextVal,
-        tie_rule: tieRule,
-      });
-      onUpdateOrganization(updated);
-      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-      showToast(
-        isOffline
-          ? 'Saved locally — will sync when online.'
-          : nextVal
-          ? 'Tie management enabled for the organisation.'
-          : 'Tie management turned off.'
-      );
-    } catch (err: any) {
-      setTieManagementEnabled(prevVal);
-      const msg = err?.message || 'Could not save tie management setting.';
-      setTieManagementError(msg);
-      showToast(msg, 'error');
+      setScoreOneByOneEnabled(prevVal);
+      showToast(err?.message || 'Could not update Score One by One setting.', 'error');
     } finally {
-      setIsSavingTieManagement(false);
-    }
-  };
-
-  // Select Org-Wide Tie Rule (countback | olympic | recompete)
-  const handleSelectTieRule = async (nextRule: OrgTieRule) => {
-    if (isSavingTieManagement) return;
-    triggerHaptic('tick');
-    const prevRule = tieRule;
-    const prevEnabled = tieManagementEnabled;
-    setTieManagementError(null);
-    setTieRule(nextRule);
-    setTieManagementEnabled(true);
-    setIsSavingTieManagement(true);
-    try {
-      const updated = await dbService.updateOrganization(organization.org_id, {
-        tie_management_enabled: true,
-        tie_rule: nextRule,
-      });
-      onUpdateOrganization(updated);
-      const label =
-        nextRule === 'countback'
-          ? 'Countback'
-          : nextRule === 'olympic'
-          ? 'Olympic trim'
-          : 'Re-compete';
-      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-      showToast(
-        isOffline
-          ? 'Saved locally — will sync when online.'
-          : `Organisation tie rule set to ${label}.`
-      );
-    } catch (err: any) {
-      setTieRule(prevRule);
-      setTieManagementEnabled(prevEnabled);
-      const msg = err?.message || 'Could not save tie rule.';
-      setTieManagementError(msg);
-      showToast(msg, 'error');
-    } finally {
-      setIsSavingTieManagement(false);
+      setIsSavingAdjudication(false);
     }
   };
 
@@ -712,118 +624,74 @@ export function SettingsDrawer({
           </div>
 
           {/* -------------------------------------------------------- */}
-          {/* SECTION 2: ADJUDICATION & TIE-BREAKER                    */}
+          {/* SECTION 2: ADJUDICATION & PODIUM RULES                   */}
           {/* -------------------------------------------------------- */}
           <div>
             <h4 className="text-[11px] lg:text-sm font-bold uppercase tracking-wider text-zinc-500 ml-4 mb-2 mt-6">
-              Adjudication &amp; Ties
+              Adjudication &amp; Podium
             </h4>
             <div className="bg-white dark:bg-zinc-950 rounded-2xl border border-stone-200 dark:border-zinc-800 overflow-hidden shadow-sm divide-y divide-stone-100 dark:divide-zinc-800/60">
-              {/* Org-Wide Tie Management (17.7.0, default OFF) */}
+              {/* Prize places (3 or 5, default 3) */}
+              <div className="p-4 flex items-center justify-between gap-3">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
+                    Prize places
+                  </span>
+                </div>
+                <div
+                  role="group"
+                  aria-label="Prize places"
+                  className="inline-flex shrink-0 rounded-xl bg-stone-100 dark:bg-zinc-900 p-0.5 border border-stone-200 dark:border-zinc-800"
+                >
+                  {([3, 5] as const).map((places) => (
+                    <button
+                      key={places}
+                      type="button"
+                      disabled={isSavingAdjudication}
+                      aria-pressed={prizePlaces === places}
+                      onClick={() => handleSelectPrizePlaces(places)}
+                      className={`min-h-[36px] md:min-h-[44px] min-w-[48px] px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer disabled:opacity-60 ${
+                        prizePlaces === places
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      Top {places}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Score One by One (default OFF) */}
               <div className="p-4 min-h-[44px] flex items-center justify-between gap-3">
                 <div className="space-y-0.5 min-w-0 flex-1">
                   <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                    Tie management
+                    Score One by One
                   </span>
-                  <p className="text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400">
-                    Applies to the whole organisation, including future events.
-                  </p>
                 </div>
 
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={tieManagementEnabled}
-                  aria-label="Tie management"
-                  disabled={isSavingTieManagement}
-                  onClick={handleToggleTieManagement}
+                  aria-checked={scoreOneByOneEnabled}
+                  aria-label="Score One by One"
+                  disabled={isSavingAdjudication}
+                  onClick={handleToggleScoreOneByOne}
                   className="min-h-[44px] min-w-[44px] inline-flex items-center justify-end shrink-0 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-xl"
                 >
                   <span
                     className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                      tieManagementEnabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
+                      scoreOneByOneEnabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
                     }`}
                   >
                     <span
                       className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        tieManagementEnabled ? 'translate-x-5' : 'translate-x-0'
+                        scoreOneByOneEnabled ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
                   </span>
                 </button>
               </div>
-
-              {tieManagementEnabled && (
-                <div className="p-3.5 space-y-2 bg-stone-50/60 dark:bg-zinc-900/40" role="radiogroup" aria-label="Organisation tie rule">
-                  {(
-                    [
-                      {
-                        id: 'countback' as OrgTieRule,
-                        title: 'Countback',
-                        desc: 'Ranks tied participants by highest single judge total, then next highest.',
-                      },
-                      {
-                        id: 'olympic' as OrgTieRule,
-                        title: 'Olympic trim',
-                        desc: 'Drops highest and lowest judge totals and averages the remaining scores.',
-                      },
-                      {
-                        id: 'recompete' as OrgTieRule,
-                        title: 'Re-compete',
-                        desc: 'Opens a tie round where judges grade tied participants on an A–E scale.',
-                      },
-                    ]
-                  ).map((ruleOption) => {
-                    const isSelected = tieRule === ruleOption.id;
-                    return (
-                      <button
-                        key={ruleOption.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={isSelected}
-                        disabled={isSavingTieManagement}
-                        onClick={() => handleSelectTieRule(ruleOption.id)}
-                        className={`w-full min-h-[48px] px-3.5 py-3 text-left rounded-xl border transition-colors flex items-center justify-between gap-3 cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                          isSelected
-                            ? 'bg-white dark:bg-zinc-950 border-emerald-500/60 shadow-xs'
-                            : 'bg-white/70 dark:bg-zinc-950/60 border-stone-200 dark:border-zinc-800 hover:bg-white dark:hover:bg-zinc-900/80'
-                        }`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                            {ruleOption.title}
-                          </span>
-                          <span className="text-[11px] lg:text-sm text-zinc-500 dark:text-zinc-400 block mt-0.5 leading-snug">
-                            {ruleOption.desc}
-                          </span>
-                        </div>
-                        <div
-                          className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
-                            isSelected
-                              ? 'border-emerald-500 bg-emerald-500/10'
-                              : 'border-stone-300 dark:border-zinc-700'
-                          }`}
-                        >
-                          {isSelected && <Check className="w-3 h-3 text-emerald-500 stroke-[3]" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-
-                  <p className="text-[11px] lg:text-xs text-zinc-500 dark:text-zinc-400 px-1 pt-0.5">
-                    Applies to the whole organisation, including future events.
-                  </p>
-                </div>
-              )}
-
-              {tieManagementError && (
-                <div
-                  role="alert"
-                  className="px-4 py-3 bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs lg:text-sm font-medium"
-                >
-                  {tieManagementError}
-                </div>
-              )}
 
               {returnToCloseEvent && (
                 <div className="p-3.5 bg-stone-50/60 dark:bg-zinc-900/40">
@@ -838,75 +706,6 @@ export function SettingsDrawer({
                     Return to Close Event
                   </button>
                 </div>
-              )}
-
-              {/* Existing Tie-Breaker Engine (tie_breaker_* preserved) */}
-              <div className="p-4 flex items-center justify-between gap-3">
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                    Tie-Breaker Engine
-                  </span>
-                  <p className="text-[11px] lg:text-sm text-zinc-500 truncate">
-                    Automated resolution applied on equal scores.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleToggleTieBreaker}
-                  aria-pressed={tieBreakerEnabled}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    tieBreakerEnabled ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-zinc-700'
-                  }`}
-                >
-                  <span aria-hidden="true" className="md:block md:absolute md:-inset-y-2.5 md:inset-x-0" />
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      tieBreakerEnabled ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {tieBreakerEnabled && (
-                <>
-                  {[
-                    {
-                      id: 'olympic' as TieBreakerMethod,
-                      title: 'Olympic Standard',
-                      desc: 'Drops high & low scores; averages remaining.',
-                    },
-                    {
-                      id: 'shared' as TieBreakerMethod,
-                      title: 'Head-to-Head / Shared',
-                      desc: 'Joint standing podium. Preserves equal merit.',
-                    },
-                  ].map((method) => {
-                    const isSelected = currentTieBreaker === method.id;
-                    return (
-                      <button
-                        key={method.id}
-                        type="button"
-                        onClick={() => handleSelectTieBreaker(method.id)}
-                        className="w-full p-3.5 text-left transition-colors hover:bg-stone-50 dark:hover:bg-zinc-900/50 flex items-center justify-between gap-3 cursor-pointer"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <span className="text-sm font-semibold text-zinc-900 dark:text-white block">
-                            {method.title}
-                          </span>
-                          <span className="text-[11px] lg:text-sm text-zinc-500 truncate block mt-0.5">
-                            {method.desc}
-                          </span>
-                        </div>
-                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
-                          isSelected ? 'border-emerald-500 bg-emerald-500/10' : 'border-stone-300 dark:border-zinc-700'
-                        }`}>
-                          {isSelected && <Check className="w-3 h-3 text-emerald-500 stroke-[3]" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </>
               )}
             </div>
           </div>

@@ -27,6 +27,7 @@ import {
   SupabaseJudge, 
   SupabaseParticipant, 
   SupabaseScore, 
+  ParticipantAbsence,
   EventStatus,
   TieRound
 } from '../../../lib/supabaseTypes';
@@ -66,6 +67,7 @@ import {
   type OrganiserLiveTieGroup,
   type OrganiserStaleRoundRef,
 } from '../TieStatusChip';
+import { evaluateTieChipGate } from '../../../lib/tieBreakerEngine';
 
 function formatNoticeTime(iso?: string, fallbackMs?: number): string {
   const ms = iso ? Date.parse(iso) : NaN;
@@ -196,7 +198,11 @@ interface EventCardProps {
   tieManagementEnabled?: boolean;
   tieSummary?: EventTieSummary | null;
   onTieChipClick?: (event: SupabaseEvent, summary: EventTieSummary) => void;
+  confirmedAbsentIds?: Set<string>;
+  activeJudgeIds?: Set<string>;
 }
+
+const EMPTY_ABSENT_SET = new Set<string>();
 
 export const EventCard = React.memo(function EventCard({
   event,
@@ -214,25 +220,68 @@ export const EventCard = React.memo(function EventCard({
   onToggleLock,
   onOpenProgress,
   onOpenPublicView,
-  tieManagementEnabled = false,
+  tieManagementEnabled = true,
   tieSummary = null,
   onTieChipClick,
+  confirmedAbsentIds = EMPTY_ABSENT_SET,
+  activeJudgeIds,
 }: EventCardProps) {
   // Required judges count
   const requiredJudgesCount = eventJudgesCount > 0 ? eventJudgesCount : (allJudgesCount > 0 ? allJudgesCount : 1);
+
+  const tieChipGate = useMemo(
+    () =>
+      evaluateTieChipGate({
+        eventStatus: event.status,
+        isArchived: event.is_archived,
+        participants: eventParticipants,
+        scores: eventScores,
+        requiredJudgesCount,
+        confirmedAbsentIds,
+        activeJudgeIds,
+        hasServerTie: (tieSummary?.liveTieGroups?.length || 0) > 0,
+      }),
+    [
+      event.status,
+      event.is_archived,
+      eventParticipants,
+      eventScores,
+      requiredJudgesCount,
+      confirmedAbsentIds,
+      activeJudgeIds,
+      tieSummary,
+    ]
+  );
+
+  const effectiveTieSummary = useMemo<EventTieSummary | null>(() => {
+    if (!tieChipGate.canShowChip) return null;
+    if (tieSummary && tieSummary.liveTieGroups.length > 0) {
+      return tieSummary;
+    }
+    if (tieChipGate.localTieGroups.length > 0) {
+      return {
+        rounds: tieSummary?.rounds || [],
+        liveTieGroups: tieChipGate.localTieGroups,
+        staleRounds: tieSummary?.staleRounds || [],
+      };
+    }
+    return null;
+  }, [tieChipGate, tieSummary]);
 
   // Sequence calculations
   const participantStatusList = useMemo(() => {
     return eventParticipants.map((p) => {
       const pScores = eventScores.filter((s) => s.participant_id === p.id);
-      const hasPerformed = pScores.length >= requiredJudgesCount;
+      const isAbsent = confirmedAbsentIds.has(p.id);
+      const hasPerformed = isAbsent || pScores.length >= requiredJudgesCount;
       return {
         participant: p,
         scoreCount: pScores.length,
+        isAbsent,
         hasPerformed,
       };
     });
-  }, [eventParticipants, eventScores, requiredJudgesCount]);
+  }, [eventParticipants, eventScores, requiredJudgesCount, confirmedAbsentIds]);
 
   const performedCount = useMemo(() => {
     return participantStatusList.filter((ps) => ps.hasPerformed).length;
@@ -268,23 +317,28 @@ export const EventCard = React.memo(function EventCard({
   const justPerformedJudgesScored = justPerformedParticipant
     ? eventScores.filter((s) => s.participant_id === justPerformedParticipant.id).length
     : 0;
+  const isJustPerformedAbsent = justPerformedParticipant
+    ? confirmedAbsentIds.has(justPerformedParticipant.id)
+    : false;
 
-  // Podium calculations for Ended status
+  // Podium calculations for Ended status (exclude confirmed Absent participants)
   const top3Podium = useMemo(() => {
-    const rankedList = eventParticipants.map((p) => {
-      const pScores = eventScores.filter((s) => s.participant_id === p.id);
-      const totalScore = pScores.reduce((sum, s) => sum + (Number(s.total_score) || 0), 0);
-      const avgScore = pScores.length > 0 ? Number((totalScore / pScores.length).toFixed(1)) : 0;
-      return {
-        participant: p,
-        totalScore,
-        avgScore,
-        scoresReceived: pScores.length,
-      };
-    });
+    const rankedList = eventParticipants
+      .filter((p) => !confirmedAbsentIds.has(p.id))
+      .map((p) => {
+        const pScores = eventScores.filter((s) => s.participant_id === p.id);
+        const totalScore = pScores.reduce((sum, s) => sum + (Number(s.total_score) || 0), 0);
+        const avgScore = pScores.length > 0 ? Number((totalScore / pScores.length).toFixed(1)) : 0;
+        return {
+          participant: p,
+          totalScore,
+          avgScore,
+          scoresReceived: pScores.length,
+        };
+      });
     rankedList.sort((a, b) => b.totalScore - a.totalScore);
     return rankedList.filter((r) => r.scoresReceived > 0).slice(0, 3);
-  }, [eventParticipants, eventScores]);
+  }, [eventParticipants, eventScores, confirmedAbsentIds]);
 
   const getParticipantDisplayName = (
     participant: SupabaseParticipant,
@@ -367,10 +421,11 @@ export const EventCard = React.memo(function EventCard({
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <TieStatusChip
             tieManagementEnabled={tieManagementEnabled}
-            summary={tieSummary}
+            canShow={tieChipGate.canShowChip}
+            summary={effectiveTieSummary}
             onClick={() => {
-              if (tieSummary && onTieChipClick) {
-                onTieChipClick(event, tieSummary);
+              if (effectiveTieSummary && onTieChipClick) {
+                onTieChipClick(event, effectiveTieSummary);
               }
             }}
           />
@@ -623,7 +678,9 @@ export const EventCard = React.memo(function EventCard({
                           Just Performed
                         </span>
                         <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 tabular-nums whitespace-nowrap">
-                          Judges: {justPerformedJudgesScored}/{requiredJudgesCount}
+                          {isJustPerformedAbsent
+                            ? 'Absent'
+                            : `Judges: ${justPerformedJudgesScored}/${requiredJudgesCount}`}
                         </span>
                       </div>
                       {/* Middle Row */}
@@ -830,6 +887,10 @@ export function LiveTab({
   const [allScores, setAllScores] = useState<SupabaseScore[]>(() =>
     dbService.getCachedScores(organization.org_id)
   );
+  const [absences, setAbsences] = useState<ParticipantAbsence[]>(() =>
+    dbService.getCachedAbsences(organization.org_id)
+  );
+  const [resolvingAbsenceIds, setResolvingAbsenceIds] = useState<Set<string>>(() => new Set());
   // 2. Command Bar & Search State
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearch = useDeferredValue(searchQuery);
@@ -849,6 +910,7 @@ export function LiveTab({
     evaluation: RuleEvaluation;
   } | null>(null);
   const [confirmingEvent, setConfirmingEvent] = useState<SupabaseEvent | null>(null);
+  const [confirmingAbsence, setConfirmingAbsence] = useState<ParticipantAbsence | null>(null);
   const [unlockConfirmEvent, setUnlockConfirmEvent] = useState<SupabaseEvent | null>(null);
   const [progressEventId, setProgressEventId] = useState<string | null>(null);
   const [tieManagerEventId, setTieManagerEventId] = useState<string | null>(null);
@@ -879,11 +941,12 @@ export function LiveTab({
       if (force) setIsRetryingRead(true);
 
       try {
-        const [eventsRes, participantsRes, judgesRes, scoresRes] = await Promise.all([
+        const [eventsRes, participantsRes, judgesRes, scoresRes, absencesRes] = await Promise.all([
           dbService.getEventsResult(organization.org_id, force),
           dbService.getParticipantsResult(organization.org_id, force),
           dbService.getJudgesResult(organization.org_id, force),
           dbService.getOrgScoresResult(organization.org_id, force),
+          dbService.getAbsencesResult(organization.org_id, force),
         ]);
 
         if (reqId !== loadRequestIdRef.current) return;
@@ -894,6 +957,7 @@ export function LiveTab({
         );
         setJudges((prev) => (areRecordsEqual(prev, judgesRes.data) ? prev : judgesRes.data));
         setAllScores((prev) => (areRecordsEqual(prev, scoresRes.data) ? prev : scoresRes.data));
+        setAbsences((prev) => (areRecordsEqual(prev, absencesRes.data) ? prev : absencesRes.data));
 
         const firstFailure = [eventsRes, participantsRes, judgesRes, scoresRes].find((r) => !r.ok);
         if (firstFailure) {
@@ -920,6 +984,7 @@ export function LiveTab({
     setAllParticipants(dbService.getCachedParticipants(organization.org_id));
     setJudges(dbService.getCachedJudges(organization.org_id));
     setAllScores(dbService.getCachedScores(organization.org_id));
+    setAbsences(dbService.getCachedAbsences(organization.org_id));
 
     const syncFromCache = (table?: string) => {
       if (!table || matchesDbTable(table, DB_TABLES.EVENTS)) {
@@ -943,6 +1008,12 @@ export function LiveTab({
       if (!table || matchesDbTable(table, DB_TABLES.SCORES)) {
         setAllScores((prev) => {
           const next = dbService.getCachedScores(organization.org_id);
+          return areRecordsEqual(prev, next) ? prev : next;
+        });
+      }
+      if (!table || table === DB_TABLES.ALL) {
+        setAbsences((prev) => {
+          const next = dbService.getCachedAbsences(organization.org_id);
           return areRecordsEqual(prev, next) ? prev : next;
         });
       }
@@ -980,8 +1051,22 @@ export function LiveTab({
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       if (readErrorRef.current) {
         void loadData(true);
+      } else {
+        void dbService.getAbsencesResult(organization.org_id, true).then((res) => {
+          setAbsences((prev) => (areRecordsEqual(prev, res.data) ? prev : res.data));
+        });
       }
     };
+
+    const absencePollId = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      void dbService.getAbsencesResult(organization.org_id, true).then((res) => {
+        if (res.ok) {
+          setAbsences((prev) => (areRecordsEqual(prev, res.data) ? prev : res.data));
+        }
+      });
+    }, 6000);
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityOrOnline);
@@ -998,6 +1083,7 @@ export function LiveTab({
     void refreshFailedMutations();
 
     return () => {
+      clearInterval(absencePollId);
       releaseCadence();
       unsubBus();
       unsubDb();
@@ -1013,14 +1099,16 @@ export function LiveTab({
 
   // Modal Scroll Lock & Escape Key: Ensure body does not scroll while confirm modal or alert popover is open
   useEffect(() => {
-    if (preFlightDialog || confirmingEvent || isAlertsOpen || unlockConfirmEvent) {
+    if (preFlightDialog || confirmingEvent || confirmingAbsence || isAlertsOpen || unlockConfirmEvent) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
-          if (preFlightDialog) {
+          if (confirmingAbsence) {
+            setConfirmingAbsence(null);
+          } else if (preFlightDialog) {
             setPreFlightDialog(null);
           } else if (confirmingEvent) {
             setConfirmingEvent(null);
@@ -1037,7 +1125,7 @@ export function LiveTab({
         window.removeEventListener('keydown', handleKeyDown, true);
       };
     }
-  }, [preFlightDialog, confirmingEvent, isAlertsOpen, unlockConfirmEvent]);
+  }, [preFlightDialog, confirmingEvent, confirmingAbsence, isAlertsOpen, unlockConfirmEvent]);
 
   // Helper to compute live elapsed seconds for an event
   const computeEventElapsedSeconds = useCallback((event: SupabaseEvent): number => {
@@ -1471,15 +1559,10 @@ export function LiveTab({
     return events.find((e) => e.id === progressEventId) || null;
   }, [progressEventId, events]);
 
-  // Server-authoritative tie summary from tie_rounds_list_organiser (only when tie_management_enabled === true)
-  const tieManagementEnabled = Boolean(organization.tie_management_enabled);
+  // Ties activate in real time without a Settings toggle
+  const tieManagementEnabled = true;
 
   useEffect(() => {
-    if (!tieManagementEnabled) {
-      tieLoadRequestIdRef.current += 1;
-      setTieSummaryByEvent({});
-      return;
-    }
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
 
     const reqId = ++tieLoadRequestIdRef.current;
@@ -1505,9 +1588,15 @@ export function LiveTab({
           nextMap[r.event_id].rounds.push(r);
         }
 
-        // Query per-event tie_rounds_list_organiser for events with >= 2 scores (server-side tie detection + stale rounds)
+        // Query per-event tie_rounds_list_organiser for non-ended events with >= 2 scores
         const scoredEventIds = events
-          .filter((evt) => (scoresByEvent.get(evt.id)?.length || 0) >= 2)
+          .filter(
+            (evt) =>
+              !evt.is_archived &&
+              evt.status !== 'ended' &&
+              evt.status !== 'archived' &&
+              (scoresByEvent.get(evt.id)?.length || 0) >= 2
+          )
           .map((evt) => evt.id);
 
         if (scoredEventIds.length > 0) {
@@ -1548,7 +1637,77 @@ export function LiveTab({
     return () => {
       cancelled = true;
     };
-  }, [tieManagementEnabled, events, scoresByEvent, tieRefreshTick]);
+  }, [events, scoresByEvent, absences, tieRefreshTick]);
+
+  const activeJudgeIdsByEvent = useMemo(() => {
+    const activeOrgJudges = judges.filter((j) => j.is_active !== false);
+    const activeOrgJudgeSet = new Set(activeOrgJudges.map((j) => j.id));
+    const map = new Map<string, Set<string>>();
+    for (const evt of events) {
+      const assigned = (evt.assigned_judges || []).filter((id) =>
+        activeOrgJudgeSet.size === 0 ? true : activeOrgJudgeSet.has(id)
+      );
+      if (assigned.length > 0) {
+        map.set(evt.id, new Set(assigned));
+      } else {
+        const viaJudge = activeOrgJudges
+          .filter((j) => (j.assigned_events || []).includes(evt.id))
+          .map((j) => j.id);
+        map.set(evt.id, new Set(viaJudge.length > 0 ? viaJudge : activeOrgJudges.map((j) => j.id)));
+      }
+    }
+    return map;
+  }, [events, judges]);
+
+  const pendingAbsences = useMemo(
+    () => absences.filter((a) => a.status === 'pending'),
+    [absences]
+  );
+
+  const confirmedAbsentIdsByEvent = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const a of absences) {
+      if (a.status !== 'confirmed') continue;
+      let set = map.get(a.event_id);
+      if (!set) {
+        set = new Set<string>();
+        map.set(a.event_id, set);
+      }
+      set.add(a.participant_id);
+    }
+    return map;
+  }, [absences]);
+
+  const handleResolveAbsence = useCallback(
+    async (absence: ParticipantAbsence, decision: 'confirm' | 'reject') => {
+      setResolvingAbsenceIds((prev) => {
+        const next = new Set(prev);
+        next.add(absence.id);
+        return next;
+      });
+      try {
+        const updated = await dbService.resolveParticipantAbsence(
+          absence.id,
+          decision,
+          organization.name || 'Organiser'
+        );
+        setAbsences((prev) =>
+          prev.map((a) => (a.id === updated.id ? updated : a))
+        );
+        setTieRefreshTick((n) => n + 1);
+        triggerHaptic(decision === 'confirm' ? 'tap' : 'warning');
+      } catch (err: any) {
+        console.warn('resolveParticipantAbsence failed:', err);
+      } finally {
+        setResolvingAbsenceIds((prev) => {
+          const next = new Set(prev);
+          next.delete(absence.id);
+          return next;
+        });
+      }
+    },
+    [organization.name]
+  );
 
   const handleTieChipClick = useCallback((event: SupabaseEvent) => {
     triggerHaptic('tick');
@@ -1572,15 +1731,15 @@ export function LiveTab({
           onClick={handleOpenAlerts}
           className="w-12 h-12 flex-shrink-0 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 flex items-center justify-center relative shadow-sm hover:border-stone-300 dark:hover:border-zinc-700 transition-colors active:scale-95 motion-reduce:transition-none text-stone-700 dark:text-zinc-200 cursor-pointer"
           aria-label={
-            unreadAnnouncementCount > 0
-              ? `Intelligence Alerts & Notifications (${unreadAnnouncementCount} unread)`
+            unreadAnnouncementCount + pendingAbsences.length > 0
+              ? `Intelligence Alerts & Notifications (${unreadAnnouncementCount + pendingAbsences.length} unread)`
               : 'Intelligence Alerts & Notifications'
           }
           title="Notifications & System Telemetry"
         >
           <Bell className="w-5 h-5 stroke-[2.2]" />
-          {/* Static Red Dot when unread alerts or unread announcements exist */}
-          {(unreadAlerts || unreadAnnouncementCount > 0) && (
+          {/* Static Red Dot when unread alerts, announcements, or pending absences exist */}
+          {(unreadAlerts || unreadAnnouncementCount > 0 || pendingAbsences.length > 0) && (
             <span className="absolute top-2.5 right-2.5 inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
           )}
         </button>
@@ -1642,7 +1801,11 @@ export function LiveTab({
           filteredEvents.map((event) => {
             const isExpanded = expandedCardId === event.id;
             const eventParticipants = participantsByEvent.get(event.id) || [];
-            const eventJudgesCount = event.assigned_judges?.length || 0;
+            const activeEventJudges = activeJudgeIdsByEvent.get(event.id);
+            const eventJudgesCount =
+              activeEventJudges && activeEventJudges.size > 0
+                ? activeEventJudges.size
+                : event.assigned_judges?.length || 0;
             const eventScores = scoresByEvent.get(event.id) || [];
 
             return (
@@ -1652,7 +1815,7 @@ export function LiveTab({
                 isExpanded={isExpanded}
                 eventParticipants={eventParticipants}
                 eventJudgesCount={eventJudgesCount}
-                allJudgesCount={judges.length}
+                allJudgesCount={judges.filter((j) => j.is_active !== false).length}
                 eventScores={eventScores}
                 blindJudgingEnabled={Boolean(organization.blind_judging_enabled)}
                 onToggle={handleToggleCard}
@@ -1666,6 +1829,8 @@ export function LiveTab({
                 tieManagementEnabled={tieManagementEnabled}
                 tieSummary={tieSummaryByEvent[event.id] || null}
                 onTieChipClick={handleTieChipClick}
+                confirmedAbsentIds={confirmedAbsentIdsByEvent.get(event.id) || EMPTY_ABSENT_SET}
+                activeJudgeIds={activeEventJudges}
               />
             );
           })
@@ -2123,6 +2288,70 @@ export function LiveTab({
 
             {/* Warnings & Announcements List */}
             <div className="space-y-3 max-h-[60vh] overflow-y-auto overscroll-contain">
+              {/* Pending Absent Requests */}
+              {pendingAbsences.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[11px] lg:text-sm font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                    Absent ({pendingAbsences.length})
+                  </div>
+                  {pendingAbsences.map((absence) => {
+                    const evt = events.find((e) => e.id === absence.event_id);
+                    const participant = participantMap.get(absence.participant_id);
+                    const assignedIds = evt?.assigned_participants || [];
+                    const orderIdx = assignedIds.indexOf(absence.participant_id);
+                    const serial =
+                      evt?.participant_sl_numbers?.[absence.participant_id] ||
+                      (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : participant?.sl_no || '');
+                    const displayName = participant
+                      ? getParticipantDisplayName(participant, evt)
+                      : absence.participant_id;
+                    const isBusy = resolvingAbsenceIds.has(absence.id);
+
+                    return (
+                      <div
+                        key={absence.id}
+                        className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 space-y-2.5"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-xs lg:text-sm font-bold text-stone-900 dark:text-white truncate">
+                              {serial ? `#${serial} · ` : ''}
+                              {displayName}
+                            </div>
+                            {evt && (
+                              <div className="text-[11px] lg:text-xs text-stone-600 dark:text-zinc-300 truncate mt-0.5">
+                                {evt.name}
+                              </div>
+                            )}
+                          </div>
+                          <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-300 text-[10px] lg:text-xs font-bold uppercase shrink-0">
+                            Absent
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => setConfirmingAbsence(absence)}
+                            className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs lg:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors cursor-pointer"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void handleResolveAbsence(absence, 'reject')}
+                            className="min-h-[44px] px-3 py-1.5 rounded-xl text-xs lg:text-sm font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 border border-rose-500/25 disabled:opacity-50 transition-colors cursor-pointer"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Permanent Mutation Failures */}
               {failedMutations.length > 0 && (
                 <div className="space-y-2">
@@ -2292,6 +2521,46 @@ export function LiveTab({
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM ABSENT DIALOG */}
+      {confirmingAbsence && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75"
+          onClick={() => setConfirmingAbsence(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-black text-stone-900 dark:text-white text-center">
+              Confirm Absent?
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmingAbsence(null)}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl border border-stone-300 dark:border-zinc-700 bg-stone-100 dark:bg-zinc-800 text-stone-800 dark:text-zinc-200 font-bold text-sm cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={resolvingAbsenceIds.has(confirmingAbsence.id)}
+                onClick={() => {
+                  const target = confirmingAbsence;
+                  setConfirmingAbsence(null);
+                  void handleResolveAbsence(target, 'confirm');
+                }}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 cursor-pointer"
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -311,6 +311,7 @@ export function OrganiserDashboard({
       await Promise.all([
         syncOrganizationStatus(false),
         refreshAnnouncements(),
+        dbService.getAbsences(organization.org_id, true),
       ]);
     } else {
       invalidateCache();
@@ -321,6 +322,7 @@ export function OrganiserDashboard({
         dbService.getParticipants(organization.org_id, true),
         dbService.getJudges(organization.org_id, true),
         dbService.getOrgScores(organization.org_id, true),
+        dbService.getAbsences(organization.org_id, true),
       ]);
       eventBus.emit('cache_updated', { table: DB_TABLES.ALL });
     }

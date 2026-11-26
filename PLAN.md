@@ -14,19 +14,19 @@ Rules:
 - **Files**: `src/components/organiser/SettingsDrawer.tsx`, `src/components/organiser/OrganiserDashboard.tsx`, `src/lib/supabaseTypes.ts`, `src/lib/supabase.ts`
 - **Change**: Remove the "Tie management" and "Tie-Breaker Engine" switches from Settings so ties always activate in real time without a toggle. Keep Prize places (3 or 5, default 3) and add/keep Score One by One (per event, default OFF) in Settings/event config. (D5: already deleted; do not restore.)
 - **Check**: `npm run build` and `npm run lint`; Phone test: open Organiser Settings on mobile, verify "Tie management" and "Tie-Breaker Engine" switches are gone while Prize places (3/5, default 3) and Score One by One (default OFF) remain.
-- **Status**: TODO
+- **Status**: DONE
 
 ## Step 2: Absent Status Workflow, Bell Notifications & Tie Detector Zero Fix
 - **Files**: `src/components/judge/ScoringPanel.tsx`, `src/components/organiser/OrganiserDashboard.tsx`, `src/components/organiser/tabs/LiveTab.tsx`, `src/lib/tieBreakerEngine.ts`, `src/lib/tieDecisionEngine.ts`, `src/lib/supabase.ts`, `src/lib/supabaseTypes.ts`, `sql/17.8.1-absent-status-workflow.sql`
 - **Change**: Add Absent as a separate status: one judge marking Absent triggers a bell notification for the organiser with Confirm or Reject. Confirm marks the participant Absent and sealed (excluded from ranking and ties). Reject returns the participant to the judge's list and notifies the judge immediately. Display "Absent" (never "0"), log every request and decision, and fix the tie detector so it skips Absent instead of treating zero as a mark; write `sql/17.8.1-absent-status-workflow.sql` for owner to run.
 - **Check**: `npm run build` and `npm run lint` + owner runs `sql/17.8.1-absent-status-workflow.sql`; Phone test: judge marks a participant Absent, organiser sees bell notification, tests Reject (participant returns & judge notified) and Confirm (shows "Absent", excluded from ties and ranking).
-- **Status**: TODO
+- **Status**: DONE (accepted by owner after phone test)
 
 ## Step 3: Tie Status Chip Visibility Gate
 - **Files**: `src/components/organiser/TieStatusChip.tsx`, `src/components/organiser/tabs/LiveTab.tsx`, `src/lib/tieBreakerEngine.ts`
 - **Change**: Show the tie chip only when every active participant is scored or confirmed Absent, the event has not ended, and a tie actually exists.
 - **Check**: `npm run build` and `npm run lint`; Phone test: in Live tab, confirm the tie chip stays hidden while any participant is unscored or after ending an event, and appears only when all active participants are scored/confirmed Absent and a tie exists.
-- **Status**: TODO
+- **Status**: DONE
 
 ## Step 4: End Event Blockers (Client + Server RPC)
 - **Files**: `src/components/organiser/tabs/LiveTab.tsx`, `src/components/organiser/OrganiserDashboard.tsx`, `src/lib/supabase.ts`, `src/lib/tieDecisionEngine.ts`, `sql/17.8.2-end-event-blockers.sql`

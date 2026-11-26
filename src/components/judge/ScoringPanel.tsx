@@ -20,6 +20,7 @@ import {
 import { triggerHaptic } from '../../lib/haptics';
 import { playSound } from '../../lib/sound';
 import { dbService, subscribeToDatabase, syncServerClockOffset, getServerNowMs } from '../../lib/supabase';
+import { eventBus, areRecordsEqual } from '../../lib/eventBus';
 import { registerSyncCadence, syncNow } from '../../lib/syncEngine';
 import { setFormDirty } from '../../lib/swUpdateManager';
 import { DB_TABLES, matchesDbTable } from '../../lib/dbTables';
@@ -42,6 +43,7 @@ import {
   SupabaseEvent,
   SupabaseParticipant,
   SupabaseScore,
+  ParticipantAbsence,
   RubricCriterion,
   Organization,
 } from '../../lib/supabaseTypes';
@@ -187,12 +189,49 @@ export function ScoringPanel({
   const [scoresMap, setScoresMap] = useState<Record<string, number | null>>({});
   const [existingScore, setExistingScore] = useState<SupabaseScore | null>(null);
   const [allMyScores, setAllMyScores] = useState<SupabaseScore[]>([]);
+  const [eventAbsences, setEventAbsences] = useState<ParticipantAbsence[]>(() =>
+    dbService.getCachedAbsences(orgId || event.org_id, event.id)
+  );
+  const [requestingAbsentId, setRequestingAbsentId] = useState<string | null>(null);
+  const [confirmAbsentParticipant, setConfirmAbsentParticipant] = useState<SupabaseParticipant | null>(null);
+  const seenRejectionKeysRef = useRef<Set<string>>(new Set());
+  const notReadyStorageKey = `fj_not_ready:${activeEvent.id}:${judge.id}`;
+  const [notReadyIds, setNotReadyIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`fj_not_ready:${event.id}:${judge.id}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
   const [pendingParticipantIds, setPendingParticipantIds] = useState<Set<string>>(() => new Set());
   const [unsavedBallotsByKey, setUnsavedBallotsByKey] = useState<Record<string, UnsavedBallotState>>({});
   const unsavedBallotsRef = useRef<Record<string, UnsavedBallotState>>({});
   useEffect(() => {
     unsavedBallotsRef.current = unsavedBallotsByKey;
   }, [unsavedBallotsByKey]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(notReadyStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setNotReadyIds(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+    } catch {
+      setNotReadyIds([]);
+    }
+  }, [notReadyStorageKey]);
+
+  const seenRejectionStorageKey = `fj_rejected_absent_seen:${activeEvent.id}:${judge.id}`;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(seenRejectionStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      seenRejectionKeysRef.current = new Set(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      seenRejectionKeysRef.current = new Set();
+    }
+  }, [seenRejectionStorageKey]);
 
   // Submit State Machine & "The Beat" (600ms hold & fluid slide)
   const [isReviewSheetOpen, setIsReviewSheetOpen] = useState(false);
@@ -332,6 +371,7 @@ export function ScoringPanel({
     lastLoadedKeyRef.current = null;
     scoresOwnerKeyRef.current = null;
     isDirtyRef.current = false;
+    setConfirmAbsentParticipant(null);
     setIsReviewSheetOpen(false);
     setIsSubmittedBeat(false);
     setIsCardSlidingOut(false);
@@ -418,8 +458,9 @@ export function ScoringPanel({
           }
         }
 
-        const [scoresRes, pendingScores, count] = await Promise.all([
+        const [scoresRes, absencesRes, pendingScores, count] = await Promise.all([
           dbService.getScoresResult(freshEvt.id, force),
+          dbService.getAbsencesResult(targetOrgId, force, freshEvt.id),
           getPendingScores().catch(() => [] as PendingScoreRecord[]),
           getPendingCount().catch(() => 0),
         ]);
@@ -431,6 +472,7 @@ export function ScoringPanel({
           eventsRes,
           participantsRes,
           scoresRes,
+          ...(absencesRes.errorCode === 'rpc_unavailable' ? [] : [absencesRes]),
         ].find((r) => !r.ok);
 
         if (firstFailure) {
@@ -474,6 +516,7 @@ export function ScoringPanel({
 
         if (isMountedRef.current) {
           setAllMyScores(Array.from(mergedByParticipant.values()));
+          setEventAbsences((prev) => (areRecordsEqual(prev, absencesRes.data) ? prev : absencesRes.data));
           setPendingParticipantIds(pendingSet);
           setPendingQueueCount(count);
 
@@ -579,6 +622,30 @@ export function ScoringPanel({
       loadData(false).catch(() => {});
     });
 
+    const unsubBus = eventBus.on('cache_updated', (payload) => {
+      if (payload?.table === DB_TABLES.ALL && isMountedRef.current) {
+        const targetOrgId = orgId || activeEventRef.current.org_id;
+        const cachedAbsences = dbService.getCachedAbsences(targetOrgId, activeEventRef.current.id);
+        setEventAbsences((prev) => (areRecordsEqual(prev, cachedAbsences) ? prev : cachedAbsences));
+      }
+    });
+
+    const refreshAbsencesImmediate = () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const targetOrgId = orgId || activeEventRef.current.org_id;
+      void dbService.getAbsencesResult(targetOrgId, true, activeEventRef.current.id).then((res) => {
+        if (isMountedRef.current && res.ok) {
+          setEventAbsences((prev) => (areRecordsEqual(prev, res.data) ? prev : res.data));
+        }
+      });
+    };
+
+    const absencePollId = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        refreshAbsencesImmediate();
+      }
+    }, 4000);
+
     const handleOnline = () => {
       setIsOnline(true);
       syncServerClockOffset(true)
@@ -588,12 +655,18 @@ export function ScoringPanel({
         .catch(() => {});
       if (readErrorRef.current) {
         loadData(true).catch(() => {});
+      } else {
+        refreshAbsencesImmediate();
       }
     };
     const handleOffline = () => setIsOnline(false);
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && readErrorRef.current) {
-        loadData(true).catch(() => {});
+      if (document.visibilityState === 'visible') {
+        if (readErrorRef.current) {
+          loadData(true).catch(() => {});
+        } else {
+          refreshAbsencesImmediate();
+        }
       }
     };
 
@@ -605,6 +678,8 @@ export function ScoringPanel({
       releaseCadence();
       unsubDb();
       unsubQueue();
+      unsubBus();
+      clearInterval(absencePollId);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibility);
@@ -680,12 +755,72 @@ export function ScoringPanel({
 
   const isWithinGracePeriod = Boolean(existingScore && isGracePeriod && !graceExpired);
 
+  const absenceByParticipantId = useMemo(() => {
+    const map = new Map<string, ParticipantAbsence>();
+    for (const a of eventAbsences) {
+      map.set(a.participant_id, a);
+    }
+    return map;
+  }, [eventAbsences]);
+
+  const currentAbsence = currentParticipant
+    ? absenceByParticipantId.get(currentParticipant.id) || null
+    : null;
+  const isCurrentAbsent = Boolean(
+    currentAbsence && (currentAbsence.status === 'pending' || currentAbsence.status === 'confirmed')
+  );
+
+  // Immediate judge notification when an organiser rejects an Absent request
+  useEffect(() => {
+    if (eventAbsences.length === 0 || participants.length === 0) return;
+    const participantMap = new Map(participants.map((p) => [p.id, p]));
+    const scoredSet = new Set(allMyScores.map((s) => s.participant_id));
+    let seenChanged = false;
+    const rejectedNames: string[] = [];
+
+    for (const a of eventAbsences) {
+      if (a.status !== 'rejected') continue;
+      if (scoredSet.has(a.participant_id)) continue;
+      const rejKey = `${a.id}:${a.resolved_at || a.updated_at || a.requested_at}`;
+      if (seenRejectionKeysRef.current.has(rejKey)) continue;
+
+      seenRejectionKeysRef.current.add(rejKey);
+      seenChanged = true;
+
+      const p = participantMap.get(a.participant_id);
+      const namePart = isBlindJudging
+        ? `Participant ${p?.identity_id || `P-${a.participant_id.slice(0, 4)}`}`
+        : p?.name || '';
+      if (namePart) {
+        rejectedNames.push(namePart);
+      }
+    }
+
+    if (seenChanged) {
+      try {
+        localStorage.setItem(
+          seenRejectionStorageKey,
+          JSON.stringify(Array.from(seenRejectionKeysRef.current).slice(-50))
+        );
+      } catch {}
+    }
+
+    if (rejectedNames.length > 0) {
+      triggerHaptic('warning');
+      playSound('tap');
+      for (const participantName of rejectedNames) {
+        showToast(`Absent rejected: ${participantName}`, 'warning', 5000);
+      }
+    }
+  }, [eventAbsences, participants, allMyScores, isBlindJudging, seenRejectionStorageKey]);
+
   // Are sliders disabled?
   const areSlidersDisabled = useMemo(() => {
+    if (isCurrentAbsent) return true;
     if (!existingScore) return false;
     if (isGracePeriod && !graceExpired) return false;
     return true;
-  }, [existingScore, isGracePeriod, graceExpired]);
+  }, [isCurrentAbsent, existingScore, isGracePeriod, graceExpired]);
 
   // Score Draft Engine: Key includes activeEvent.id, judge.id and participantId; v1; 24h TTL (IndexedDB outbox)
   const getScoreDraftKey = useCallback(
@@ -782,6 +917,7 @@ export function ScoringPanel({
         slideOutTimerRef.current = null;
       }
       isDirtyRef.current = false;
+      setConfirmAbsentParticipant(null);
       setIsReviewSheetOpen(false);
       setIsSubmittedBeat(false);
       setIsCardSlidingOut(false);
@@ -965,18 +1101,50 @@ export function ScoringPanel({
     }, 250);
   };
 
-  // Categorize participants into Upcoming vs Completed (never treat rejected/unsaved ballots as Completed)
+  // Categorize participants into Upcoming vs Completed vs Absent
+  const absentList = participants.filter((p) => {
+    const a = absenceByParticipantId.get(p.id);
+    return a?.status === 'pending' || a?.status === 'confirmed';
+  });
+  const absentParticipantIds = new Set(absentList.map((p) => p.id));
+
   const completedList = participants.filter((p) => {
+    if (absentParticipantIds.has(p.id)) return false;
     const k = getCompositeKey(p.id);
     if (unsavedBallotsByKey[k]) return false;
     return allMyScores.some((s) => s.participant_id === p.id);
   });
 
-  const upcomingList = participants.filter((p) => {
+  const notReadySet = useMemo(() => new Set(notReadyIds), [notReadyIds]);
+
+  const handleToggleNotReady = useCallback(
+    (participantId: string) => {
+      triggerHaptic('tap');
+      playSound('tap');
+      setNotReadyIds((prev) => {
+        const next = prev.includes(participantId)
+          ? prev.filter((id) => id !== participantId)
+          : [...prev, participantId];
+        try {
+          localStorage.setItem(notReadyStorageKey, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    },
+    [notReadyStorageKey]
+  );
+
+  const upcomingRaw = participants.filter((p) => {
+    if (absentParticipantIds.has(p.id)) return false;
     const k = getCompositeKey(p.id);
     if (unsavedBallotsByKey[k]) return true;
     return !allMyScores.some((s) => s.participant_id === p.id);
   });
+
+  const upcomingList = [
+    ...upcomingRaw.filter((p) => !notReadySet.has(p.id)),
+    ...upcomingRaw.filter((p) => notReadySet.has(p.id)),
+  ];
 
   // Filtered lists based on Smart Search Bar
   const filterBySearch = (list: SupabaseParticipant[]) => {
@@ -996,7 +1164,38 @@ export function ScoringPanel({
 
   const filteredUpcoming = filterBySearch(upcomingList);
   const filteredCompleted = filterBySearch(completedList);
-  const scoredCount = completedList.length;
+  const filteredAbsent = filterBySearch(absentList);
+  const confirmedAbsentCount = absentList.filter(
+    (p) => absenceByParticipantId.get(p.id)?.status === 'confirmed'
+  ).length;
+  const scoredCount = completedList.length + confirmedAbsentCount;
+
+  const handleMarkAbsent = async (participant: SupabaseParticipant) => {
+    if (requestingAbsentId) return;
+    const currentEvt = activeEventRef.current;
+    if (currentEvt.status !== 'active') return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+    setRequestingAbsentId(participant.id);
+    try {
+      const row = await dbService.requestParticipantAbsence(currentEvt.id, participant.id);
+      if (!isMountedRef.current) return;
+      setEventAbsences((prev) => [
+        row,
+        ...prev.filter((a) => a.id !== row.id && a.participant_id !== participant.id),
+      ]);
+      clearScoreDraft(participant.id);
+      triggerHaptic('submit');
+      playSound('tap');
+      if (viewModeRef.current === 'scoring' && currentParticipantRef.current?.id === participant.id) {
+        handleExitToList();
+      }
+    } catch (err: any) {
+      console.warn('requestParticipantAbsence failed:', err);
+    } finally {
+      if (isMountedRef.current) setRequestingAbsentId(null);
+    }
+  };
 
   // Open scoring carousel for a specific participant
   const handleOpenParticipant = (participant: SupabaseParticipant) => {
@@ -1486,6 +1685,8 @@ export function ScoringPanel({
                         (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : p.sl_no);
                       const unsaved = unsavedBallotsByKey[getCompositeKey(p.id)];
 
+                      const isNotReady = notReadySet.has(p.id);
+
                       return (
                         <div
                           key={p.id}
@@ -1494,40 +1695,65 @@ export function ScoringPanel({
                           className={`p-4 bg-white dark:bg-zinc-900 border rounded-2xl shadow-sm cursor-pointer group active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both motion-reduce:animate-none ${
                             unsaved
                               ? 'border-red-500/40 dark:border-red-500/40'
+                              : isNotReady
+                              ? 'border-amber-500/35 dark:border-amber-500/30 bg-stone-50/80 dark:bg-zinc-900/70'
                               : 'border-stone-200 dark:border-zinc-800 hover:border-amber-500/50 hover:bg-stone-50 dark:hover:bg-zinc-800'
                           }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-3.5 min-w-0 mr-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center space-x-3.5 min-w-0 flex-1">
                               <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-500/20 font-mono font-black text-sm flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform motion-reduce:transition-none shadow-xs">
                                 {participantSerial}
                               </div>
-                              <div className="min-w-0">
-                                {isBlindJudging ? (
-                                  <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white truncate">
-                                    Participant {p.identity_id || `P-${p.id.slice(0, 4)}`}
-                                  </h3>
-                                ) : (
-                                  <>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  {isBlindJudging ? (
+                                    <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white truncate">
+                                      Participant {p.identity_id || `P-${p.id.slice(0, 4)}`}
+                                    </h3>
+                                  ) : (
                                     <h3 className="text-base font-extrabold text-zinc-900 dark:text-white truncate group-hover:text-amber-800 dark:group-hover:text-amber-400">
                                       {p.name}
                                     </h3>
-                                    <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
-                                      {p.school}
-                                    </p>
-                                  </>
+                                  )}
+                                </div>
+                                {!isBlindJudging && (
+                                  <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
+                                    {p.school}
+                                  </p>
+                                )}
+                                {isNotReady && (
+                                  <span className="inline-flex items-center mt-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25 font-mono text-[11px] font-bold uppercase tracking-wider">
+                                    Not Ready
+                                  </span>
                                 )}
                               </div>
                             </div>
 
-                            <div className="shrink-0">
+                            <div className="shrink-0 flex items-center gap-2">
+                              {!unsaved && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleNotReady(p.id);
+                                  }}
+                                  className={`px-3 py-2.5 min-h-[44px] rounded-xl border font-bold text-sm active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center cursor-pointer ${
+                                    isNotReady
+                                      ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/35 hover:bg-amber-500/25'
+                                      : 'bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border-stone-200 dark:border-zinc-700'
+                                  }`}
+                                >
+                                  <span>Not Ready</span>
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleOpenParticipant(p);
                                 }}
-                                className="px-4 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-sm tracking-wide shadow-sm active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center space-x-1.5 cursor-pointer"
+                                className="px-4 py-2.5 min-h-[44px] rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-sm tracking-wide shadow-sm active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center space-x-1.5 cursor-pointer"
                               >
                                 <span>{unsaved ? 'Review' : 'Score'}</span>
                                 <ChevronRight className="w-4 h-4 stroke-[2.5]" />
@@ -1643,6 +1869,66 @@ export function ScoringPanel({
                   </div>
                 )}
               </div>
+
+              {/* SECTION 3: ABSENT */}
+              {filteredAbsent.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <h2 className="text-sm font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-wider flex items-center space-x-1.5 shrink-0">
+                      <span>Absent ({filteredAbsent.length})</span>
+                    </h2>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {filteredAbsent.map((p, idx) => {
+                      const absence = absenceByParticipantId.get(p.id);
+                      const isConfirmed = absence?.status === 'confirmed';
+                      const assignedIds = activeEvent.assigned_participants || [];
+                      const orderIdx = assignedIds.indexOf(p.id);
+                      const participantSerial =
+                        activeEvent.participant_sl_numbers?.[p.id] ||
+                        (orderIdx !== -1 ? String(orderIdx + 1).padStart(2, '0') : p.sl_no);
+                      return (
+                        <div
+                          key={p.id}
+                          style={{ animationDelay: `${Math.min(idx, 8) * 50}ms` }}
+                          onClick={() => handleOpenParticipant(p)}
+                          className="p-3.5 sm:p-4 bg-stone-100 dark:bg-zinc-900/50 border border-stone-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between gap-3 cursor-pointer active:scale-95 transition-transform duration-150 ease-out motion-reduce:transition-none will-change-transform shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-200 fill-mode-both motion-reduce:animate-none"
+                        >
+                          <div className="flex items-center space-x-3.5 min-w-0 flex-1">
+                            <div className="w-10 h-10 rounded-2xl bg-stone-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-mono font-bold text-sm flex items-center justify-center shrink-0">
+                              {participantSerial}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              {isBlindJudging ? (
+                                <h3 className="text-base font-black text-zinc-800 dark:text-zinc-200 truncate">
+                                  Participant {p.identity_id || `P-${p.id.slice(0, 4)}`}
+                                </h3>
+                              ) : (
+                                <>
+                                  <h3 className="text-sm sm:text-base font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
+                                    {p.name}
+                                  </h3>
+                                  <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 truncate mt-0.5">
+                                    {p.school}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 flex items-center space-x-2">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-500/20 font-mono text-xs font-black uppercase tracking-wider">
+                              {isConfirmed && <Lock className="w-3.5 h-3.5 shrink-0" />}
+                              <span>Absent</span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </main>
         </PullToRefresh>
@@ -1656,23 +1942,44 @@ export function ScoringPanel({
   return (
     <div className="h-[100dvh] overflow-hidden w-full bg-stone-50 dark:bg-black text-zinc-900 dark:text-zinc-100 flex flex-col justify-start max-w-lg mx-auto relative select-none">
       {/* PART 5.1: THE PINNED TOP HEADER + COMPETITOR BANNER */}
-      <header className="shrink-0 z-50 w-full bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800/80 px-4 h-16 flex justify-between items-center shadow-xs">
+      <header className="shrink-0 z-50 w-full bg-stone-50 dark:bg-black border-b border-stone-200 dark:border-zinc-800/80 px-3 sm:px-4 h-16 flex justify-between items-center gap-2 shadow-xs">
         {/* Left: [ <- Back ] Heavy Contrast Secondary Button */}
         <button
           onClick={handleExitToList}
-          className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-5 min-h-[48px] rounded-xl shadow-md active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center gap-2 cursor-pointer shrink-0"
+          className="bg-zinc-900 dark:bg-white text-white dark:text-black font-bold text-sm md:text-base px-3.5 sm:px-5 min-h-[48px] rounded-xl shadow-md active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
           title="Return to Competitor Roster"
         >
           <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
           <span>Back</span>
         </button>
 
-        <div className="flex-1" />
+        {/* Middle: Mark As Absent */}
+        <div className="flex-1 flex items-center justify-center min-w-0">
+          {currentParticipant && !existingScore && !isCurrentAbsent && activeEvent.status === 'active' && (
+            <button
+              type="button"
+              disabled={requestingAbsentId === currentParticipant.id}
+              onClick={() => setConfirmAbsentParticipant(currentParticipant)}
+              className="px-3 min-h-[44px] rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold text-xs sm:text-sm whitespace-nowrap cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none flex items-center justify-center disabled:opacity-50"
+            >
+              {requestingAbsentId === currentParticipant.id ? (
+                <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" />
+              ) : (
+                <span>Mark As Absent</span>
+              )}
+            </button>
+          )}
+        </div>
 
-        {/* Right: Sealed or Submit/Update */}
-        <div>
-          {!currentParticipant ? null : existingScore && !isWithinGracePeriod ? (
-            <div className="flex items-center space-x-2 text-base font-black text-amber-800 dark:text-amber-400 bg-amber-500/10 px-6 min-h-[48px] rounded-xl border border-amber-500/20 tracking-wide">
+        {/* Right: Absent, Sealed or Submit/Update */}
+        <div className="shrink-0">
+          {!currentParticipant ? null : isCurrentAbsent ? (
+            <div className="flex items-center space-x-2 text-base font-black text-amber-800 dark:text-amber-400 bg-amber-500/10 px-4 sm:px-6 min-h-[48px] rounded-xl border border-amber-500/20 tracking-wide">
+              {currentAbsence?.status === 'confirmed' && <Lock className="w-4 h-4 stroke-[2.5]" />}
+              <span>Absent</span>
+            </div>
+          ) : existingScore && !isWithinGracePeriod ? (
+            <div className="flex items-center space-x-2 text-base font-black text-amber-800 dark:text-amber-400 bg-amber-500/10 px-4 sm:px-6 min-h-[48px] rounded-xl border border-amber-500/20 tracking-wide">
               <Lock className="w-4 h-4 stroke-[2.5]" />
               <span>Sealed</span>
             </div>
@@ -1680,7 +1987,7 @@ export function ScoringPanel({
             <button
               onClick={handleOpenReview}
               disabled={!isAllScored || isSubmitting || isSubmittedBeat || areSlidersDisabled}
-              className={`px-6 min-h-[48px] rounded-xl font-bold text-base shadow-sm active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center gap-2 tracking-wide ${
+              className={`px-4 sm:px-6 min-h-[48px] rounded-xl font-bold text-sm sm:text-base shadow-sm active:scale-95 transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform flex items-center justify-center gap-1.5 sm:gap-2 tracking-wide ${
                 isAllScored && !isSubmitting && !isSubmittedBeat && !areSlidersDisabled
                   ? 'bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white cursor-pointer'
                   : 'bg-stone-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-stone-300 dark:border-zinc-700 cursor-not-allowed'
@@ -1829,7 +2136,24 @@ export function ScoringPanel({
                 </div>
               )}
 
-              {existingScore && !isWithinGracePeriod && (
+              {isCurrentAbsent && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-2 text-sm text-amber-800 dark:text-amber-400 font-semibold shadow-sm">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    {currentAbsence?.status === 'confirmed' && (
+                      <Lock className="w-4 h-4 shrink-0 text-amber-800 dark:text-amber-400" />
+                    )}
+                    <span>Absent</span>
+                  </div>
+                  <button
+                    onClick={handleExitToList}
+                    className="px-3 py-1.5 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-700/90 dark:hover:bg-amber-700 text-white font-bold text-sm shadow-sm shrink-0 cursor-pointer active:scale-[0.97] transition-transform duration-75 ease-out motion-reduce:transition-none will-change-transform"
+                  >
+                    Roster
+                  </button>
+                </div>
+              )}
+
+              {!isCurrentAbsent && existingScore && !isWithinGracePeriod && (
                 <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-2 text-sm text-amber-800 dark:text-amber-400 font-semibold shadow-sm">
                   <div className="flex items-center space-x-2 min-w-0">
                     <Lock className="w-4 h-4 shrink-0 text-amber-800 dark:text-amber-400" />
@@ -1980,19 +2304,27 @@ export function ScoringPanel({
         </button>
 
         <div className="text-center font-mono flex flex-col items-center justify-center min-w-0 px-2">
-          <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white tracking-tight leading-none tabular-nums whitespace-nowrap">
-            <span
-              key={currentTotal}
-              className="text-amber-800 dark:text-amber-400 tabular-nums whitespace-nowrap inline-block animate-in fade-in slide-in-from-bottom-1 duration-150 motion-reduce:animate-none"
-            >
-              {currentTotal}
-            </span>
-            <span className="text-zinc-600 dark:text-zinc-300 text-sm font-semibold"> / {maxPossible}</span>
-            <span className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
-          </div>
-          <span className="text-sm font-mono text-zinc-600 dark:text-zinc-300 uppercase tracking-wider mt-1 font-bold">
-            Total Composite
-          </span>
+          {isCurrentAbsent ? (
+            <div className="text-2xl sm:text-3xl font-black text-amber-800 dark:text-amber-400 tracking-tight leading-none uppercase">
+              Absent
+            </div>
+          ) : (
+            <>
+              <div className="text-2xl sm:text-3xl font-black text-zinc-900 dark:text-white tracking-tight leading-none tabular-nums whitespace-nowrap">
+                <span
+                  key={currentTotal}
+                  className="text-amber-800 dark:text-amber-400 tabular-nums whitespace-nowrap inline-block animate-in fade-in slide-in-from-bottom-1 duration-150 motion-reduce:animate-none"
+                >
+                  {currentTotal}
+                </span>
+                <span className="text-zinc-600 dark:text-zinc-300 text-sm font-semibold"> / {maxPossible}</span>
+                <span className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 ml-1">pts</span>
+              </div>
+              <span className="text-sm font-mono text-zinc-600 dark:text-zinc-300 uppercase tracking-wider mt-1 font-bold">
+                Total Composite
+              </span>
+            </>
+          )}
         </div>
 
         <button
@@ -2167,6 +2499,46 @@ export function ScoringPanel({
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MARK AS ABSENT CONFIRMATION DIALOG */}
+      {confirmAbsentParticipant && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75"
+          onClick={() => setConfirmAbsentParticipant(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-black text-zinc-900 dark:text-white text-center">
+              Mark As Absent?
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmAbsentParticipant(null)}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl border border-stone-300 dark:border-zinc-700 bg-stone-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 font-bold text-sm cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={requestingAbsentId === confirmAbsentParticipant.id}
+                onClick={() => {
+                  const target = confirmAbsentParticipant;
+                  setConfirmAbsentParticipant(null);
+                  void handleMarkAbsent(target);
+                }}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white font-bold text-sm shadow-sm disabled:opacity-50 cursor-pointer active:scale-95 transition-transform duration-75 motion-reduce:transition-none"
+              >
+                Mark As Absent
+              </button>
             </div>
           </div>
         </div>

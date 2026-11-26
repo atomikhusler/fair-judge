@@ -5,6 +5,8 @@ import {
   SupabaseJudge, 
   SupabaseParticipant, 
   SupabaseScore, 
+  ParticipantAbsence,
+  AbsenceStatus,
   EventStatus,
   TieBreakerMethod,
   VerificationStatus
@@ -255,6 +257,7 @@ export const STORAGE_KEYS = {
   JUDGES: 'fairjudge_supabase_judges',
   PARTICIPANTS: 'fairjudge_supabase_participants',
   SCORES: 'fairjudge_supabase_scores',
+  ABSENCES: 'fairjudge_supabase_absences',
   PUBLIC_SETTINGS: 'fairjudge_public_settings',
   ACTIVE_SESSION: 'fairjudge_active_session',
   JUDGE_DEVICE_TOKEN: 'fairjudge_judge_device_token',
@@ -605,6 +608,8 @@ export function normalizeOrg(o: any): Organization {
   const { password: _p, ...rest } = o || {};
   return {
     ...rest,
+    prize_places: rest.prize_places === 5 ? 5 : 3,
+    score_one_by_one_enabled: Boolean(rest.score_one_by_one_enabled),
     verification_status: (rest.verification_status || 'pending') as VerificationStatus,
   };
 }
@@ -620,6 +625,8 @@ export function normalizeEvent(e: any): SupabaseEvent {
     status: (e.status?.toLowerCase() as EventStatus) || 'draft',
     is_locked: Boolean(e.is_locked),
     is_archived: Boolean(e.is_archived),
+    score_one_by_one: Boolean(e.score_one_by_one),
+    current_participant_id: e.current_participant_id ?? null,
     rubric_schema: schema,
     rubric: schema,
     assigned_judges: Array.isArray(e.assigned_judges) ? e.assigned_judges : [],
@@ -652,6 +659,26 @@ export function normalizeScore(s: any): SupabaseScore {
       total_score: total,
       submitted_at: s.created_at || new Date().toISOString(),
     },
+  };
+}
+
+export function normalizeAbsence(a: any): ParticipantAbsence {
+  const rawStatus = String(a?.status || 'pending').toLowerCase();
+  const status: AbsenceStatus =
+    rawStatus === 'confirmed' || rawStatus === 'rejected' ? rawStatus : 'pending';
+  return {
+    id: String(a?.id || ''),
+    org_id: String(a?.org_id || '').trim().toUpperCase(),
+    event_id: String(a?.event_id || ''),
+    participant_id: String(a?.participant_id || ''),
+    requested_by_judge_id: a?.requested_by_judge_id ? String(a.requested_by_judge_id) : null,
+    status,
+    is_sealed: Boolean(a?.is_sealed || status === 'confirmed'),
+    resolved_by: a?.resolved_by ? String(a.resolved_by) : '',
+    requested_at: String(a?.requested_at || new Date().toISOString()),
+    resolved_at: a?.resolved_at ? String(a.resolved_at) : null,
+    version: a?.version !== undefined ? Number(a.version) : undefined,
+    updated_at: a?.updated_at ? String(a.updated_at) : undefined,
   };
 }
 
@@ -729,6 +756,16 @@ export const dbService = {
     return scores.map(normalizeScore);
   },
 
+  getCachedAbsences(orgId?: string, eventId?: string): ParticipantAbsence[] {
+    const cleanOrgId = orgId ? orgId.trim().toUpperCase() : null;
+    const rows = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, []).map(normalizeAbsence);
+    return rows.filter((a) => {
+      if (cleanOrgId && a.org_id !== cleanOrgId) return false;
+      if (eventId && a.event_id !== eventId) return false;
+      return true;
+    });
+  },
+
   hasCachedData(orgId: string): boolean {
     const cleanOrgId = orgId.trim().toUpperCase();
     const events = loadCache<SupabaseEvent>(STORAGE_KEYS.EVENTS, []);
@@ -767,7 +804,17 @@ export const dbService = {
           );
 
           if (res.data) {
-            const normalized = normalizeOrg(res.data);
+            const mergedRaw = {
+              ...(res.data.prize_places === undefined && latestCachedOrg?.prize_places !== undefined
+                ? { prize_places: latestCachedOrg.prize_places }
+                : {}),
+              ...(res.data.score_one_by_one_enabled === undefined &&
+              latestCachedOrg?.score_one_by_one_enabled !== undefined
+                ? { score_one_by_one_enabled: latestCachedOrg.score_one_by_one_enabled }
+                : {}),
+              ...res.data,
+            };
+            const normalized = normalizeOrg(mergedRaw);
             const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
             saveCache(
               STORAGE_KEYS.ORGS,
@@ -857,7 +904,16 @@ export const dbService = {
 
         const syncedRow = rpcRes.data;
         if (syncedRow) {
-          const synced = normalizeOrg(syncedRow);
+          const synced = normalizeOrg({
+            ...(syncedRow.prize_places === undefined && updated.prize_places !== undefined
+              ? { prize_places: updated.prize_places }
+              : {}),
+            ...(syncedRow.score_one_by_one_enabled === undefined &&
+            updated.score_one_by_one_enabled !== undefined
+              ? { score_one_by_one_enabled: updated.score_one_by_one_enabled }
+              : {}),
+            ...syncedRow,
+          });
           const currentOrgs = loadCache<Organization>(STORAGE_KEYS.ORGS, []);
           saveCache(
             STORAGE_KEYS.ORGS,
@@ -918,6 +974,13 @@ export const dbService = {
     saveCache(
       STORAGE_KEYS.JUDGES,
       judges.filter((j) => (j.org_id || '').toUpperCase().trim() !== cleanOrgId),
+      false
+    );
+
+    const absences = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, []);
+    saveCache(
+      STORAGE_KEYS.ABSENCES,
+      absences.filter((a) => (a.org_id || '').toUpperCase().trim() !== cleanOrgId),
       false
     );
 
@@ -1091,6 +1154,12 @@ export const dbService = {
         judges.filter((j) => (j.org_id || '').toUpperCase().trim() === cleanOrgId).map((j) => j.id)
       );
       saveCache(STORAGE_KEYS.JUDGES, judges.filter((j) => (j.org_id || '').toUpperCase().trim() !== cleanOrgId), false);
+      const absences = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, []);
+      saveCache(
+        STORAGE_KEYS.ABSENCES,
+        absences.filter((a) => (a.org_id || '').toUpperCase().trim() !== cleanOrgId),
+        false
+      );
       await invalidateCache();
       await clearOfflineWorkForOrg(cleanOrgId, {
         eventIds: orgEventIds,
@@ -2566,6 +2635,13 @@ export const dbService = {
       throw new Error('Judge is not assigned to evaluate this event.');
     }
 
+    const isConfirmedAbsent = this.getCachedAbsences(event.org_id, scoreData.event_id).some(
+      (a) => a.participant_id === scoreData.participant_id && a.status === 'confirmed'
+    );
+    if (isConfirmedAbsent) {
+      throw new Error('Absent');
+    }
+
     // 3. Check if score already exists (Strict Immutability with 5-minute server-clock grace period support)
     const existing = await this.getScoreForJudgeParticipant(
       scoreData.event_id,
@@ -2711,6 +2787,138 @@ export const dbService = {
   },
 
   // ------------------------------------------
+  // 6B. ABSENT STATUS WORKFLOW
+  // ------------------------------------------
+  async getAbsencesResult(
+    orgId: string,
+    force: boolean = false,
+    eventId?: string
+  ): Promise<ReadResult<ParticipantAbsence[]>> {
+    const cleanOrgId = orgId.trim().toUpperCase();
+    const cacheKey = eventId
+      ? `${STORAGE_KEYS.ABSENCES}_${cleanOrgId}_${eventId}`
+      : `${STORAGE_KEYS.ABSENCES}_${cleanOrgId}`;
+    const cached = this.getCachedAbsences(cleanOrgId, eventId);
+
+    if (!force && isCacheValid(cacheKey)) {
+      return { ok: true, data: cached, fromCache: true, error: null, timedOut: false };
+    }
+
+    return coalesceRead(cacheKey, force, async () => {
+      const latestCached = this.getCachedAbsences(cleanOrgId, eventId);
+
+      if (isSupabaseConfigured()) {
+        try {
+          const res = await callSecuredReadRpc<any[]>(
+            'absences_list',
+            eventId ? { p_event_id: eventId } : {}
+          );
+          const data = Array.isArray(res.data) ? res.data : [];
+          const normalized = data.map(normalizeAbsence);
+          const existingAll = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, []).map(normalizeAbsence);
+          const preserved = existingAll.filter((a) => {
+            if (a.org_id !== cleanOrgId) return true;
+            if (eventId && a.event_id !== eventId) return true;
+            return false;
+          });
+          const changed = !areRecordsEqual(latestCached, normalized);
+          saveCache(STORAGE_KEYS.ABSENCES, [...normalized, ...preserved], !changed);
+          updateCacheTimestamp(cacheKey);
+          return { ok: true, data: normalized, fromCache: false, error: null, timedOut: false };
+        } catch (err: any) {
+          const info = classifyReadError(err);
+          console.warn('Supabase getAbsences fallback:', info.message);
+          return {
+            ok: false,
+            data: latestCached,
+            fromCache: latestCached.length > 0,
+            error: info.message,
+            errorCode: info.code,
+            timedOut: info.timedOut,
+            unauthorized: info.unauthorized,
+          };
+        }
+      } else {
+        updateCacheTimestamp(cacheKey);
+        return { ok: true, data: latestCached, fromCache: true, error: null, timedOut: false };
+      }
+    });
+  },
+
+  async getAbsences(
+    orgId: string,
+    force: boolean = false,
+    eventId?: string
+  ): Promise<ParticipantAbsence[]> {
+    const res = await this.getAbsencesResult(orgId, force, eventId);
+    return res.data;
+  },
+
+  async requestParticipantAbsence(
+    eventId: string,
+    participantId: string
+  ): Promise<ParticipantAbsence> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured.');
+    }
+    if (!isOnlineNavigator()) {
+      throw new Error('offline');
+    }
+
+    const rpcRes = await callSecuredWriteRpc<any>('absence_request', {
+      p_event_id: eventId,
+      p_participant_id: participantId,
+    });
+    const row = normalizeAbsence(rpcRes.data);
+    const existing = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, []).map(normalizeAbsence);
+    const next = [
+      row,
+      ...existing.filter(
+        (a) => !(a.id === row.id || (a.event_id === row.event_id && a.participant_id === row.participant_id))
+      ),
+    ];
+    saveCache(STORAGE_KEYS.ABSENCES, next, false);
+    if (row.org_id) {
+      void invalidateCache(`${STORAGE_KEYS.ABSENCES}_${row.org_id}`);
+      void invalidateCache(`${STORAGE_KEYS.ABSENCES}_${row.org_id}_${row.event_id}`);
+    }
+    return row;
+  },
+
+  async resolveParticipantAbsence(
+    absenceId: string,
+    decision: 'confirm' | 'reject',
+    actorLabel?: string
+  ): Promise<ParticipantAbsence> {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured.');
+    }
+    if (!isOnlineNavigator()) {
+      throw new Error('offline');
+    }
+
+    const rpcRes = await callSecuredWriteRpc<any>('absence_resolve', {
+      p_absence_id: absenceId,
+      p_decision: decision,
+      p_actor_label: actorLabel || 'Organiser',
+    });
+    const row = normalizeAbsence(rpcRes.data);
+    const existing = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, []).map(normalizeAbsence);
+    const next = [
+      row,
+      ...existing.filter(
+        (a) => !(a.id === row.id || (a.event_id === row.event_id && a.participant_id === row.participant_id))
+      ),
+    ];
+    saveCache(STORAGE_KEYS.ABSENCES, next, false);
+    if (row.org_id) {
+      void invalidateCache(`${STORAGE_KEYS.ABSENCES}_${row.org_id}`);
+      void invalidateCache(`${STORAGE_KEYS.ABSENCES}_${row.org_id}_${row.event_id}`);
+    }
+    return row;
+  },
+
+  // ------------------------------------------
   // 7. TIE-BREAKER ENGINE LOGIC (Multithreaded Web Worker & Fast Fallback)
   // ------------------------------------------
   calculateRankings(
@@ -2718,14 +2926,26 @@ export const dbService = {
     scores: SupabaseScore[],
     assignedJudgesCount: number = 0,
     method: TieBreakerMethod = 'olympic',
-    tieBreakerEnabled: boolean = false
+    tieBreakerEnabled: boolean = false,
+    absentParticipantIds?: ReadonlySet<string> | ReadonlyArray<string>
   ) {
+    let resolvedAbsent = absentParticipantIds;
+    if (!resolvedAbsent && scores.length > 0) {
+      const eventIds = new Set(scores.map((s) => s.event_id).filter(Boolean));
+      const confirmed = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, [])
+        .filter((a) => eventIds.has(a.event_id) && a.status === 'confirmed')
+        .map((a) => a.participant_id);
+      if (confirmed.length > 0) {
+        resolvedAbsent = confirmed;
+      }
+    }
     return engineCalculateRankings(
       participants,
       scores,
       assignedJudgesCount,
       method,
-      tieBreakerEnabled
+      tieBreakerEnabled,
+      resolvedAbsent
     );
   },
 
@@ -2734,14 +2954,26 @@ export const dbService = {
     scores: SupabaseScore[],
     assignedJudgesCount: number = 0,
     method: TieBreakerMethod = 'olympic',
-    tieBreakerEnabled: boolean = false
+    tieBreakerEnabled: boolean = false,
+    absentParticipantIds?: ReadonlySet<string> | ReadonlyArray<string>
   ) {
+    let resolvedAbsent = absentParticipantIds;
+    if (!resolvedAbsent && scores.length > 0) {
+      const eventIds = new Set(scores.map((s) => s.event_id).filter(Boolean));
+      const confirmed = loadCache<ParticipantAbsence>(STORAGE_KEYS.ABSENCES, [])
+        .filter((a) => eventIds.has(a.event_id) && a.status === 'confirmed')
+        .map((a) => a.participant_id);
+      if (confirmed.length > 0) {
+        resolvedAbsent = confirmed;
+      }
+    }
     return engineCalculateRankingsAsync(
       participants,
       scores,
       assignedJudgesCount,
       method,
-      tieBreakerEnabled
+      tieBreakerEnabled,
+      resolvedAbsent
     );
   },
 };

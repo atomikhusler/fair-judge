@@ -28,10 +28,12 @@ export interface Organization {
   suspended?: boolean;
   suspended_reason?: string | null;
   deleted_at?: string | null;
-  tie_breaker_enabled?: boolean; // Default false (off by default)
+  tie_breaker_enabled?: boolean; // Legacy field kept for compatibility (ties are always active)
   tie_breaker_method?: TieBreakerMethod; // Legacy column kept for migration compatibility
-  tie_management_enabled?: boolean; // Default false (org-wide tie management toggle)
-  tie_rule?: OrgTieRule; // Default 'countback' (org-wide tie rule for future events)
+  tie_management_enabled?: boolean; // Legacy field kept for compatibility (no Settings switch)
+  tie_rule?: OrgTieRule; // Legacy default rule field
+  prize_places?: 3 | 5; // Number of prize places (3 or 5, default 3)
+  score_one_by_one_enabled?: boolean; // Default OFF for Score One by One mode
   custom_participant_fields?: CustomParticipantField[];
   blind_judging_enabled?: boolean; // Default false (hide names & schools to prevent bias)
   auto_advance_enabled?: boolean; // Default true (auto-slide to next on submit)
@@ -47,7 +49,9 @@ export interface Organization {
 
 export type OrgTieRule = 'countback' | 'olympic' | 'recompete';
 export type TieRoundRule = 'countback' | 'olympic' | 'recompete' | 'shared';
+export type TieAuditRule = TieRoundRule | 'absent';
 export type TieRoundStatus = 'open' | 'closed' | 'published' | 'cancelled_stale';
+export type AbsenceStatus = 'pending' | 'confirmed' | 'rejected';
 export type TieAuditAction =
   | 'apply_countback'
   | 'apply_olympic'
@@ -56,7 +60,25 @@ export type TieAuditAction =
   | 'publish_recompete'
   | 'reopen_recompete'
   | 'close_stale_round'
-  | 'close_event_shared';
+  | 'close_event_shared'
+  | 'request_absent'
+  | 'confirm_absent'
+  | 'reject_absent';
+
+export interface ParticipantAbsence {
+  id: string;
+  org_id: string;
+  event_id: string;
+  participant_id: string;
+  requested_by_judge_id: string | null;
+  status: AbsenceStatus;
+  is_sealed: boolean;
+  resolved_by?: string;
+  requested_at: string;
+  resolved_at: string | null;
+  version?: number;
+  updated_at?: string;
+}
 
 export interface TieRoundPlacement {
   participant_id: string;
@@ -143,7 +165,7 @@ export interface TieAuditEntry {
   round_id: string | null;
   group_key: string;
   action: TieAuditAction;
-  rule: TieRoundRule;
+  rule: TieAuditRule;
   actor_label: string;
   preview_json: Record<string, unknown>;
   result_json: Record<string, unknown>;
@@ -168,6 +190,8 @@ export interface SupabaseEvent {
   assigned_judges: string[]; // Judge IDs
   assigned_participants: string[]; // Participant IDs
   participant_sl_numbers?: Record<string, string>; // Event-specific serial numbers: participantId -> "01", "B-03"
+  score_one_by_one?: boolean; // Per-event Score One by One mode (default OFF)
+  current_participant_id?: string | null; // Active participant when score_one_by_one is ON
   created_at: string;
   updated_at?: string;
 }
