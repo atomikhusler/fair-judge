@@ -155,6 +155,10 @@ export function JudgeLobby({
       const res = await dbService.getOrganizationByOrgIdResult(orgId, force);
       if (reqId !== orgLoadReqIdRef.current) return;
 
+      if (res.unauthorized) {
+        return;
+      }
+
       if (res.data) {
         setOrganization(res.data);
       }
@@ -166,6 +170,7 @@ export function JudgeLobby({
       }
     } catch (err: any) {
       if (reqId !== orgLoadReqIdRef.current) return;
+      if (err?.code === 'unauthorized') return;
       setOrgLoadError(err?.message || 'Showing cached organization details. Unable to reach server.');
     } finally {
       if (force && reqId === orgLoadReqIdRef.current) {

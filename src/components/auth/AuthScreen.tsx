@@ -22,6 +22,7 @@ interface AuthScreenProps {
   onOpenAdmin?: () => void;
   onOpenProjector?: () => void;
   initialView?: AuthView;
+  notice?: string | null;
 }
 
 export function AuthScreen({
@@ -30,6 +31,7 @@ export function AuthScreen({
   onOpenAdmin,
   onOpenProjector,
   initialView = 'gateway',
+  notice = null,
 }: AuthScreenProps) {
   const [authView, setAuthView] = useState<AuthView>(initialView);
 
@@ -60,6 +62,15 @@ export function AuthScreen({
 
       {/* Main Container Area */}
       <div className="w-full flex-1 flex flex-col items-center justify-center relative z-10 py-6">
+        {notice && (
+          <div
+            role="alert"
+            className="w-full max-w-md mb-4 px-4 py-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-500/40 text-rose-700 dark:text-rose-200 text-sm font-semibold text-center"
+          >
+            {notice}
+          </div>
+        )}
+
         {authView === 'gateway' && (
           <Gateway
             onSelectRole={(role) => setAuthView(role)}

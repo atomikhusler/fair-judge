@@ -442,6 +442,13 @@ export async function callSecuredWriteRpc<T = any>(
       (rpcErr as any).code = 'rpc_unavailable';
       throw rpcErr;
     }
+    if (error.code === '401' || msg.includes('unauthorized')) {
+      eventBus.emit('session_expired', {
+        role: isAuthRequiredSessionRole(),
+        reason: 'expired',
+      });
+      (error as any).code = 'unauthorized';
+    }
     throw error;
   }
 
@@ -474,6 +481,12 @@ export async function callSecuredReadRpc<T = any>(
 ): Promise<{ data?: T; not_found?: boolean; can_delete?: boolean; judges?: any[]; participants?: any[] }> {
   const token = (tokenOverride || getStoredSessionToken() || '').trim();
   if (!token) {
+    if (!tokenOverride && getStoredSession()?.role === 'judge') {
+      eventBus.emit('session_expired', {
+        role: 'judge',
+        reason: 'missing',
+      });
+    }
     const authErr = new Error('Session expired or missing. Please sign in again.');
     (authErr as any).code = 'unauthorized';
     throw authErr;
@@ -497,6 +510,17 @@ export async function callSecuredReadRpc<T = any>(
       (rpcErr as any).code = 'rpc_unavailable';
       throw rpcErr;
     }
+    if (
+      (error.code === '401' || msg.includes('unauthorized')) &&
+      !tokenOverride &&
+      getStoredSession()?.role === 'judge'
+    ) {
+      eventBus.emit('session_expired', {
+        role: 'judge',
+        reason: 'expired',
+      });
+      (error as any).code = 'unauthorized';
+    }
     throw error;
   }
 
@@ -504,6 +528,12 @@ export async function callSecuredReadRpc<T = any>(
   if (!res || !res.ok) {
     const errCode = res?.error || 'RPC_ERROR';
     const msg = res?.message || res?.error || 'Database read rejected.';
+    if (errCode === 'unauthorized' && !tokenOverride && getStoredSession()?.role === 'judge') {
+      eventBus.emit('session_expired', {
+        role: 'judge',
+        reason: 'expired',
+      });
+    }
     const err = new Error(msg);
     (err as any).code = errCode;
     throw err;

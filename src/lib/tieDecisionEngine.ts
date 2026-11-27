@@ -310,4 +310,108 @@ export function isRoundStale(
   return (round.score_fingerprint || '') !== (live.scoreFingerprint || '');
 }
 
+export type TieMethodOption = 'countback' | 'olympic' | 'recompete' | 'shared';
+
+export interface TieMethodRecommendation {
+  method: TieMethodOption;
+  recommended: boolean;
+  lowJudgeWarning: boolean;
+}
+
+export interface TieMethodPreview {
+  rule: TieMethodOption;
+  groupKey: string;
+  tiedRank: number;
+  scoreFingerprint: string;
+  placements: TieRoundPlacement[];
+  stillTied: boolean;
+  resolved: boolean;
+  lowJudgeWarning: boolean;
+  isRangeAfterRank?: boolean;
+}
+
+/**
+ * Pure recommendation tag rules (tag only — never forces a choice):
+ * - Countback: recommended for 2 tied for 1st
+ * - Olympic trim: recommended only with 5+ judges (warn under 5 judges)
+ * - Re-compete: recommended for 3+ tied
+ * - Shared places: never forced or tagged recommended
+ */
+export function getTieMethodRecommendations(
+  tiedRank: number,
+  tiedCount: number,
+  judgeCount: number
+): Record<TieMethodOption, TieMethodRecommendation> {
+  const safeJudges = Number.isFinite(judgeCount) ? Math.max(0, Math.floor(judgeCount)) : 0;
+  return {
+    countback: {
+      method: 'countback',
+      recommended: tiedRank === 1 && tiedCount === 2,
+      lowJudgeWarning: false,
+    },
+    olympic: {
+      method: 'olympic',
+      recommended: safeJudges >= 5,
+      lowJudgeWarning: safeJudges < 5,
+    },
+    recompete: {
+      method: 'recompete',
+      recommended: tiedCount >= 3,
+      lowJudgeWarning: false,
+    },
+    shared: {
+      method: 'shared',
+      recommended: false,
+      lowJudgeWarning: false,
+    },
+  };
+}
+
+export function computeSharedPreview(group: DetectedTiedGroup): TieMethodPreview {
+  const sorted = [...group.members].sort((a, b) => lexCompare(a.participant.id, b.participant.id));
+  const placements: TieRoundPlacement[] = sorted.map((m) => ({
+    participant_id: m.participant.id,
+    before_rank: group.rank,
+    after_rank: group.rank,
+    base_avg: m.rawAverage,
+    ballot_count: m.ballotCount,
+    scores_desc: [...m.scoresDesc],
+    trimmed_avg: null,
+  }));
+  return {
+    rule: 'shared',
+    groupKey: group.groupKey,
+    tiedRank: group.rank,
+    scoreFingerprint: group.scoreFingerprint,
+    placements,
+    stillTied: placements.length >= 2,
+    resolved: false,
+    lowJudgeWarning: false,
+  };
+}
+
+export function computeRecompetePreview(group: DetectedTiedGroup): TieMethodPreview {
+  const sorted = [...group.members].sort((a, b) => lexCompare(a.participant.id, b.participant.id));
+  const placements: TieRoundPlacement[] = sorted.map((m) => ({
+    participant_id: m.participant.id,
+    before_rank: group.rank,
+    after_rank: group.rank,
+    base_avg: m.rawAverage,
+    ballot_count: m.ballotCount,
+    scores_desc: [...m.scoresDesc],
+    trimmed_avg: null,
+  }));
+  return {
+    rule: 'recompete',
+    groupKey: group.groupKey,
+    tiedRank: group.rank,
+    scoreFingerprint: group.scoreFingerprint,
+    placements,
+    stillTied: false,
+    resolved: false,
+    lowJudgeWarning: false,
+    isRangeAfterRank: true,
+  };
+}
+
 export type ActiveTieRoundRule = TieRoundRule;

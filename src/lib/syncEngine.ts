@@ -593,6 +593,10 @@ async function runSyncOnce(options: SyncNowOptions = {}): Promise<SyncResult> {
         }
         return { ok: false, changedTables: [], error: 'rpc_unavailable' };
       }
+      if ((error.code === '401' || msg.includes('unauthorized')) && session.role === 'judge') {
+        eventBus.emit('session_expired', { role: 'judge', reason: 'expired' });
+        return { ok: false, changedTables: [], error: 'unauthorized' };
+      }
       return { ok: false, changedTables: [], error: error.message || 'Sync RPC failed' };
     }
 
@@ -603,6 +607,10 @@ async function runSyncOnce(options: SyncNowOptions = {}): Promise<SyncResult> {
 
     if (!res.ok) {
       if (res.error === 'unauthorized') {
+        if (session.role === 'judge') {
+          eventBus.emit('session_expired', { role: 'judge', reason: 'expired' });
+          return { ok: false, changedTables: [], error: 'unauthorized' };
+        }
         void invalidateCache(`${STORAGE_KEYS.ORGS}_${orgId}`);
         notifyDatabaseChange(DB_TABLES.ORGANIZATIONS);
       }

@@ -467,6 +467,10 @@ export function ScoringPanel({
 
         if (!isMountedRef.current || reqId !== loadRequestIdRef.current) return;
 
+        if ([orgRes, eventsRes, participantsRes, scoresRes, absencesRes].some((r) => r.unauthorized)) {
+          return;
+        }
+
         const firstFailure = [
           orgRes,
           eventsRes,
@@ -556,6 +560,7 @@ export function ScoringPanel({
           });
         }
       } catch (err: any) {
+        if (err?.code === 'unauthorized') return;
         console.error('Error loading evaluation stage:', err);
         if (isMountedRef.current && reqId === loadRequestIdRef.current) {
           setReadError(err?.message || 'Showing cached stage data. Unable to reach server.');
@@ -1413,6 +1418,12 @@ export function ScoringPanel({
       }
     } catch (err: any) {
       if (!isMountedRef.current) return;
+
+      if (err?.code === 'unauthorized') {
+        setIsSubmitting(false);
+        setIsSubmittedBeat(false);
+        return;
+      }
 
       if (isOfflineNetworkError(err)) {
         try {

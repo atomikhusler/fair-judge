@@ -26,18 +26,24 @@ Rules:
 - **Files**: `src/components/organiser/TieStatusChip.tsx`, `src/components/organiser/tabs/LiveTab.tsx`, `src/lib/tieBreakerEngine.ts`
 - **Change**: Show the tie chip only when every active participant is scored or confirmed Absent, the event has not ended, and a tie actually exists.
 - **Check**: `npm run build` and `npm run lint`; Phone test: in Live tab, confirm the tie chip stays hidden while any participant is unscored or after ending an event, and appears only when all active participants are scored/confirmed Absent and a tie exists.
-- **Status**: DONE
+- **Status**: DONE (accepted by owner after phone test)
 
-## Step 4: End Event Blockers (Client + Server RPC)
-- **Files**: `src/components/organiser/tabs/LiveTab.tsx`, `src/components/organiser/OrganiserDashboard.tsx`, `src/lib/supabase.ts`, `src/lib/tieDecisionEngine.ts`, `sql/17.8.2-end-event-blockers.sql`
-- **Change**: Block End Event when a tie touches a prize place, an absence request is pending, a tie round is open / closed-not-published / stale, or any participant has neither full marks nor a confirmed absence. Allow ending when ties are below prize places (shared) or participants only have judge-side Not Ready tags. Enforce the same checks on the server RPC and return the list of blockers; write `sql/17.8.2-end-event-blockers.sql` for owner to run.
-- **Check**: `npm run build` and `npm run lint` + owner runs `sql/17.8.2-end-event-blockers.sql`; Phone test: tap End Event with a pending absence, unscored participant, or prize-place tie and verify the exact blocker list prevents ending.
-- **Status**: TODO
-
-## Step 5: Tie Methods, Recommendations, Preview & Locked Confirmation
+## Step 4: Tie Methods, Recommendations, Preview & Locked Confirmation
 - **Files**: `src/components/organiser/TieManagerScreen.tsx`, `src/lib/tieDecisionEngine.ts`, `src/lib/tieBreakerEngine.ts`, `sql/17.8.3-tie-method-lock-reopen.sql`
 - **Change**: Support the 4 tie methods: Countback (recommended for 2 tied for 1st), Olympic trim (warn under 5 judges; recommended only with 5+ judges), Re-compete (recommended for 3+ tied), and Shared places. Make "Recommended" a visual tag only (never forced). Each confirmation dialog must explain what the method does, show ranks before and after, and state "This cannot be changed after you confirm." Lock the method once confirmed, allowing only a logged reopen with a written reason (3–300 chars) for a published round; write `sql/17.8.3-tie-method-lock-reopen.sql` for owner to run.
 - **Check**: `npm run build` and `npm run lint` + owner runs `sql/17.8.3-tie-method-lock-reopen.sql`; Phone test: open Tie Manager, check recommendation tags, preview before/after ranks, confirm a method, verify it is locked, and test Reopen requiring a 3–300 char reason.
+- **Status**: WAITING FOR OWNER TEST
+
+## Step 4A — One device per judge
+- **Files**: `src/lib/supabase.ts`, `src/lib/syncEngine.ts`, `src/App.tsx`, `src/components/auth/AuthScreen.tsx`, `src/components/judge/JudgeLobby.tsx`, `src/components/judge/ScoringPanel.tsx`
+- **Change**: When any judge RPC call returns `unauthorized` (session replaced on another device), route through one centralized handler that clears the local judge session, returns to the sign-in screen, and shows `"Signed in on another device. Please sign in again."` with no raw error codes shown to the judge. (Database part already applied by owner; no SQL changed or run.)
+- **Check**: `npm run build` and `npm run lint`; Phone test: sign in as the same judge on two phones, verify the first phone clears its local session, returns to the sign-in screen, and shows `"Signed in on another device. Please sign in again."` with no raw error code.
+- **Status**: WAITING FOR OWNER TEST
+
+## Step 5: End Event Blockers (Client + Server RPC)
+- **Files**: `src/components/organiser/tabs/LiveTab.tsx`, `src/components/organiser/OrganiserDashboard.tsx`, `src/lib/supabase.ts`, `src/lib/tieDecisionEngine.ts`, `sql/17.8.2-end-event-blockers.sql`
+- **Change**: Block End Event when a tie touches a prize place, an absence request is pending, a tie round is open / closed-not-published / stale, or any participant has neither full marks nor a confirmed absence. Allow ending when ties are below prize places (shared) or participants only have judge-side Not Ready tags. Enforce the same checks on the server RPC and return the list of blockers; write `sql/17.8.2-end-event-blockers.sql` for owner to run.
+- **Check**: `npm run build` and `npm run lint` + owner runs `sql/17.8.2-end-event-blockers.sql`; Phone test: tap End Event with a pending absence, unscored participant, or prize-place tie and verify the exact blocker list prevents ending.
 - **Status**: TODO
 
 ## Step 6: Shared 1st Place Permission & Continuous vs Standard Prompt

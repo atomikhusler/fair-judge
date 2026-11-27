@@ -150,6 +150,10 @@ export default function App() {
   const [isBooting, setIsBooting] = useState(() => bootMode !== 'skip');
   const [isBootFading, setIsBootFading] = useState(false);
   const [session, setSession] = useState<UserSession | null>(getStoredSession);
+  const sessionRef = useRef<UserSession | null>(session);
+  sessionRef.current = session;
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const isJudgeReplacedHandlingRef = useRef(false);
   const [judgeLoadError, setJudgeLoadError] = useState<string | null>(null);
   const [isRetryingJudgeLoad, setIsRetryingJudgeLoad] = useState(false);
   const [screenRetryNonce, setScreenRetryNonce] = useState(0);
@@ -344,6 +348,28 @@ export default function App() {
     };
   }, [bootMode]);
 
+  const handleJudgeSessionReplaced = useCallback((force: boolean = false) => {
+    if (isSigningOutRef.current || isJudgeReplacedHandlingRef.current) return;
+    const currentSession = getStoredSession() || sessionRef.current;
+    if (!force && currentSession?.role !== 'judge') return;
+    isJudgeReplacedHandlingRef.current = true;
+
+    resetSignatureHardwareSession();
+    resetLastTestResult();
+    clearAllScoreDrafts();
+    if (currentSession) {
+      void clearSyncCursorForSession(currentSession);
+    }
+    setMustChangePassword(false);
+    setReverifyPrompt(null);
+    setJudgeEvents([]);
+    setJudgeLoadError(null);
+    setActiveJudgeEvent(null);
+    setStoredSession(null);
+    setSession(null);
+    setAuthNotice('Signed in on another device. Please sign in again.');
+  }, []);
+
   // Sync Judge events & Organization settings in real-time when a Judge session is active
   const refreshJudgeData = useCallback(async (force: boolean = false) => {
     if (session?.role !== 'judge' || !session.org?.org_id || !session.judge) return;
@@ -354,6 +380,11 @@ export default function App() {
         dbService.getEventsResult(session.org.org_id, force),
         dbService.getOrganizationByOrgIdResult(session.org.org_id, force),
       ]);
+
+      if (eventsRes.unauthorized || orgRes.unauthorized) {
+        handleJudgeSessionReplaced();
+        return;
+      }
 
       const allEvents = eventsRes.data || [];
       // Filter events assigned to this judge (or fallback to active events)
@@ -381,12 +412,6 @@ export default function App() {
         setStoredSession(updatedSession);
       }
 
-      if (eventsRes.unauthorized || orgRes.unauthorized) {
-        showToast('Session expired or organisation unavailable. Please sign in again.', 'error');
-        void handleLogoutRef.current?.();
-        return;
-      }
-
       if (!eventsRes.ok || !orgRes.ok) {
         setJudgeLoadError(
           eventsRes.error || orgRes.error || 'Showing cached schedule. Unable to reach server.'
@@ -395,11 +420,15 @@ export default function App() {
         setJudgeLoadError(null);
       }
     } catch (err: any) {
+      if (err?.code === 'unauthorized') {
+        handleJudgeSessionReplaced();
+        return;
+      }
       setJudgeLoadError(err?.message || 'Showing cached schedule. Unable to reach server.');
     } finally {
       if (force) setIsRetryingJudgeLoad(false);
     }
-  }, [session]);
+  }, [session, handleJudgeSessionReplaced]);
 
   useEffect(() => {
     if (session?.role === 'judge') {
@@ -451,10 +480,14 @@ export default function App() {
     }
     const unsub = eventBus.on('session_expired', ({ role, reason }) => {
       if (isSigningOutRef.current || isAdminRoute || isProjectorAppRoute) return;
+      if (role === 'judge' || session.role === 'judge') {
+        handleJudgeSessionReplaced();
+        return;
+      }
       setReverifyPrompt((prev) => prev || { role, reason });
     });
     return unsub;
-  }, [session, isAdminRoute, isProjectorAppRoute]);
+  }, [session, isAdminRoute, isProjectorAppRoute, handleJudgeSessionReplaced]);
 
   // Epic 16.6.0: Silent update check (/version.json + reg.waiting) and minimum client version safety net
   useEffect(() => {
@@ -601,6 +634,8 @@ export default function App() {
 
   // Organiser Login Handler
   const handleOrganiserLogin = (org: Organization, sessionToken?: string, mustChange?: boolean) => {
+    isJudgeReplacedHandlingRef.current = false;
+    setAuthNotice(null);
     resetSignatureHardwareSession();
     resetLastTestResult();
     clearAllScoreDrafts();
@@ -624,6 +659,8 @@ export default function App() {
     sessionToken?: string,
     verifiedOrg?: Organization
   ) => {
+    isJudgeReplacedHandlingRef.current = false;
+    setAuthNotice(null);
     resetSignatureHardwareSession();
     resetLastTestResult();
     clearAllScoreDrafts();
@@ -634,6 +671,10 @@ export default function App() {
 
     if (!orgRecord) {
       const orgRes = await dbService.getOrganizationByOrgIdResult(cleanOrgId, false, sessionToken);
+      if (orgRes.unauthorized) {
+        handleJudgeSessionReplaced(true);
+        return;
+      }
       if (orgRes.ok && orgRes.notFound && !orgRes.fromCache) {
         showToast('Organisation not found or unavailable. Please re-authenticate.', 'error');
         return;
@@ -735,6 +776,7 @@ export default function App() {
       void clearSyncCursorForSession(currentSession);
       setMustChangePassword(false);
       setReverifyPrompt(null);
+      setAuthNotice(null);
       setStoredSession(null);
       setSession(null);
       setActiveJudgeEvent(null);
@@ -772,6 +814,7 @@ export default function App() {
   );
 
   const openProjectorAppRoute = useCallback(() => {
+    setAuthNotice(null);
     intentionalProjectorEntryRef.current = true;
     if (!isProjectorAppHash(window.location.hash || '')) {
       window.location.hash = '#/projector-app';
@@ -895,10 +938,12 @@ export default function App() {
           onRetry={() => setScreenRetryNonce((n) => n + 1)}
         >
           <AuthScreen
+            notice={authNotice}
             onOrganiserLogin={handleOrganiserLogin}
             onJudgeLogin={handleJudgeLogin}
             onOpenProjector={openProjectorAppRoute}
             onOpenAdmin={() => {
+              setAuthNotice(null);
               if (!window.location.hash.startsWith('#/admin')) {
                 window.location.hash = '#/admin';
               }
@@ -978,10 +1023,12 @@ export default function App() {
         onRetry={() => setScreenRetryNonce((n) => n + 1)}
       >
         <AuthScreen
+          notice={authNotice}
           onOrganiserLogin={handleOrganiserLogin}
           onJudgeLogin={handleJudgeLogin}
           onOpenProjector={openProjectorAppRoute}
           onOpenAdmin={() => {
+            setAuthNotice(null);
             if (!window.location.hash.startsWith('#/admin')) {
               window.location.hash = '#/admin';
             }

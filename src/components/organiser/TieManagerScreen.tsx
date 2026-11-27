@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Clock,
   Lock,
-  Play,
   RefreshCw,
   RotateCcw,
   Scale,
@@ -21,9 +20,13 @@ import { getStoredSessionToken, supabase } from '../../lib/supabase';
 import {
   computeCountbackPreview,
   computeOlympicPreview,
+  computeRecompetePreview,
+  computeSharedPreview,
   detectTiedGroups,
-  type AutoTiePreview,
+  getTieMethodRecommendations,
   type DetectedTiedGroup,
+  type TieMethodOption,
+  type TieMethodPreview,
 } from '../../lib/tieDecisionEngine';
 import type {
   OrgTieRule,
@@ -169,7 +172,7 @@ async function callTieRpc<T extends { ok?: boolean }>(
   return res;
 }
 
-function formatRuleLabel(rule: OrgTieRule | TieRound['rule'] | string): string {
+function formatRuleLabel(rule: TieMethodOption | TieRound['rule'] | string): string {
   if (rule === 'countback') return 'Countback';
   if (rule === 'olympic') return 'Olympic trim';
   if (rule === 'recompete') return 'Re-compete';
@@ -177,12 +180,34 @@ function formatRuleLabel(rule: OrgTieRule | TieRound['rule'] | string): string {
   return 'Tie rule';
 }
 
+function getMethodDescription(rule: TieMethodOption): string {
+  if (rule === 'countback') {
+    return 'Ranks tied participants by highest single judge total, then next highest.';
+  }
+  if (rule === 'olympic') {
+    return 'Drops highest and lowest judge totals and averages the remaining marks.';
+  }
+  if (rule === 'recompete') {
+    return 'Opens a re-compete round where judges grade tied participants A–E.';
+  }
+  return 'Tied participants share the same place';
+}
+
+const TIE_METHOD_ORDER: ReadonlyArray<TieMethodOption> = [
+  'countback',
+  'olympic',
+  'recompete',
+  'shared',
+];
+
 function formatAuditAction(action: TieAuditAction | string): string {
   switch (action) {
     case 'apply_countback':
       return 'Applied Countback';
     case 'apply_olympic':
       return 'Applied Olympic trim';
+    case 'apply_shared':
+      return 'Shared places';
     case 'open_recompete':
       return 'Opened re-compete round';
     case 'close_recompete':
@@ -192,8 +217,10 @@ function formatAuditAction(action: TieAuditAction | string): string {
     case 'reopen_recompete':
       return 'Reopened re-compete round';
     case 'close_stale':
+    case 'close_stale_round':
       return 'Closed stale round';
     case 'close_shared':
+    case 'close_event_shared':
       return 'Closed with shared places';
     default:
       return 'Tie management update';
@@ -285,11 +312,11 @@ export function TieManagerScreen({
     remainingGroups: RemainingTieGroupItem[];
   } | null>(null);
 
-  // Modal states: Auto preview confirm, Reopen reason, Close-stale reason
+  // Modal states: Method preview confirm, Reopen reason, Close-stale reason
   const [previewConfirm, setPreviewConfirm] = useState<{
     group: OrganiserLiveTieGroup;
-    rule: 'countback' | 'olympic';
-    preview: AutoTiePreview;
+    rule: TieMethodOption;
+    preview: TieMethodPreview;
   } | null>(null);
   const [reopenTarget, setReopenTarget] = useState<TieRound | null>(null);
   const [reopenReason, setReopenReason] = useState('');
@@ -463,34 +490,55 @@ export function TieManagerScreen({
 
   // --- Action Handlers ---
 
-  const handleOpenAutoPreview = (
+  const getEffectiveJudgeCount = useCallback(
+    (detected?: DetectedTiedGroup): number => {
+      const ballotCounts =
+        detected?.members.map((m) => m.ballotCount).filter((n) => n > 0) || [];
+      const minBallots = ballotCounts.length > 0 ? Math.min(...ballotCounts) : 0;
+      if (minBallots > 0 && assignedJudgesCount > 0) {
+        return Math.min(minBallots, assignedJudgesCount);
+      }
+      return minBallots > 0 ? minBallots : assignedJudgesCount;
+    },
+    [assignedJudgesCount]
+  );
+
+  const handleOpenMethodPreview = (
     group: OrganiserLiveTieGroup,
-    rule: 'countback' | 'olympic'
+    rule: TieMethodOption
   ) => {
     triggerHaptic('tick');
     setErrorBanner(null);
 
     const detected = localDetectedByKey.get(group.group_key);
-    let preview: AutoTiePreview;
+    const effectiveJudges = getEffectiveJudgeCount(detected);
+    let preview: TieMethodPreview;
 
     if (detected) {
-      preview =
-        rule === 'countback'
-          ? computeCountbackPreview(detected)
-          : computeOlympicPreview(detected, assignedJudgesCount > 0 ? assignedJudgesCount : undefined);
+      if (rule === 'countback') {
+        preview = computeCountbackPreview(detected);
+      } else if (rule === 'olympic') {
+        preview = computeOlympicPreview(
+          detected,
+          effectiveJudges > 0 ? effectiveJudges : undefined
+        );
+      } else if (rule === 'recompete') {
+        preview = computeRecompetePreview(detected);
+      } else {
+        preview = computeSharedPreview(detected);
+      }
     } else {
-      // Fallback if local score cache lags behind server: build preview shell with server group info
       const existingRound = latestActiveRoundByGroup.get(group.group_key);
       const serverPlacements = existingRound?.result_payload?.placements;
       const placements: TieRoundPlacement[] =
-        Array.isArray(serverPlacements) && serverPlacements.length > 0
+        rule !== 'shared' && rule !== 'recompete' && Array.isArray(serverPlacements) && serverPlacements.length > 0
           ? serverPlacements
           : group.tied_participant_ids.map((pid) => ({
               participant_id: pid,
               before_rank: group.tied_rank,
               after_rank: group.tied_rank,
               base_avg: group.tied_avg,
-              ballot_count: assignedJudgesCount,
+              ballot_count: effectiveJudges,
               scores_desc: [],
               trimmed_avg: null,
             }));
@@ -498,7 +546,7 @@ export function TieManagerScreen({
         rule === 'olympic' &&
         (Boolean(existingRound?.preview_payload?.low_judge_warning) ||
           Boolean(existingRound?.result_payload?.low_judge_warning) ||
-          assignedJudgesCount < 5);
+          effectiveJudges < 5);
 
       preview = {
         rule,
@@ -506,60 +554,53 @@ export function TieManagerScreen({
         tiedRank: group.tied_rank,
         scoreFingerprint: group.score_fingerprint,
         placements,
-        stillTied: placements.length >= 2 && new Set(placements.map((p) => p.after_rank)).size < placements.length,
-        resolved: new Set(placements.map((p) => p.after_rank)).size === placements.length,
+        stillTied:
+          rule === 'recompete'
+            ? false
+            : placements.length >= 2 && new Set(placements.map((p) => p.after_rank)).size < placements.length,
+        resolved:
+          rule === 'recompete' || rule === 'shared'
+            ? false
+            : new Set(placements.map((p) => p.after_rank)).size === placements.length,
         lowJudgeWarning,
+        isRangeAfterRank: rule === 'recompete',
       };
     }
 
     setPreviewConfirm({ group, rule, preview });
   };
 
-  const handleConfirmApplyAuto = async () => {
+  const handleConfirmMethod = async () => {
     if (!event || !previewConfirm) return;
     const { group, rule } = previewConfirm;
-    const key = `apply:${group.group_key}`;
+    const key = rule === 'recompete' ? `open:${group.group_key}` : `apply:${group.group_key}`;
     setBusyActionKey(key);
     setErrorBanner(null);
     try {
-      const res = await callTieRpc<TiePublishLikeResponse>('tie_round_apply_auto', {
-        p_event_id: event.id,
-        p_group_key: group.group_key,
-        p_rule: rule,
-        p_actor_label: actorLabel,
-        p_close_event: false,
-      });
-      setPreviewConfirm(null);
-      const remaining = Array.isArray(res.remaining_groups) ? res.remaining_groups : [];
-      setPublishSummary({
-        message: `${formatRuleLabel(rule)} applied for Rank #${group.tied_rank}.`,
-        remainingGroups: remaining,
-      });
-      showToast(`${formatRuleLabel(rule)} published for Rank #${group.tied_rank}.`, 'success');
-      await loadTieData(true);
-      onTieDataChanged?.();
-    } catch (err: any) {
-      const msg = formatTieRpcError(err?.code, err?.message);
-      setErrorBanner(msg);
-      showToast(msg, 'error');
-    } finally {
-      setBusyActionKey(null);
-    }
-  };
-
-  const handleOpenRecompete = async (group: OrganiserLiveTieGroup) => {
-    if (!event) return;
-    triggerHaptic('tick');
-    const key = `open:${group.group_key}`;
-    setBusyActionKey(key);
-    setErrorBanner(null);
-    try {
-      await callTieRpc<TieRoundMutationResponse>('tie_round_open', {
-        p_event_id: event.id,
-        p_group_key: group.group_key,
-        p_actor_label: actorLabel,
-      });
-      showToast(`Re-compete round opened for Rank #${group.tied_rank}.`, 'success');
+      if (rule === 'recompete') {
+        await callTieRpc<TieRoundMutationResponse>('tie_round_open', {
+          p_event_id: event.id,
+          p_group_key: group.group_key,
+          p_actor_label: actorLabel,
+        });
+        setPreviewConfirm(null);
+        showToast(`Re-compete round opened for Rank #${group.tied_rank}.`, 'success');
+      } else {
+        const res = await callTieRpc<TiePublishLikeResponse>('tie_round_apply_auto', {
+          p_event_id: event.id,
+          p_group_key: group.group_key,
+          p_rule: rule,
+          p_actor_label: actorLabel,
+          p_close_event: false,
+        });
+        setPreviewConfirm(null);
+        const remaining = Array.isArray(res.remaining_groups) ? res.remaining_groups : [];
+        setPublishSummary({
+          message: `${formatRuleLabel(rule)} applied for Rank #${group.tied_rank}.`,
+          remainingGroups: remaining,
+        });
+        showToast(`${formatRuleLabel(rule)} published for Rank #${group.tied_rank}.`, 'success');
+      }
       await loadTieData(true);
       onTieDataChanged?.();
     } catch (err: any) {
@@ -893,6 +934,14 @@ export function TieManagerScreen({
                 ? round.result_payload!.placements
                 : [];
 
+              const detected = localDetectedByKey.get(group.group_key);
+              const effectiveJudges = getEffectiveJudgeCount(detected);
+              const recommendations = getTieMethodRecommendations(
+                group.tied_rank,
+                group.tied_participant_ids.length,
+                effectiveJudges
+              );
+
               return (
                 <div
                   key={group.group_key}
@@ -910,7 +959,7 @@ export function TieManagerScreen({
                     </div>
 
                     <span
-                      className={`text-xs font-bold whitespace-nowrap ${
+                      className={`text-xs font-bold whitespace-nowrap inline-flex items-center gap-1 ${
                         isOpen
                           ? 'text-amber-700 dark:text-amber-300'
                           : isClosed
@@ -920,6 +969,7 @@ export function TieManagerScreen({
                           : 'text-stone-500 dark:text-zinc-400'
                       }`}
                     >
+                      {isPublishedCurrent && <Lock className="w-3.5 h-3.5 shrink-0" />}
                       {isOpen
                         ? 'Re-compete open'
                         : isClosed
@@ -1023,39 +1073,22 @@ export function TieManagerScreen({
                         </button>
                       )}
 
-                      {/* Closed re-compete round: Publish + Reopen */}
+                      {/* Closed re-compete round: Publish only (Reopen is for published rounds only) */}
                       {isClosed && round && (
-                        <>
-                          <button
-                            type="button"
-                            disabled={isBusy || hasStaleRounds}
-                            onClick={() => void handlePublishRecompete(round)}
-                            className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs lg:text-sm font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <Send className="w-4 h-4 shrink-0" />
-                            <span>
-                              {busyActionKey === `publish:${round.id}` ? 'Publishing...' : 'Publish'}
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => {
-                              triggerHaptic('tick');
-                              setReopenTarget(round);
-                              setReopenReason('');
-                              setReopenError(null);
-                            }}
-                            className="min-h-[44px] px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-stone-800 dark:text-zinc-100 text-xs lg:text-sm font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <RotateCcw className="w-4 h-4 shrink-0" />
-                            <span>Reopen</span>
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          disabled={isBusy || hasStaleRounds}
+                          onClick={() => void handlePublishRecompete(round)}
+                          className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs lg:text-sm font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <Send className="w-4 h-4 shrink-0" />
+                          <span>
+                            {busyActionKey === `publish:${round.id}` ? 'Publishing...' : 'Publish'}
+                          </span>
+                        </button>
                       )}
 
-                      {/* Published re-compete round: Reopen */}
+                      {/* Published re-compete round: Reopen (3-300 char reason, logged) */}
                       {isPublishedCurrent && round?.rule === 'recompete' && (
                         <button
                           type="button"
@@ -1073,37 +1106,34 @@ export function TieManagerScreen({
                         </button>
                       )}
 
-                      {/* Unresolved (or re-applying automatic rule when not open/closed) */}
-                      {!isOpen && !isClosed && (orgRule === 'countback' || orgRule === 'olympic') && (
-                        <button
-                          type="button"
-                          disabled={isBusy || hasStaleRounds}
-                          onClick={() => handleOpenAutoPreview(group, orgRule)}
-                          className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs lg:text-sm font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                        >
-                          <Scale className="w-4 h-4 shrink-0" />
-                          <span>
-                            {isPublishedCurrent
-                              ? `Preview ${formatRuleLabel(orgRule)} again`
-                              : `Preview ${formatRuleLabel(orgRule)}`}
-                          </span>
-                        </button>
-                      )}
-
-                      {!isOpen && !isClosed && !isPublishedCurrent && orgRule === 'recompete' && (
-                        <button
-                          type="button"
-                          disabled={isBusy || hasStaleRounds}
-                          onClick={() => void handleOpenRecompete(group)}
-                          className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs lg:text-sm font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                        >
-                          <Play className="w-4 h-4 fill-current shrink-0" />
-                          <span>
-                            {busyActionKey === `open:${group.group_key}`
-                              ? 'Opening...'
-                              : 'Open re-compete round'}
-                          </span>
-                        </button>
+                      {/* Unresolved: all 4 methods available; "Recommended" is tag only, never forced */}
+                      {!isOpen && !isClosed && !isPublishedCurrent && (
+                        <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {TIE_METHOD_ORDER.map((method) => {
+                            const rec = recommendations[method];
+                            return (
+                              <button
+                                key={method}
+                                type="button"
+                                disabled={isBusy || hasStaleRounds}
+                                onClick={() => handleOpenMethodPreview(group, method)}
+                                className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-stone-200 dark:border-zinc-800 text-stone-900 dark:text-white text-xs lg:text-sm font-bold flex items-center justify-between gap-2 text-left transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <span className="truncate">{formatRuleLabel(method)}</span>
+                                <span className="flex items-center gap-1.5 shrink-0">
+                                  {rec.recommended && (
+                                    <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                                      Recommended
+                                    </span>
+                                  )}
+                                  {rec.lowJudgeWarning && (
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   )}
@@ -1159,7 +1189,7 @@ export function TieManagerScreen({
       </section>
 
       {/* ======================================================== */}
-      {/* COUNTBACK / OLYMPIC PREVIEW & CONFIRMATION POPUP         */}
+      {/* TIE METHOD PREVIEW & CONFIRMATION POPUP (ALL 4 METHODS)  */}
       {/* ======================================================== */}
       {previewConfirm &&
         typeof document !== 'undefined' &&
@@ -1186,6 +1216,13 @@ export function TieManagerScreen({
               </div>
 
               <div className="mt-4 space-y-3 overflow-y-auto flex-1 min-h-0">
+                {/* What the method does (existing pre-Step-4 descriptions only) */}
+                {getMethodDescription(previewConfirm.rule) && (
+                  <p className="text-xs text-stone-600 dark:text-zinc-300 leading-relaxed">
+                    {getMethodDescription(previewConfirm.rule)}
+                  </p>
+                )}
+
                 {/* Olympic Under-5-Judges Non-Blocking Warning */}
                 {previewConfirm.rule === 'olympic' && previewConfirm.preview.lowJudgeWarning && (
                   <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 flex items-start gap-2">
@@ -1196,14 +1233,15 @@ export function TieManagerScreen({
                   </div>
                 )}
 
-                {/* Still-Tied Non-Blocking Notice */}
-                {previewConfirm.preview.stillTied && (
-                  <div className="rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 p-3 text-xs text-stone-700 dark:text-zinc-300 leading-relaxed">
-                    Some participants remain equal under {formatRuleLabel(previewConfirm.rule)} and will keep a shared place.
-                  </div>
-                )}
+                {/* Still-Tied Non-Blocking Notice (Countback / Olympic only) */}
+                {(previewConfirm.rule === 'countback' || previewConfirm.rule === 'olympic') &&
+                  previewConfirm.preview.stillTied && (
+                    <div className="rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 p-3 text-xs text-stone-700 dark:text-zinc-300 leading-relaxed">
+                      Some participants remain equal under {formatRuleLabel(previewConfirm.rule)} and will keep a shared place.
+                    </div>
+                  )}
 
-                {/* Current -> Projected Ranks Table */}
+                {/* Ranks Before -> After Table */}
                 <div className="rounded-xl border border-stone-200 dark:border-zinc-800 divide-y divide-stone-100 dark:divide-zinc-800">
                   {previewConfirm.preview.placements.map((pl) => (
                     <div key={pl.participant_id} className="p-3 flex items-center justify-between gap-3">
@@ -1214,20 +1252,24 @@ export function TieManagerScreen({
                         <div className="text-[11px] text-stone-500 dark:text-zinc-400 tabular-nums mt-0.5">
                           {previewConfirm.rule === 'olympic'
                             ? `Trimmed avg: ${Number(pl.trimmed_avg ?? pl.base_avg).toFixed(2)} pts (${pl.ballot_count ?? 0} judges)`
-                            : pl.scores_desc && pl.scores_desc.length > 0
+                            : previewConfirm.rule === 'countback' && pl.scores_desc && pl.scores_desc.length > 0
                             ? `Judge totals: ${pl.scores_desc.map((v) => Number(v).toFixed(2)).join(', ')}`
                             : `Sealed avg: ${Number(pl.base_avg).toFixed(2)} pts`}
                         </div>
                       </div>
                       <div className="text-right shrink-0 font-mono text-xs lg:text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                        #{pl.before_rank} → #{pl.after_rank}
+                        {previewConfirm.preview.isRangeAfterRank
+                          ? `#${pl.before_rank} → #${previewConfirm.group.tied_rank}–#${
+                              previewConfirm.group.tied_rank + previewConfirm.preview.placements.length - 1
+                            }`
+                          : `#${pl.before_rank} → #${pl.after_rank}`}
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <p className="text-[11px] text-stone-500 dark:text-zinc-400 leading-relaxed">
-                  The server recalculates this order from sealed scores before publishing and records an immutable audit entry.
+                <p className="text-xs font-semibold text-stone-700 dark:text-zinc-200 leading-relaxed">
+                  This cannot be changed after you confirm.
                 </p>
               </div>
 
@@ -1242,7 +1284,7 @@ export function TieManagerScreen({
                 <button
                   type="button"
                   disabled={busyActionKey !== null}
-                  onClick={() => void handleConfirmApplyAuto()}
+                  onClick={() => void handleConfirmMethod()}
                   className="w-full min-h-[44px] px-4 py-2.5 rounded-xl font-bold text-xs lg:text-sm bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50"
                 >
                   {busyActionKey ? 'Applying...' : 'Confirm'}
